@@ -1,0 +1,50 @@
+{
+  "name": "macrocode",
+  "private": true,
+  "version": "0.2.3",
+  "type": "module",
+  "productName": "MacroCode",
+  "description": "MacroCode — AI terminal desktop app (Tauri v2 + React + TypeScript)",
+  "license": "GPL-2.0-only",
+  "homepage": "https://github.com/Geblkc/Macro-Code",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Geblkc/Macro-Code"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "dist:linux": "bash scripts/build-linux.sh",
+    "dist:deb": "bash scripts/build-linux.sh --bundles deb",
+    "dist:rpm": "bash scripts/build-linux.sh --bundles rpm",
+    "dist:appimage": "bash scripts/build-linux.sh --bundles appimage",
+    "release": "bash scripts/release.sh"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-dialog": "^2.8.3",
+    "@tauri-apps/plugin-opener": "^2.7.2",
+    "@tauri-apps/plugin-process": "^2.4.0",
+    "@tauri-apps/plugin-sql": "^2.5.0",
+    "@tauri-apps/plugin-store": "^2.5.0",
+    "@tauri-apps/plugin-updater": "^2.14.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.10.1",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/node": "^20.17.10",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^4.1.11"
+  }
+}
