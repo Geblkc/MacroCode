@@ -31,8 +31,20 @@ const buffer: LogEntry[] = [];
  *  (örn. `api`, `key`, `token` …) alan redakte edilir ("keynote" gibi
  *  tam-parça olmayan adlar etkilenmez). */
 const SECRET_PARTS = new Set([
-  'api', 'apikey', 'key', 'token', 'secret', 'password', 'passwd', 'pwd',
-  'authorization', 'auth', 'cookie', 'session', 'credential', 'credentials',
+  'api',
+  'apikey',
+  'key',
+  'token',
+  'secret',
+  'password',
+  'passwd',
+  'pwd',
+  'authorization',
+  'auth',
+  'cookie',
+  'session',
+  'credential',
+  'credentials',
 ]);
 
 /** Alan adı gizli mi? (`APIKey`, `api_key_v2`, `basicAuth …` yakalanır) */

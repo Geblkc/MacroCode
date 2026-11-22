@@ -6,10 +6,24 @@ import type { AgentMode } from '../../types';
 import type { ToolDefinition } from './types';
 
 /** Salt-okunur araç isimleri (plan modunda açık, ask modunda da kullanılabilir). */
-export const READ_ONLY_TOOL_NAMES = ['read_file', 'list_dir', 'grep', 'glob', 'todo', 'plan'] as const;
+export const READ_ONLY_TOOL_NAMES = [
+  'read_file',
+  'list_dir',
+  'grep',
+  'glob',
+  'todo',
+  'plan',
+] as const;
 
 /** Değişiklik yapan (yazma ve çalıştırma) araçlar. */
-export const WRITE_AND_EXEC_TOOL_NAMES = ['edit_file', 'write_file', 'propose_patch', 'exec', 'subagent'] as const;
+export const WRITE_AND_EXEC_TOOL_NAMES = [
+  'edit_file',
+  'write_file',
+  'create_snapshot',
+  'propose_patch',
+  'exec',
+  'subagent',
+] as const;
 
 /**
  * Moda göre modele sunulacak araç listesini filtreler.
@@ -17,12 +31,17 @@ export const WRITE_AND_EXEC_TOOL_NAMES = ['edit_file', 'write_file', 'propose_pa
  * - plan: yalnızca salt-okunur araştırma ve planlama araçları (read, list, grep, glob, todo, plan).
  * - ask: salt-okunur inceleme araçları (read, list, grep, glob) - yazma ve komut çalıştırma kesinlikle yok.
  */
-export function filterToolsForMode(tools: ToolDefinition[], mode: AgentMode = 'build'): ToolDefinition[] {
+export function filterToolsForMode(
+  tools: ToolDefinition[],
+  mode: AgentMode = 'build',
+): ToolDefinition[] {
   if (mode === 'build') {
     return tools;
   }
   if (mode === 'plan') {
-    return tools.filter((t) => READ_ONLY_TOOL_NAMES.includes(t.name as (typeof READ_ONLY_TOOL_NAMES)[number]));
+    return tools.filter((t) =>
+      READ_ONLY_TOOL_NAMES.includes(t.name as (typeof READ_ONLY_TOOL_NAMES)[number]),
+    );
   }
   if (mode === 'ask') {
     // Soru-cevap modunda model isterse kod inceleyebilsin ama plan/todo/yazma araçları olmasın
@@ -94,6 +113,8 @@ export function getModePrompt(mode: AgentMode = 'build'): string {
         'You are in CONSULTATION and QUESTION-ANSWERING mode.',
         '- You are here to answer questions, explain concepts, analyze architecture, and guide the user.',
         '- Do NOT modify any files or execute commands.',
+        '- Keep tool use focused: read only the files needed to answer, then respond directly.',
+        '- Do not keep exploring once you have enough context; deliver the final answer promptly.',
         '- Provide clear, concise, and educational explanations with helpful examples.',
       ].join('\n');
 
@@ -102,7 +123,7 @@ export function getModePrompt(mode: AgentMode = 'build'): string {
       return [
         '[AGENT MODE: BUILD]',
         'You are in BUILD mode with full development capabilities.',
-        '- You can read, write, edit files, and execute allowed workspace commands to implement solutions directly.',
+        "- You can read, write, edit files, and execute workspace commands (shell commands always need the user's approval) to implement solutions directly.",
         '- Always verify changes and maintain code quality.',
       ].join('\n');
   }

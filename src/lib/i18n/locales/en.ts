@@ -128,7 +128,8 @@ export const en: Record<TranslationKey, Message> = {
   'input.sendTitle': 'send (Enter)',
   'input.pendingHint': {
     one: '{count} approval pending · Enter to approve · Esc to reject',
-    other: '{count} approvals pending · Esc rejects all · approve each on its card or use “Approve all”',
+    other:
+      '{count} approvals pending · Esc rejects all · approve each on its card or use “Approve all”',
   },
   'input.hint.send': 'send',
   'input.hint.newline': 'new line',
@@ -138,14 +139,18 @@ export const en: Record<TranslationKey, Message> = {
   'input.hint.commands': 'command suggestions',
   'input.slashMenuAria': 'slash command suggestions',
   'input.cmdHint': '↑↓ navigate · Tab completes · Enter sends · Esc closes',
-  'input.meta': { one: '{count} character · ~{tokens} tokens', other: '{count} characters · ~{tokens} tokens' },
+  'input.meta': {
+    one: '{count} character · ~{tokens} tokens',
+    other: '{count} characters · ~{tokens} tokens',
+  },
   'input.metaImages': { one: ' · {count} image', other: ' · {count} images' },
 
   /* ── Status bar ── */
   'status.ariaLabel': 'Session status',
   'status.connected': 'connected',
   'status.disconnected': 'not connected',
-  'status.contextUsage': 'last request: {used} / {total} ({percent}%) · auto-compact at {compactAt}%',
+  'status.contextUsage':
+    'last request: {used} / {total} ({percent}%) · auto-compact at {compactAt}%',
   'status.contextCompact': 'Compact now (/compact)',
   'status.tokenCounter': 'Session token counter (input / output)',
   'status.sessionTotals': 'session total: ↑{input} ↓{output}',
@@ -161,6 +166,17 @@ export const en: Record<TranslationKey, Message> = {
   'status.mcpActive': { one: '{count} MCP server active', other: '{count} MCP servers active' },
   'status.workspaceTitle': 'Change the project folder (folder picker dialog)',
 
+  /* ── Agent activity ── */
+  'agentActivity.preparing': 'Agent is preparing',
+  'agentActivity.thinking': 'Agent is thinking',
+  'agentActivity.writing': 'Agent is writing a response',
+  'agentActivity.tool': 'Tool is running',
+  'agentActivity.awaitingApproval': 'Your approval is required',
+  'agentActivity.retrying': 'Reconnecting',
+  'agentActivity.finalizing': 'Agent is finalizing the result',
+  'agentActivity.ariaLabel': 'Agent activity status',
+  'agentActivity.retryDetail': 'Attempt {attempt}/{total}',
+
   /* ── Welcome ── */
   'welcome.subtitle': 'Terminal AI assistant',
   'welcome.agentHint': 'Pick a project folder to enable agent mode · /root',
@@ -170,12 +186,27 @@ export const en: Record<TranslationKey, Message> = {
   'tool.failed': 'failed',
   'tool.done': 'done',
   'tool.output': 'tool output',
+  'tool.name.readFile': 'Read file',
+  'tool.name.writeFile': 'Write file',
+  'tool.name.editFile': 'Edit file',
+  'tool.name.proposePatch': 'Propose patch',
+  'tool.name.exec': 'Run command',
+  'tool.name.grep': 'Search',
+  'tool.name.glob': 'Find files',
+  'tool.name.listDir': 'List directory',
+  'tool.name.todo': 'Update task list',
+  'tool.name.plan': 'Create plan',
+  'tool.name.subagent': 'Run subagent',
+  'tool.name.snapshot': 'Create snapshot',
+  'tool.lineCount': { one: '{count} line', other: '{count} lines' },
 
   /* ── Approval card ── */
   'approval.pending': 'Waiting for approval',
   'approval.approve': 'Approve',
   'approval.reject': 'Reject',
   'approval.alwaysRun': 'Always run this command',
+  'approval.unlistedCommand':
+    'This command is not on the allowlist — it will only run if you approve it.',
   'approval.warning': 'This command runs code — be careful',
   'approval.rejectNote': 'User rejected',
   'approval.approveAll': 'Approve all',
@@ -187,7 +218,10 @@ export const en: Record<TranslationKey, Message> = {
     one: 'Large payload ({count} character) — review it fully before approving',
     other: 'Large payload ({count} characters) — review it fully before approving',
   },
-  'approval.bulkHint': { one: '{count} approval waiting', other: '{count} approvals waiting — approve each on its card, or all at once' },
+  'approval.bulkHint': {
+    one: '{count} approval waiting',
+    other: '{count} approvals waiting — approve each on its card, or all at once',
+  },
 
   /* ── Task panel ── */
   'task.title': 'Tasks',
@@ -271,14 +305,20 @@ export const en: Record<TranslationKey, Message> = {
   'settings.providers.storageNote':
     'Keys are stored on this device (keys.json) and never leave it. A saved key is never shown in full again — only the last 4 characters (••••a1b2).',
   'settings.providers.localSection': 'Local provider',
-  'settings.providers.localNote': 'A model server running on your machine — no API key needed, the address is enough.',
+  'settings.providers.localNote':
+    'A model server running on your machine — no API key needed, the address is enough.',
   'settings.providers.testAll': 'Test all',
   'settings.providers.getKey': 'Get a key',
   'settings.providers.resetUrl': 'reset',
   'settings.providers.resetUrlTitle': 'back to the default address',
   'settings.providers.state.connectedHint': 'Connection succeeded — the key is valid.',
-  'settings.providers.state.invalidHint': 'The provider rejected the key. Check it (no stray spaces while copying).',
-  'settings.providers.state.networkHint': 'Could not reach the server — check your internet connection.',
+  'settings.providers.state.invalidHint':
+    'The provider rejected the key. Check it (no stray spaces while copying).',
+  'settings.providers.state.networkHint':
+    'Could not reach the server — check your internet connection.',
+  'settings.providers.state.terms': 'terms pending',
+  'settings.providers.state.termsHint':
+    'EVREN terms have not been accepted — accept them at {url}, then try again.',
   'settings.providers.error.keyFirst':
     'enter a key first (if a saved key cannot be tested, retype it)',
   'settings.providers.error.urlFirst': 'enter a base URL and key first',
@@ -309,15 +349,20 @@ export const en: Record<TranslationKey, Message> = {
   'settings.models.column.price': 'Price /1M',
   'settings.models.refreshSection': 'Refresh the list',
   'settings.models.sourceNote': '{source} — found models are not added automatically',
-  'settings.models.catalogNote':
-    { one: 'models.dev catalog ({count} model) — search, filter and add to the list:', other: 'models.dev catalog ({count} models) — search, filter and add to the list:' },
+  'settings.models.catalogNote': {
+    one: 'models.dev catalog ({count} model) — search, filter and add to the list:',
+    other: 'models.dev catalog ({count} models) — search, filter and add to the list:',
+  },
   'settings.models.catalogSearchPlaceholder': 'search id, name, description or family…',
   'settings.models.resultsCount': { one: '{count} result', other: '{count} results' },
   'settings.models.firstSixty': ' (showing the first 60)',
   'settings.models.catalogCtxOut': '{ctx} ctx · {out} output',
   'settings.models.catalogCost': '{input} in · {output} out',
   'settings.models.catalogCostCache': ' · {cache} cache',
-  'settings.models.foundNote': { one: 'found ({count}) — add it to the list:', other: 'found ({count}) — add them to the list:' },
+  'settings.models.foundNote': {
+    one: 'found ({count}) — add it to the list:',
+    other: 'found ({count}) — add them to the list:',
+  },
   'settings.models.addToList': 'add',
   'settings.models.addCustom': 'Add model manually',
   'settings.models.addCustomId': 'Model id',
@@ -333,7 +378,8 @@ export const en: Record<TranslationKey, Message> = {
   'settings.models.shownOf': 'showing {shown} of {total} models',
   'settings.models.toggleLabel': 'toggle {model}',
   'settings.models.refreshNote': 'Results are not added automatically — use "add" to include them.',
-  'settings.models.addCustomNote': 'Define a model that is not in the list. Prices are not fetched automatically per provider.',
+  'settings.models.addCustomNote':
+    'Define a model that is not in the list. Prices are not fetched automatically per provider.',
   'settings.models.addCustomNamePlaceholder': 'e.g. Company Model',
   'settings.models.addCustomContextPlaceholder': 'e.g. 200000',
   'settings.models.addCustomMaxOutputPlaceholder': 'e.g. 8192',
@@ -348,7 +394,8 @@ export const en: Record<TranslationKey, Message> = {
   'settings.params.sub.model': 'Model parameters',
   'settings.params.sub.prices': 'Prices',
   'settings.params.modelSection': 'Model parameters',
-  'settings.params.paramsNote': 'For the selected default model ({model}). Empty = provider default is sent.',
+  'settings.params.paramsNote':
+    'For the selected default model ({model}). Empty = provider default is sent.',
   'settings.params.resetNote': 'Empty = provider default is sent.',
   'settings.params.temperature': 'temperature (0–2)',
   'settings.params.topP': 'top_p (0–1)',
@@ -392,6 +439,17 @@ export const en: Record<TranslationKey, Message> = {
   'settings.models.source.openai': 'OpenAI list',
   'settings.models.source.gemini': 'Gemini list',
   'settings.models.source.modelsDev': 'models.dev catalog',
+  'settings.models.liveSection': 'Live API catalog',
+  'settings.models.liveNote':
+    'The model list comes from the provider API; if it fails, the existing catalog is used. When an API list is available, only its models are shown.',
+  'settings.models.liveRefreshAll': 'Refresh all',
+  'settings.models.liveApi': 'API',
+  'settings.models.liveFallback': 'existing catalog',
+  'settings.models.liveCount': { one: '{count} model', other: '{count} models' },
+  'settings.models.liveUpdated': 'updated: {time}',
+  'settings.models.liveBusy': 'refreshing…',
+  'settings.models.liveError': 'API unavailable — {message}',
+  'settings.models.liveNone': 'no provider with a key',
 
   /* ── Settings · Chat ── */
   'settings.appearance.fontSize': 'Font size — {size}px',
@@ -427,12 +485,18 @@ export const en: Record<TranslationKey, Message> = {
   'settings.chat.allowList': 'Extra shell commands (one per line, e.g. docker ps)',
   'settings.chat.allowListNote':
     'These commands are added automatically via the “always run” box on the approval screen.',
-  'settings.chat.allowListInvalid': { one: '{count} invalid line will be ignored: {lines}', other: '{count} invalid lines will be ignored: {lines}' },
+  'settings.chat.allowListInvalid': {
+    one: '{count} invalid line will be ignored: {lines}',
+    other: '{count} invalid lines will be ignored: {lines}',
+  },
   'settings.chat.audit': 'Audit log',
   'settings.chat.auditNote': 'Keep an audit log',
   'settings.chat.execTimeout': 'Command timeout upper bound (seconds)',
   'settings.chat.execTimeoutNote':
     'Global upper bound for long build/test commands (1–600 s). Default: 300 s.',
+  'settings.chat.agentMaxSteps': 'Agent step limit (0 = unlimited)',
+  'settings.chat.agentMaxStepsNote':
+    '0 = unlimited (default): large files are not cut off mid-write. A value between 1–200 adds an optional safety cap.',
 
   /* ── Settings · MCP ── */
   'settings.mcp.section': 'MCP servers',
@@ -482,14 +546,20 @@ export const en: Record<TranslationKey, Message> = {
   'settings.appearance.numberFormatNote': 'The number format follows the selected language.',
   'settings.about.subtitle': 'GPL-2.0-only license · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Settings saved.',
-  'settings.save.failed': { one: '{count} setting could not be saved ({label}): {message}', other: '{count} settings could not be saved ({label}): {message}' },
+  'settings.save.failed': {
+    one: '{count} setting could not be saved ({label}): {message}',
+    other: '{count} settings could not be saved ({label}): {message}',
+  },
   'settings.about.version': 'Version',
   'settings.about.copyVersion': 'Copy version info',
   'settings.about.license': 'License',
   'settings.about.privacy':
     'API keys are stored on your device (keys.json) and are never sent anywhere. Sessions are kept in a local SQLite database. Network traffic only goes to the provider you choose.',
   'settings.about.source': 'Source code',
-  'settings.about.modelCount': { one: '{count} model · {providers} providers', other: '{count} models · {providers} providers' },
+  'settings.about.modelCount': {
+    one: '{count} model · {providers} providers',
+    other: '{count} models · {providers} providers',
+  },
   'settings.about.copied': 'Copied.',
   'settings.about.copyFailed': 'Could not copy — clipboard unavailable.',
   'settings.about.platform': 'Platform',
@@ -513,7 +583,7 @@ export const en: Record<TranslationKey, Message> = {
   'commands.help.model': '  /model <id>    change model (e.g. /model gpt-6.1-sol)',
   'commands.help.provider': '  /provider <p>  change provider ({providers})',
   'commands.help.key': '  /key           open settings',
-  'commands.help.export': "  /export [md|json] export session (default md)",
+  'commands.help.export': '  /export [md|json] export session (default md)',
   'commands.help.backup': '  /backup        download the session as a JSON backup',
   'commands.help.tokens': '  /tokens        show token usage (exact + approximate)',
   'commands.help.compact': '  /compact        summarize context (automatic + manual)',
@@ -522,6 +592,10 @@ export const en: Record<TranslationKey, Message> = {
   'commands.help.files': '  /files         workspace file summary',
   'commands.help.apply': '  /apply <id>    approve and apply a pending patch (/apply all = all)',
   'commands.help.undo': '  /undo [id]     undo the last or a given patch',
+  'commands.help.snapshot': '  /snapshot [label] take a project snapshot',
+  'commands.help.snapshots': '  /snapshots     list saved project snapshots',
+  'commands.help.restore': '  /restore <id>  restore a snapshot (confirmed)',
+  'commands.help.snapshot-del': '  /snapshot-del <id> delete a snapshot',
   'commands.help.skill': '  /skill         list registered skills',
   'commands.help.approval': '  /approval [m]  approval mode (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
@@ -531,7 +605,7 @@ export const en: Record<TranslationKey, Message> = {
   'commands.help.build': '  /build         switch to build mode',
   'commands.help.plan': '  /plan          switch to plan mode',
   'commands.help.ask': '  /ask           switch to ask mode',
-  'commands.help.context': "  /context        show the project context the agent knows",
+  'commands.help.context': '  /context        show the project context the agent knows',
   'commands.help.note':
     '  /note <note>   add a persistent project note (remembered in later sessions)',
   'commands.help.log': '  /log [n]        recent event log (n defaults to 30)',
@@ -553,6 +627,10 @@ export const en: Record<TranslationKey, Message> = {
   'commands.desc.files': 'workspace file summary',
   'commands.desc.apply': 'apply a pending patch',
   'commands.desc.undo': 'undo the last patch',
+  'commands.desc.snapshot': 'take a project snapshot',
+  'commands.desc.snapshots': 'list project snapshots',
+  'commands.desc.restore': 'restore a project snapshot',
+  'commands.desc.snapshotDel': 'delete a project snapshot',
   'commands.desc.skill': 'list registered skills',
   'commands.desc.approval': 'approval mode',
   'commands.desc.mode': 'agent mode (build/plan/ask)',
@@ -592,9 +670,14 @@ export const en: Record<TranslationKey, Message> = {
   'commands.resetDone': '/// conversation cleared',
   'commands.sessionStarted': '/// new session started',
   'commands.activeModel': '/// active model: {model}',
-  'commands.providerModels': { one: '/// {provider}: {count} model', other: '/// {provider}: {count} models' },
-  'commands.providerModelsLocked':
-    { one: '/// {provider}: {count} model · no key — hidden from the list', other: '/// {provider}: {count} models · no key — hidden from the list' },
+  'commands.providerModels': {
+    one: '/// {provider}: {count} model',
+    other: '/// {provider}: {count} models',
+  },
+  'commands.providerModelsLocked': {
+    one: '/// {provider}: {count} model · no key — hidden from the list',
+    other: '/// {provider}: {count} models · no key — hidden from the list',
+  },
   'commands.modelSet': '/// model: {model}',
   'commands.modelUnknown': '! unknown model id — set anyway',
   'commands.capabilities': '/// capabilities: {tags}',
@@ -627,23 +710,27 @@ export const en: Record<TranslationKey, Message> = {
     '/// usage: /note <note>  ·  notes are passed to the agent in later sessions',
   'commands.noteSaved': '/// note saved: {note}',
   'commands.noteFailed': '✗ note could not be saved: {message}',
-  'commands.contextSummary': { one: '/// repo context: {count} file · key files: {files}', other: '/// repo context: {count} files · key files: {files}' },
+  'commands.contextSummary': {
+    one: '/// repo context: {count} file · key files: {files}',
+    other: '/// repo context: {count} files · key files: {files}',
+  },
   'commands.contextMap': '/// map (first 25):',
-  'commands.contextNotes': { one: '/// persistent note ({count}):', other: '/// persistent notes ({count}):' },
+  'commands.contextNotes': {
+    one: '/// persistent note ({count}):',
+    other: '/// persistent notes ({count}):',
+  },
   'commands.contextFailed': '✗ context could not be read: {message}',
   'commands.approval.manual': 'manual (writes need approval)',
   'commands.approval.autoRead': 'read-only (writes and commands disabled)',
   'commands.approval.autoEdit': 'auto edit (writes without approval, commands approved)',
-  'commands.approvalCurrent':
-    '/// approval mode: {mode} · /approval manual|auto-read|auto-edit',
+  'commands.approvalCurrent': '/// approval mode: {mode} · /approval manual|auto-read|auto-edit',
   'commands.approvalInvalid': '✗ invalid approval mode · manual | auto-read | auto-edit',
   'commands.approvalAutoEditWarn':
     '! auto edit: the agent can write and edit files without asking for approval (shell commands still do)',
   'commands.approvalAutoReadWarn':
     '! read-only mode: the agent cannot write files or run commands (research only)',
   'commands.approvalSet': '/// approval mode: {mode}',
-  'commands.approvalNoWorkspace':
-    ' · (no workspace — open agent mode with /root <path>)',
+  'commands.approvalNoWorkspace': ' · (no workspace — open agent mode with /root <path>)',
   'commands.modeCurrent': '/// agent mode: {mode} · /mode build|plan|ask',
   'commands.modeSet': '/// agent mode set to: {mode}',
   'commands.modeInvalid': '✗ invalid agent mode · build | plan | ask',
@@ -674,7 +761,8 @@ export const en: Record<TranslationKey, Message> = {
   'commands.filesTauriOnly': '✗ /files only works in Tauri',
   'commands.filesFailed': '✗ /files failed: {message}',
   'commands.applyNotFound': '✗ pending approval not found: {id}',
-  'commands.applyNeedId': '✗ multiple approvals pending — approve each with /apply <id> or all with /apply all · {list}',
+  'commands.applyNeedId':
+    '✗ multiple approvals pending — approve each with /apply <id> or all with /apply all · {list}',
   'commands.applyNone': '/// no pending patch',
   'commands.applyPending': '/// pending: {list}',
   'commands.applyFailed': '✗ /apply failed: {message}',
@@ -683,7 +771,10 @@ export const en: Record<TranslationKey, Message> = {
   'commands.skillList': '/// skills: {list}',
   'commands.imagesIgnored': '! images are not used in commands · ignored',
   'commands.importFailed': '✗ import failed: {message}',
-  'commands.imported': { one: '/// imported: {count} session', other: '/// imported: {count} sessions' },
+  'commands.imported': {
+    one: '/// imported: {count} session',
+    other: '/// imported: {count} sessions',
+  },
   'commands.fileUnreadable': '✗ file could not be read',
 
   /* ── Token summary ── */
@@ -704,7 +795,10 @@ export const en: Record<TranslationKey, Message> = {
   'export.authorUser': 'You',
   'export.authorSystem': 'System',
   'export.reasoning': 'reasoning notes',
-  'export.images': { one: '*[{count} image attached — not included in the export]*', other: '*[{count} images attached — not included in the export]*' },
+  'export.images': {
+    one: '*[{count} image attached — not included in the export]*',
+    other: '*[{count} images attached — not included in the export]*',
+  },
   'export.footer': '*Exported by MacroCode*',
 
   /* ── Session / backup errors ── */
@@ -716,6 +810,8 @@ export const en: Record<TranslationKey, Message> = {
   'errors.importSessionName': 'imported session',
   'errors.dbUnavailable':
     '! the session database could not be opened: {message} · sessions are only stored in localStorage',
+  'errors.dbLocked':
+    '! the session database is temporarily locked: {message} · it was retried and the operation is kept in the localStorage backup',
 
   /* ── Error messages ── */
   'errors.apiKeyInvalid': '✗ api error (401): invalid API key · update it with /key',
@@ -739,7 +835,10 @@ export const en: Record<TranslationKey, Message> = {
   'agent.noWorkspace': '✗ no workspace selected · pick a folder with /root',
   'agent.toolFailed': '✗ tool failed: {tool}',
   'agent.approvalNeeded': 'Waiting for approval',
-  'agent.pendingRestored': { one: '{count} pending approval restored', other: '{count} pending approvals restored' },
+  'agent.pendingRestored': {
+    one: '{count} pending approval restored',
+    other: '{count} pending approvals restored',
+  },
   'agent.approvalModeSet': '/// approval mode: {mode}',
   'agent.approvalModeNote': '! in auto-edit mode writes happen without approval',
   'agent.workspaceSet': '/// workspace: {root}',
@@ -755,8 +854,11 @@ export const en: Record<TranslationKey, Message> = {
   'agent.undoNothing': '/// no patch to undo',
   'agent.applyPending': '/// pending patch applied',
   'agent.applyNone': '/// no pending patch',
-  'agent.runsRestored':
-    { one: '/// pending agent job restored for {count} session (it can continue where it left off)', other: '/// pending agent jobs restored for {count} sessions (they can continue where they left off)' },
+  'agent.runsRestored': {
+    one: '/// pending agent job restored for {count} session (it can continue where it left off)',
+    other:
+      '/// pending agent jobs restored for {count} sessions (they can continue where they left off)',
+  },
   'agent.summaryPrefix': '[summary · {date}]',
   /* ── Policy messages ── */
   'policy.forbiddenFile': 'forbidden file: {path}',
@@ -770,11 +872,9 @@ export const en: Record<TranslationKey, Message> = {
   'policy.rmBlocked': 'forbidden command: rm only with -i · -f/-r are rejected',
   'policy.forbiddenCommand': 'forbidden command: {cmd} · not on the allowlist',
   'policy.unknownTool': 'unknown tool: {name}',
-  'policy.predicateViolation':
-    'forbidden argument: {cmd} {arg} · this flag can run code',
+  'policy.predicateViolation': 'forbidden argument: {cmd} {arg} · this flag can run code',
   'policy.fileArgViolation': 'argument outside the jail: {arg}',
-  'policy.warnNpmScript':
-    'runs an npm script — the contents of package.json run code directly',
+  'policy.warnNpmScript': 'runs an npm script — the contents of package.json run code directly',
   'policy.warnNpx': 'can download and run a package',
   'policy.warnPip': 'package installation runs code',
   'policy.warnGoTest': 'go test runs code',
@@ -808,24 +908,46 @@ export const en: Record<TranslationKey, Message> = {
   'message.retry': 'retry',
   'markdown.copyBtn': 'copy',
   'markdown.copyCode': 'copy {lang} code',
-  'agent.mcpUnreachable': '! mcp: the active servers could not be reached · continuing with the built-in tools',
+  'agent.mcpUnreachable':
+    '! mcp: the active servers could not be reached · continuing with the built-in tools',
   'agent.repoContextFailed': '! the repo context could not be read: {message}',
   'agent.cannotRestart': '/// the pending job could not be restarted · ask again',
   'agent.approved': '[✓] approved: {id}',
   'agent.rejected': '[✗] rejected: {id}',
   'agent.previewEmpty': '(empty)',
-  'agent.errCustomEndpoint': '✗ custom endpoints do not support agent mode · switch back to the built-in stream in settings',
-  'agent.errNoTools': '✗ {provider}/{model} does not support agent mode · try /provider {providers} or switch to a tool-capable model',
+  'agent.errCustomEndpoint':
+    '✗ custom endpoints do not support agent mode · switch back to the built-in stream in settings',
+  'agent.errNoTools':
+    '✗ {provider}/{model} does not support agent mode · try /provider {providers} or switch to a tool-capable model',
   'agent.errNoApiKey': '✗ API key missing · add one with /key',
   'agent.errEmptyReply': '✗ the agent returned nothing · try rephrasing',
+  'agent.stepLimitNotice': {
+    one: '/// step limit reached ({count} step) · asking for the final answer',
+    other: '/// step limit reached ({count} steps) · asking for the final answer',
+  },
+  'agent.stepLimitNoAnswer': '/// the model produced no final answer at the step limit',
+  'agent.outputClipped':
+    '/// tool output was shaped by policy · the full output is available in the artifact file',
+  'agent.outputArtifactFailed':
+    '/// tool output was shaped by policy · the artifact file could not be created',
+  'agent.loopGuardNotice': {
+    one: '/// loop guard: the same tool was called {count} time in a row with identical input · approval required to continue',
+    other:
+      '/// loop guard: the same tool was called {count} times in a row with identical input · approval required to continue',
+  },
+  'agent.loopGuardApproved': '/// loop guard: user approved continuing · try a different approach',
+  'agent.loopGuardRejected': '/// loop guard: user stopped the operation',
+  'agent.loopGuardSkipped': '/// loop guard: this call was skipped',
   'agent.pendingLine': {
     one: '⏸ approval pending: {names} [Enter approve / Esc reject]',
     other: '⏸ approvals pending: {names} [approve each on its card · Esc rejects all]',
   },
-  'extrasCapped': '/// older lines dropped from view · back up with /export',
+  extrasCapped: '/// older lines dropped from view · back up with /export',
   'errors.listFailed': 'could not load the {source} list (http {status})',
+  'errors.evrenTerms': 'EVREN terms have not been accepted — accept them at {url}, then try again.',
   'errors.catalogFailed': 'could not load the models.dev catalog (http {status})',
   'errors.catalogInvalid': 'could not parse the models.dev response (invalid JSON)',
+  'errors.liveEmpty': '{provider} API returned an empty model list',
   'errors.proxyNoResponse': 'proxy: the response never started',
 
   /* ── Updates ── */
@@ -839,7 +961,8 @@ export const en: Record<TranslationKey, Message> = {
   'update.availableShort': '↑ MacroCode v{version} is available · run /update to install',
   'update.releasedAt': '/// released: {date}',
   'update.releaseNotes': '/// release notes: {notes}',
-  'update.installHint': '/// install with /update install · open the release page with /update open',
+  'update.installHint':
+    '/// install with /update install · open the release page with /update open',
   'update.installTitle': 'Install update?',
   'update.installMessage':
     'MacroCode v{version} will be downloaded and installed. The app will restart.',
@@ -981,13 +1104,11 @@ export const en: Record<TranslationKey, Message> = {
     'Will switch to branch “{name}”. A dirty working tree is carried over.',
   'git.branch.switched': 'branch: {name}',
   'git.detached': 'detached HEAD',
-  'git.operationInProgress':
-    'Operation in progress: {operation} · finish or abort it first',
+  'git.operationInProgress': 'Operation in progress: {operation} · finish or abort it first',
   'git.push': 'Push',
   'git.pull': 'Pull',
   'git.fetch': 'Fetch',
-  'git.pushConfirm':
-    'Local commits will be pushed to the remote branch. Hooks may run.',
+  'git.pushConfirm': 'Local commits will be pushed to the remote branch. Hooks may run.',
   'git.pullConfirm':
     'Remote changes will be pulled only if fast-forward is possible. Hooks may run.',
   'git.pushDone': 'push complete',
@@ -1054,4 +1175,38 @@ export const en: Record<TranslationKey, Message> = {
   'stats.breakdown.model': 'By model',
   'stats.empty': 'No usage recorded in the selected range.',
   'stats.loading': 'Loading…',
+
+  /* ── Error boundary ── */
+  'errorBoundary.title': 'An unexpected error occurred',
+  'errorBoundary.message':
+    'The interface ran into an error while rendering this screen. Your sessions are safe on disk — you can try again or reload the app.',
+  'errorBoundary.retry': 'Try again',
+  'errorBoundary.reload': 'Reload',
+  'errorBoundary.copy': 'Copy error details',
+
+  // Project snapshots
+  'commands.snapshotCreated': '/// snapshot created: {id} · {n} files · {size} MB',
+  'commands.snapshotListEmpty': '/// no saved snapshots · create one with /snapshot [label]',
+  'commands.snapshotFailed': '✗ snapshot error: {message}',
+  'commands.restoreNeedId': '! usage: /restore <id> · list with /snapshots',
+  'commands.restoreFailed': '✗ restore error: {message}',
+  'tool.snapshotCreated': '/// snapshot created: {id} · {n} files · {label}',
+  'snapshot.title': 'Project Snapshots',
+  'snapshot.untitled': 'untitled',
+  'snapshot.needsRoot': 'Pick a workspace with /root before taking a snapshot.',
+  'snapshot.empty': 'No snapshots yet. Enter a label above and create one.',
+  'snapshot.labelPlaceholder': 'Label (optional)',
+  'snapshot.create': 'Create',
+  'snapshot.files': 'files',
+  'snapshot.restore': 'Restore',
+  'snapshot.restoreTitle': 'Restore snapshot',
+  'snapshot.restoreMessage':
+    'The project will be restored to "{name}" ({id}). Files added afterwards are deleted; the current state is saved as a safety snapshot first.',
+  'snapshot.restoredToast': 'Snapshot restored',
+  'snapshot.restoreFailed': '✗ restore error: {message}',
+  'snapshot.delete': 'Delete',
+  'snapshot.deleteTitle': 'Delete snapshot',
+  'snapshot.deleteMessage': 'Snapshot "{name}" ({id}) will be deleted. This cannot be undone.',
+  'snapshot.deleteFailed': '✗ delete error: {message}',
+  'snapshot.restoreHint': 'Bring the project back to this point',
 };

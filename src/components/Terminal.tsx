@@ -5,9 +5,10 @@ import ApprovalCard from './ApprovalCard';
 import TaskPanel from './TaskPanel';
 import Welcome from './Welcome';
 import type { ExtraLine, Message, Session, TerminalLine, ToolEvent } from '../types';
+import { buildTimeline } from '../lib/timeline';
 import type { PendingApproval } from '../lib/engine/approvals';
 import { formatApprovalDetail } from '../lib/engine/approvalDetail';
-import { execApprovalWarning } from '../lib/engine/policy';
+import { execApprovalWarning, isExecAllowed, parseCustomAllowList } from '../lib/engine/policy';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { deriveTodoState } from '../lib/engine/tools/todo';
@@ -137,58 +138,59 @@ export default function Terminal({
   const t = useT();
   const streaming = useSessionStore((s) => s.isStreaming);
   const showThinking = useSettingsStore((s) => s.showThinking);
+  /** Kullanıcının ek shell komutları (izin listesi) — "izin listesinde değil"
+   *  uyarısını doğru hesaplamak için gerekir. */
+  const customAllowList = useSettingsStore((s) => s.customAllowList);
+  const extraAllow = useMemo(() => parseCustomAllowList(customAllowList), [customAllowList]);
+  /** Onay bekleyen araç id'leri — kart "çalışıyor" gibi görünmesin. */
+  const pendingIds = useMemo(
+    () => new Set((pending ?? []).map((p) => p.call.id)),
+    // pending dizisi her render'da yeni olabilir → içerikten türetilmiş anahtar.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [(pending ?? []).map((p) => p.call.id).join(',')],
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
 
   const view = useMemo<ViewLine[]>(() => {
     if (!session) return [];
-    const out: ViewLine[] = [];
     const msgs =
       clearedBefore == null
         ? session.messages
         : session.messages.filter((m) => m.timestamp >= clearedBefore);
-    msgs.forEach((m, i) =>
-      out.push(toViewLine(m, streaming, i === msgs.length - 1, clockFormat, showTimestamps)),
-    );
+    const lastId = msgs[msgs.length - 1]?.id;
+    const timeline = buildTimeline({ messages: session.messages, extras, clearedBefore });
 
-    // Extras her zaman en sonda: pushExtra Date.now() damgalıdır, mesajlar kronolojiktir.
-    // Araç çağrısı + sonucu aynı kartta birleşir (id eşleşmesi).
-    const toolIndex = new Map<string, number>();
-    for (const e of extras) {
-      if (e.tool) {
-        const prev = toolIndex.get(e.tool.id);
-        if (prev !== undefined) {
-          const merged = out[prev];
-          out[prev] = {
-            ...merged,
-            tool: {
-              ...merged.tool!,
-              status: e.tool.status,
-              output: e.tool.output ?? merged.tool!.output,
-              args: merged.tool!.args || e.tool.args,
-            },
-            content: e.content,
-          };
-          continue;
-        }
-        toolIndex.set(e.tool.id, out.length);
-        out.push({
-          key: e.id,
-          ts: e.ts,
-          type: e.type,
-          content: e.content,
-          tool: e.tool,
-          meta:
-            showTimestamps && (e.type === 'err' || e.type === 'warn')
-              ? formatClock(e.ts, clockFormat)
-              : undefined,
-        });
-        continue;
+    return timeline.map((item): ViewLine => {
+      if (item.kind === 'message') {
+        return toViewLine(
+          item.message,
+          streaming,
+          item.message.id === lastId,
+          clockFormat,
+          showTimestamps,
+        );
       }
-      out.push({
-        key: e.id,
-        ts: e.ts,
+      if (item.kind === 'tool') {
+        const tool =
+          item.tool.status === 'run' && pendingIds.has(item.tool.id)
+            ? { ...item.tool, awaitingApproval: true }
+            : item.tool;
+        return {
+          key: item.key,
+          ts: item.ts,
+          type: tool.status === 'err' ? 'err' : 'sys',
+          content: `${tool.name} ${tool.target ?? tool.args}`,
+          tool,
+          meta:
+            showTimestamps && tool.status === 'err' ? formatClock(item.ts, clockFormat) : undefined,
+        };
+      }
+      const e = item.extra;
+      return {
+        key: item.key,
+        ts: item.ts,
         type: e.type,
         content: e.content,
         ...(e.retry ? { retry: e.retry } : {}),
@@ -197,10 +199,9 @@ export default function Terminal({
           showTimestamps && (e.type === 'err' || e.type === 'warn' || e.type === 'user')
             ? formatClock(e.ts, clockFormat)
             : undefined,
-      });
-    }
-    return out;
-  }, [session, extras, clearedBefore, streaming, clockFormat, showTimestamps]);
+      };
+    });
+  }, [session, extras, clearedBefore, streaming, clockFormat, showTimestamps, pendingIds]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -218,7 +219,7 @@ export default function Terminal({
     setShowJump(!stuck && el.scrollHeight > el.clientHeight + 40);
   };
 
-  // Kasıtlı depsiz: streaming'de her render'da alta yapışmayı korur.
+  // Satırlar değiştikçe (streaming/yeni mesaj) alta yapışmayı korur.
   useEffect(() => {
     const el = scrollRef.current;
     if (el && stickRef.current) {
@@ -227,7 +228,7 @@ export default function Terminal({
       const shouldShow = el.scrollHeight > el.clientHeight + 40;
       setShowJump((prev) => (prev === shouldShow ? prev : shouldShow));
     }
-  });
+  }, [view]);
 
   useEffect(() => {
     stickRef.current = true;
@@ -248,7 +249,11 @@ export default function Terminal({
   const searchRef = useRef<HTMLInputElement>(null);
 
   const hits = useMemo(
-    () => findHits(view.map((l) => ({ key: l.key, text: l.content })), query),
+    () =>
+      findHits(
+        view.map((l) => ({ key: l.key, text: l.content })),
+        query,
+      ),
     [view, query],
   );
   // Yazarken satırlar azalabilir (streaming/extras) — indeks güvenli tutulur.
@@ -317,10 +322,7 @@ export default function Terminal({
 
   // Boş oturum → karşılama ekranı.
   const isEmpty =
-    !!session &&
-    view.length === 0 &&
-    (pending ?? []).length === 0 &&
-    todoItems.length === 0;
+    !!session && view.length === 0 && (pending ?? []).length === 0 && todoItems.length === 0;
 
   return (
     <div className="terminal-wrap">
@@ -431,6 +433,9 @@ export default function Terminal({
                 ? (eArgs.args as unknown[]).filter((a): a is string => typeof a === 'string')
                 : [];
               const warning = isExec ? execApprovalWarning(execCmd, execArgList) : null;
+              // İzin listesinde olmayan komut: onay kartında uyarıyla görünür,
+              // kullanıcı onaylarsa çalıştırılır.
+              const unlisted = isExec ? !isExecAllowed(execCmd, execArgList, extraAllow) : false;
               // L4: tam argüman görünürlüğü — 240 karakter kırpması kaldırıldı.
               // Helper özet + tam gövdeyi üretir; kart uzun gövdeyi kullanıcı
               // isterse genişletir (exec her zaman tam satır).
@@ -445,6 +450,7 @@ export default function Terminal({
                       callName={String(p.call.name)}
                       detail={detail}
                       warning={warning}
+                      unlisted={unlisted}
                       // M1: kısayol ipucu yalnız tek bekleyende görünür
                       // (Enter/Esc artık toplu işlem yapmıyor).
                       showKeys={(pending ?? []).length === 1}

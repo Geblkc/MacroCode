@@ -43,17 +43,20 @@ describe('Faz 5 — MCP protokolü', () => {
     expect(() => parseToolsList({})).toThrowError(McpError);
   });
 
-  it('tools/call metne çevrilir (4KB kırpma + isError)', () => {
+  it('tools/call metne çevrilir (kırpma yok + isError)', () => {
     const r = parseToolResult({
-      content: [{ type: 'text', text: 'a' }, { type: 'image', data: '...' }],
+      content: [
+        { type: 'text', text: 'a' },
+        { type: 'image', data: '...' },
+      ],
       isError: false,
     });
     expect(r.text).toContain('a');
     expect(r.text).toContain('metin değil');
     expect(r.isError).toBe(false);
     const big = parseToolResult({ content: [{ type: 'text', text: 'x'.repeat(5000) }] });
-    expect(big.text.length).toBeLessThan(5000);
-    expect(big.text).toContain('kesildi');
+    expect(big.text).toHaveLength(5000);
+    expect(big.text).not.toContain('kesildi');
     expect(() => parseToolResult({})).toThrowError(McpError);
   });
 });

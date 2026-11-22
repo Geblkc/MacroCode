@@ -10,8 +10,19 @@ import { createOpenAICompatibleProvider } from './openaiCompatible';
 
 /** Türkçe karakterleri ASCII karşılığına çevirir (slug için). */
 const TR_MAP: Record<string, string> = {
-  Ş: 's', ş: 's', Ğ: 'g', ğ: 'g', Ü: 'u', ü: 'u',
-  Ö: 'o', ö: 'o', Ç: 'c', ç: 'c', I: 'i', ı: 'i', İ: 'i',
+  Ş: 's',
+  ş: 's',
+  Ğ: 'g',
+  ğ: 'g',
+  Ü: 'u',
+  ü: 'u',
+  Ö: 'o',
+  ö: 'o',
+  Ç: 'c',
+  ç: 'c',
+  I: 'i',
+  ı: 'i',
+  İ: 'i',
 };
 
 /** Görünen addan keystore-uyumlu id üretir (`custom_<slug>`, küçük harf). */

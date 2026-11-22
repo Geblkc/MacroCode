@@ -4,8 +4,12 @@ import { useT } from '../lib/i18n';
 import { filterCommands, type CommandSpec } from '../lib/commands';
 import { isEffortCommand } from '../lib/providers/effort';
 import { Icon } from './icons';
+import AgentActivityBar from './AgentActivityBar';
+import { useActiveAgentActivity } from '../hooks/useAgentActivity';
+import { agentActivityLabelKey } from '../lib/agentActivity';
 import ModeSelector from './ModeSelector';
 import EffortSelector from './EffortSelector';
+import ChatModelSelector from './ChatModelSelector';
 import type { AgentMode } from '../types';
 
 interface Props {
@@ -20,6 +24,8 @@ interface Props {
   focusRef?: MutableRefObject<(() => void) | null>;
   mode?: AgentMode;
   onModeChange?: (mode: AgentMode) => void;
+  /** Model seçicideki "anahtar ekle" satırı ayarları açar. */
+  onOpenSettings?: () => void;
 }
 
 const MAX_HEIGHT = 160;
@@ -68,8 +74,10 @@ export default function InputBar({
   focusRef,
   mode = 'build',
   onModeChange,
+  onOpenSettings,
 }: Props) {
   const t = useT();
+  const agentActivity = useActiveAgentActivity();
   const [value, setValue] = useState('');
   const [pending, setPending] = useState<string[]>([]);
   const [attachErr, setAttachErr] = useState<string | null>(null);
@@ -77,6 +85,7 @@ export default function InputBar({
   const [cmdIdx, setCmdIdx] = useState(0);
   const [dismissed, setDismissed] = useState(false);
   const [effortOpen, setEffortOpen] = useState(false);
+  const agentBlocked = agentActivity?.phase === 'awaiting_approval';
   const { push, move } = useKeyHistory();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -85,7 +94,10 @@ export default function InputBar({
   const dragDepthRef = useRef(0);
 
   /** Popup yalnızca tek satırlık `'/' + komut adı` yazımında açıktır (boşluk = argüman aşaması). */
-  const cmdQuery = useMemo(() => (/^\s*\/[^\s]*$/.test(value) ? value.trim().toLowerCase() : null), [value]);
+  const cmdQuery = useMemo(
+    () => (/^\s*\/[^\s]*$/.test(value) ? value.trim().toLowerCase() : null),
+    [value],
+  );
   const cmdSuggestions = useMemo(
     () => (cmdQuery === null ? [] : filterCommands(cmdQuery)),
     [cmdQuery],
@@ -138,7 +150,7 @@ export default function InputBar({
   const submit = useCallback(
     (raw?: string) => {
       const text = (raw ?? value).trim();
-      if ((!text && pending.length === 0) || streaming) return;
+      if ((!text && pending.length === 0) || streaming || agentBlocked) return;
       // `/effort` (ve yaygın yazımları) mesaj olarak gönderilmez: efor menüsü açılır.
       if (text && isEffortCommand(text)) {
         setValue('');
@@ -154,7 +166,7 @@ export default function InputBar({
       onSend(text, pending);
       requestAnimationFrame(() => areaRef.current?.focus());
     },
-    [value, pending, streaming, push, onSend],
+    [value, pending, streaming, agentBlocked, push, onSend],
   );
 
   /** Öneriden seçim: zorunlu argümanlı komutlar tamamlanır, diğerleri doğrudan gönderilir. */
@@ -251,12 +263,14 @@ export default function InputBar({
     [move],
   );
 
-  const approxTokens = Math.ceil(value.trim().length / 4);
-  const canSend = (value.trim().length > 0 || pending.length > 0) && !streaming;
+  const canSend = (value.trim().length > 0 || pending.length > 0) && !streaming && !agentBlocked;
   const hasPending = (pendingCount ?? 0) > 0;
 
   return (
     <div className="inputbar">
+      {agentActivity ? (
+        <AgentActivityBar key={agentActivity.runId} activity={agentActivity} />
+      ) : null}
       <div
         className={`inputbar-inner${dragOver ? ' dropping' : ''}`}
         onDragEnter={onDragEnter}
@@ -269,24 +283,6 @@ export default function InputBar({
             {t('input.dropHint')}
           </div>
         )}
-        {pending.length > 0 && (
-          <div className="pending-images">
-            {pending.map((url, i) => (
-              <span key={i} className="pending-thumb">
-                <img src={url} alt={t('input.imageAlt', { n: i + 1 })} />
-                <button
-                  className="pending-remove"
-                  title={t('input.removeImage')}
-                  aria-label={t('input.removeImageAria', { n: i + 1 })}
-                  onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
-                >
-                  <Icon name="x" size="sm" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
         {cmdOpen && (
           <div
             className="cmd-menu"
@@ -322,10 +318,25 @@ export default function InputBar({
           </div>
         )}
 
-        <div className="input-row">
-          <span className="prompt" aria-hidden="true">
-            ❯
-          </span>
+        <div className="composer">
+          {pending.length > 0 && (
+            <div className="pending-images">
+              {pending.map((url, i) => (
+                <span key={i} className="pending-thumb">
+                  <img src={url} alt={t('input.imageAlt', { n: i + 1 })} />
+                  <button
+                    className="pending-remove"
+                    title={t('input.removeImage')}
+                    aria-label={t('input.removeImageAria', { n: i + 1 })}
+                    onClick={() => setPending((p) => p.filter((_, j) => j !== i))}
+                  >
+                    <Icon name="x" size="sm" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
           <textarea
             ref={areaRef}
             className="inputbar-field"
@@ -335,7 +346,13 @@ export default function InputBar({
             spellCheck={false}
             autoComplete="off"
             aria-label={t('input.ariaLabel')}
-            placeholder={streaming ? t('input.placeholderWaiting') : t('input.placeholder')}
+            placeholder={
+              agentActivity
+                ? `${t(agentActivityLabelKey(agentActivity.phase))}…`
+                : streaming
+                  ? t('input.placeholderWaiting')
+                  : t('input.placeholder')
+            }
             onChange={(e) => setValue(e.target.value)}
             onPaste={(e) => {
               // Panoda görsel varsa düz metin yapıştırma yerine görsel hattı
@@ -438,88 +455,70 @@ export default function InputBar({
               }
             }}
           />
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(e) => {
-              void attachImages(e.target.files);
-              e.target.value = '';
-            }}
-          />
-          <EffortSelector
-            open={effortOpen}
-            onOpenChange={setEffortOpen}
-            onDone={focusInput}
-            disabled={streaming}
-          />
-          {!streaming && onModeChange && (
-            <ModeSelector mode={mode} onChange={onModeChange} disabled={streaming} />
-          )}
-          {!streaming && (
-            <button
-              className="attach-btn"
-              title={t('input.attachTitle', { count: MAX_IMAGES })}
-              aria-label={t('input.addImage')}
-              disabled={streaming || pending.length >= MAX_IMAGES}
-              onClick={() => fileRef.current?.click()}
-            >
-              <Icon name="image" size="sm" />
-            </button>
-          )}
-          {streaming ? (
-            <button className="btn btn-danger btn-sm" onClick={onAbort} title={t('input.stopTitle')}>
-              <Icon name="square" size="sm" />
-              {t('input.stop')}
-            </button>
-          ) : (
-            <button
-              className="btn btn-primary btn-sm"
-              disabled={!canSend}
-              onClick={() => submit()}
-              title={t('input.sendTitle')}
-            >
-              {t('input.send')}
-            </button>
-          )}
-        </div>
+          {attachErr ? <div className="composer-note warn-text">{attachErr}</div> : null}
 
-        <div className="inputbar-meta">
-          <span className="keys">
-            {hasPending ? (
-              <span className="warn-text">
-                {t('input.pendingHint', { count: pendingCount ?? 0 })}
-              </span>
-            ) : (
-              <>
-                <span>
-                  <kbd>Enter</kbd> {t('input.hint.send')}
-                </span>
-                <span>
-                  <kbd>Shift+Enter</kbd> {t('input.hint.newline')}
-                </span>
-                <span>
-                  <kbd>↑↓</kbd> {t('input.hint.history')}
-                </span>
-                <span>
-                  <kbd>/</kbd> {t('input.hint.commands')}
-                </span>
-                <span>
-                  <kbd>Ctrl+L</kbd> {t('input.hint.clear')}
-                </span>
-                <span>
-                  <kbd>Ctrl+N</kbd> {t('input.hint.newSession')}
-                </span>
-              </>
-            )}
-            {attachErr ? <span className="warn-text">{attachErr}</span> : null}
-          </span>
-          <span>
-            {t('input.meta', { count: value.length, tokens: approxTokens })}
-            {pending.length > 0 ? t('input.metaImages', { count: pending.length }) : ''}
-          </span>
+          <div className="composer-bar">
+            <div className="composer-tools">
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  void attachImages(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+              {!streaming && (
+                <button
+                  type="button"
+                  className="composer-icon-btn"
+                  title={t('input.attachTitle', { count: MAX_IMAGES })}
+                  aria-label={t('input.addImage')}
+                  disabled={streaming || pending.length >= MAX_IMAGES}
+                  onClick={() => fileRef.current?.click()}
+                >
+                  <Icon name="plus" size="sm" />
+                </button>
+              )}
+              {!streaming && onModeChange && (
+                <ModeSelector mode={mode} onChange={onModeChange} disabled={streaming} />
+              )}
+              <EffortSelector
+                open={effortOpen}
+                onOpenChange={setEffortOpen}
+                onDone={focusInput}
+                disabled={streaming}
+              />
+              <ChatModelSelector onOpenSettings={onOpenSettings} onDone={focusInput} />
+            </div>
+
+            <div className="composer-actions">
+              {streaming ? (
+                <button
+                  type="button"
+                  className="composer-stop"
+                  onClick={onAbort}
+                  title={t('input.stopTitle')}
+                  aria-label={t('input.stop')}
+                >
+                  <Icon name="square" size="sm" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="composer-send"
+                  disabled={!canSend}
+                  onClick={() => submit()}
+                  title={t('input.sendTitle')}
+                  aria-label={t('input.send')}
+                >
+                  <Icon name="arrow-up" size="sm" />
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </div>

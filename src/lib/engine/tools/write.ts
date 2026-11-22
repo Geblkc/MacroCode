@@ -12,7 +12,9 @@ async function invokeRust<T>(cmd: string, args: Record<string, unknown>): Promis
     const { invoke } = await import('@tauri-apps/api/core');
     return invoke<T>(cmd, args);
   }
-  throw new Error(`${cmd} yalnızca Tauri'de çalışır · /root ile workspace seçip masaüstü uygulamada dene`);
+  throw new Error(
+    `${cmd} yalnızca Tauri'de çalışır · /root ile workspace seçip masaüstü uygulamada dene`,
+  );
 }
 
 export async function toolWriteFile(

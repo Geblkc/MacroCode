@@ -73,6 +73,37 @@ describe('P0.2 — exec canlı akış / timeout / iptal', () => {
     );
   });
 
+  it('backendin hazırladığı medium/hard payloadını olduğu gibi modele geçirir', async () => {
+    const payload =
+      '[tool output redirected to file; content omitted]\npath=.macrocode/tool-outputs/tool-output-x.log\nbytes=200000\nlines=30000\nsummary=Command exited with code 0.\nread_more=read_file(path=".macrocode/tool-outputs/tool-output-x.log", offset=1, limit=200)';
+    invokeMock.mockResolvedValue(
+      out({ output: payload, stdout: '', stderr: '', truncated: true, hard: true }),
+    );
+    await expect(toolExec('/tmp', call(), 'manual', { approved: true })).resolves.toBe(payload);
+  });
+
+  it('eksik capture durumunu modele yapılandırılmış olarak bildirir', async () => {
+    invokeMock.mockResolvedValue(
+      out({ stdout: 'partial', truncated: true, capture_incomplete: true }),
+    );
+    const result = await toolExec('/tmp', call(), 'manual', { approved: true });
+    expect(result).toContain('partial');
+    expect(result).toContain('capture_incomplete=true');
+  });
+
+  it('çıktı içindeki benzer marker eksik capture bildirimini bastırmaz', async () => {
+    invokeMock.mockResolvedValue(
+      out({
+        output: 'command said capture_incomplete=true but this is only content',
+        capture_incomplete: true,
+      }),
+    );
+    const result = await toolExec('/tmp', call(), 'manual', { approved: true });
+    expect(
+      result.split(/\r?\n/).filter((line) => line.trim() === 'capture_incomplete=true'),
+    ).toHaveLength(1);
+  });
+
   it('sıfırdan farklı çıkış kodunu başarısız tool sonucu yapar', async () => {
     invokeMock.mockResolvedValue(out({ code: 2, stdout: 'test patladı', stderr: 'hata' }));
     await expect(
@@ -82,14 +113,14 @@ describe('P0.2 — exec canlı akış / timeout / iptal', () => {
 
   it('iptal ve timeout ayrı hata mesajı üretir', async () => {
     invokeMock.mockResolvedValueOnce(out({ code: -1, cancelled: true, stdout: 'kısmi' }));
-    await expect(
-      toolExec('/tmp', call(), 'manual', { approved: true }),
-    ).rejects.toThrow(/iptal edildi/);
+    await expect(toolExec('/tmp', call(), 'manual', { approved: true })).rejects.toThrow(
+      /iptal edildi/,
+    );
 
     invokeMock.mockResolvedValueOnce(out({ code: -1, timed_out: true }));
-    await expect(
-      toolExec('/tmp', call(), 'manual', { approved: true }),
-    ).rejects.toThrow(/zaman aşımına/);
+    await expect(toolExec('/tmp', call(), 'manual', { approved: true })).rejects.toThrow(
+      /zaman aşımına/,
+    );
   });
 
   it('komut türüne göre varsayılan timeout ve ayar üst sınırı', () => {
@@ -97,14 +128,15 @@ describe('P0.2 — exec canlı akış / timeout / iptal', () => {
     expect(resolveExecTimeout(call({ cmd: 'cargo', args: ['build'] }), 'cargo', ['build'])).toBe(
       300_000,
     );
-    expect(resolveExecTimeout(call({ cmd: 'npm', args: ['test'] }), 'npm', ['test'])).toBe(
-      120_000,
-    );
+    expect(resolveExecTimeout(call({ cmd: 'npm', args: ['test'] }), 'npm', ['test'])).toBe(120_000);
     // Açık değer ayar üst sınırına kırpılır.
     expect(
-      resolveExecTimeout(call({ cmd: 'cargo', args: ['build'], timeoutMs: 500_000 }), 'cargo', [
-        'build',
-      ], 60_000),
+      resolveExecTimeout(
+        call({ cmd: 'cargo', args: ['build'], timeoutMs: 500_000 }),
+        'cargo',
+        ['build'],
+        60_000,
+      ),
     ).toBe(60_000);
     // Rust tavanı aşılamaz.
     expect(

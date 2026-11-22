@@ -57,7 +57,20 @@ function toProviderError(err: unknown): ProviderError {
  * WebView CORS'una takilmaz; `fetch` yedegi anthropic.ts'te durur.
  */
 export async function streamAnthropicViaRust(args: RustStreamArgs): Promise<void> {
-  const { apiKey, model, system, messages, tools, thinking, outputConfig, temperature, topP, maxTokens, onChunk, signal } = args;
+  const {
+    apiKey,
+    model,
+    system,
+    messages,
+    tools,
+    thinking,
+    outputConfig,
+    temperature,
+    topP,
+    maxTokens,
+    onChunk,
+    signal,
+  } = args;
   if (signal?.aborted) throw new DOMException('aborted', 'AbortError');
 
   let aborted = false;
@@ -92,18 +105,19 @@ export async function streamAnthropicViaRust(args: RustStreamArgs): Promise<void
     });
 
     try {
+      // Tauri v2 Rust argümanları JS'de camelCase bekler (api_key → apiKey …).
       await invoke('stream_anthropic', {
-        api_key: apiKey,
+        apiKey,
         model,
         system: system ?? null,
         messages,
         tools: tools ?? null,
         thinking: thinking ?? null,
-        output_config: outputConfig ?? null,
+        outputConfig: outputConfig ?? null,
         temperature: temperature ?? null,
-        top_p: topP ?? null,
-        max_tokens: maxTokens ?? null,
-        on_chunk: channel,
+        topP: topP ?? null,
+        maxTokens: maxTokens ?? null,
+        onChunk: channel,
       });
     } catch (err) {
       if (signal?.aborted || aborted) throw new DOMException('aborted', 'AbortError');

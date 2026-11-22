@@ -1,20 +1,51 @@
 # MacroCode — Model Kataloğu
 
-> Uygulamanın **model listesi** iki kaynaktan gelir:
+> Uygulamanın **model listesi** üç katmandan oluşur:
 >
-> 1. **Elle çekirdek** (54 model) — `src/lib/providers/*.ts` → `ALL_MODELS`.
->    Varsayılanlar, garantili çalışır, offline'da bile hazırdır.
-> 2. **models.dev kataloğu** (~467 model) — `https://models.dev/api.json`.
->    Çekirdekle eşleşmeyen modeller otomatik listeye eklenir.
+> 1. **Sağlayıcı API'si (canlı, birincil)** — `src/lib/providers/discovery.ts`.
+>    Anahtarı olan sağlayıcının `/models` ucu sorgulanır (Anthropic, OpenAI,
+>    Gemini, DeepSeek, xAI, Moonshot, MiniMax, GLM, NVIDIA, EVREN, OpenRouter, Ollama).
+>    Başarılı liste o sağlayıcı için **tek model kaynağıdır**; gelen kayıtlar
+>    models.dev/çekirdek metadata'sıyla zenginleştirilir.
+> 2. **Mevcut katalog (yedek)** — API'den liste alınamazsa çekirdek
+>    `ALL_MODELS` + models.dev kayıtları kullanılır. Aynı zamanda canlı
+>    modellerin bağlam/fiyat/yetenek bilgilerinin kaynağıdır.
+> 3. **Kullanıcı modelleri** — `customModels` her zaman en sonda kazanır.
 >
-> Toplam: **~510 model / 10 sağlayıcı**. Kullanıcı tarafından eklenen modeller
-> (`customModels`) ve gizlenenler (`disabledModels`) cihazdaki store'da durur,
-> burada yer almaz.
+> Toplam: **~518 model / 12 sağlayıcı** (canlı liste yokken). Canlı liste
+> yüklendiğinde ilgili sağlayıcıda yalnız API'nin döndürdüğü modeller görünür.
 >
 > **Görünürlük kuralı:** API anahtarı olmayan sağlayıcının modelleri hiçbir
 > listede görünmez (`ollama` hariç — URL yeterli). Bkz. "API Anahtarı Kuralı".
 >
-> Son güncelleme: 2026-10-19 (Faz 12) · Toplam: **~510 model / 10 sağlayıcı**
+> Son güncelleme: 2026-11-20 (canlı API kataloğu) · Toplam: **~518 model / 12 sağlayıcı**
+
+## Canlı API kataloğu (birincil kaynak)
+
+| Sağlayıcı | Uç | Not |
+|---|---|---|
+| Anthropic | `GET https://api.anthropic.com/v1/models` | `x-api-key` + `anthropic-version`; sayfalı |
+| OpenAI / DeepSeek / xAI / MiniMax / Moonshot / GLM / NVIDIA | `GET {baseUrl}/models` | OpenAI uyumlu; `baseUrlOverride` desteklenir |
+| EVREN | `GET https://evren-llmapi.ssyz.org.tr/v1/models` | `task: chat\|vision_chat`; id'ler `evren/` öneklenir |
+| Gemini | `GET /v1beta/models?key=…` | Yalnız `generateContent` destekleyenler |
+| OpenRouter | `GET https://openrouter.ai/api/v1/models` | Genel liste |
+| Ollama | `GET {url}/api/tags` | Kurulu yerel modeller |
+
+- **Zamanlama:** açılışta (önbellek 24 saatten eskiyse), anahtar eklendiğinde/
+  değiştiğinde ve Ayarlar → Modeller → “Tümünü yenile”.
+- **Önbellek:** `macrocode-live-models` (localStorage, ayrı anahtar; zustand
+  persist'ine girmez).
+- **Fallback:** İstek hatası/404/boş liste → o sağlayıcı için mevcut katalog.
+  Daha önce başarılı liste varsa **korunur** (çevrimdışı çalışma bozulmaz).
+- **Sohbet filtresi:** embedding, TTS/STT, görsel üretimi, moderasyon, rerank
+  gibi sohbet dışı id'ler canlı listeden elenir.
+- **Bilinmeyen model:** models.dev/çekirdek eşleşmesi yoksa güvenli varsayılanlar
+  (128k bağlam, 8k çıktı, araç çağırma kapalı) uygulanır. Eşleşen modellerde
+  fiyat/yetenek/bağlam bilgisi otomatik gelir.
+- **Seçili model koruması:** API listesi aktif modeli döndürmezse model
+  rozeti/açılır listenin “extra” satırı korunur; `getModel()` statik kayıttan
+  yanıt verir.
+
 
 ## Başlıklar
 
@@ -129,7 +160,9 @@
 | openrouter | 5 | 5/5 | 388 |
 | deepseek | 5 | 3/5 | 7 |
 | xai | 3 | 1/3 | 10 |
-| **Toplam** | **43** | **31/43** | **510** |
+| evren | 6 | — | 6 |
+| nvidia | 0 | — | 0 (yalnız canlı keşif) |
+| **Toplam** | **49** | **31/43** | **518** |
 
 ## API Anahtarı Kuralı
 
@@ -238,3 +271,45 @@ Eşleşmeyenlerde **yerleşik limit/fiyat bilgileri aynen korunur**, otomatik fi
 | `glm-5.3-flashx` | 1.000.000 | 131.072 | ✓ | effort: low/high/max |
 | `glm-5.2` | 1.000.000 | 131.072 | — | effort: high/max + toggle |
 | `glm-5-turbo` | 200.000 | 131.072 | — | toggle |
+
+## NVIDIA (`nvidia`) — canlı keşif
+
+NVIDIA NIM / build.nvidia.com API'si OpenAI uyumludur (`https://integrate.api.nvidia.com/v1`).
+Model kataloğu sık değiştiği için **çekirdek model tutulmaz**: anahtar (`nvapi-…`)
+girildiğinde `/v1/models` listesi tek kaynaktır. Liste alınamazsa sağlayıcı
+görünmez; varsayılan model kimliği `nvidia/llama-3.3-nemotron-super-49b-v1`'dir.
+Yeni modeller otomatik listelenir; bilinmeyen modellerde güvenli varsayılanlar
+(128k bağlam, 8k çıktı) uygulanır. NVIDIA NIM uçları OpenAI uyumlu araçağırma
+şemasını desteklediği için `tools` bu sağlayıcıda varsayılan **açıktır** —
+aksi halde ajan modu katalogda olmayan modellerde gereksiz yere kilitleniyordu.
+
+## EVREN LLM (`evren`) — 6 çekirdek
+
+SAYZEK'in OpenAI uyumlu servisi (`https://evren-llmapi.ssyz.org.tr/v1`, anahtar
+`evren_llm_…`). API model kimlikleri sade olduğundan (`glm-5.3`,
+`deepseek-v4.1-flash`, …) GLM/DeepSeek ile çakışmamak için registry'de `evren/`
+öneki kullanılır; `mapModel` istek gövdesinde öneği sıyırır. Canlı keşifte
+`task: chat|vision_chat` filtresi uygulanır, `context_length` ve
+`default_max_output_tokens` alanları okunur.
+
+| Model | ctx | max out | Vision |
+|---|---:|---:|---|
+| `evren/glm-5.3` ★ | 524.288 | 16.384 | — |
+| `evren/deepseek-v4.1-flash` | 1.048.576 | 16.384 | — |
+| `evren/qwen3.8-flash-next` | 262.144 | 16.384 | — |
+| `evren/gemma-4-31b` | 262.144 | 16.384 | — |
+| `evren/qwen3-vl-30b` | 262.144 | 16.384 | ✓ |
+| `evren/auto` | 32.768 | 16.384 | — |
+
+> Sabit liste 2026-11-20 itibarıyla güncel public envantere (`api.ssyz.org.tr`)
+> göre güncellendi: `deepseek-v4-flash` ve `mimo-v2.6-pro` artık yayında değil.
+> Anahtar girildiğinde canlı keşif (`GET /v1/models`) listeyi otomatik tazeler.
+
+> EVREN API'si kullanımdan önce Kullanım Şartları'nın kabulünü gerektirir
+> (`https://evren.ssyz.org.tr`); kabul işlemi portalda yapılır. Kabul edilmeden
+> atılan istekler `403 terms_not_accepted` döner; bağlantı testi bunu
+> "geçersiz anahtar" yerine portal bağlantılı bir uyarı olarak gösterir.
+> Yoğun istekte ~5 sn soğuma süresi uygulanabilir.
+
+> Yetenek varsayımı: sohbet modellerinde `tools: true`, yalnız `qwen3-vl-30b`
+> için `vision: true`; reasoning bilgisi API'den gelmediği için kapalıdır.

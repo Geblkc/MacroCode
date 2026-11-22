@@ -1,15 +1,74 @@
 import type { AIProvider, ProviderConfig } from './common';
-import { OLLAMA_MAX_OUTPUT_CAP, ProviderError, feedSSELines, lookupModel, parseDataUrl, parseJsonPayload, systemTextOf, throwIfHttpError, toUsage, withoutSystemMessages } from './common';
+import {
+  OLLAMA_MAX_OUTPUT_CAP,
+  ProviderError,
+  feedSSELines,
+  lookupModel,
+  parseDataUrl,
+  parseJsonPayload,
+  systemTextOf,
+  throwIfHttpError,
+  toUsage,
+  withoutSystemMessages,
+} from './common';
 import { fetchFor } from './rustFetch';
 import { sanitizeParams } from './params';
 
 const MODELS: AIProvider['models'] = [
-  { id: 'llama3.1', name: 'Llama 3.1', provider: 'ollama', contextWindow: 128000, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: false } },
-  { id: 'llama3.3', name: 'Llama 3.3', provider: 'ollama', contextWindow: 128000, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: false } },
-  { id: 'mistral', name: 'Mistral', provider: 'ollama', contextWindow: 32000, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: false } },
-  { id: 'qwen2.5', name: 'Qwen 2.5', provider: 'ollama', contextWindow: 32000, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: false } },
-  { id: 'qwen3', name: 'Qwen 3', provider: 'ollama', contextWindow: 32768, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: true } },
-  { id: 'codellama', name: 'Code Llama', provider: 'ollama', contextWindow: 16000, supportsVision: false, maxOutput: 4096, capabilities: { tools: false, vision: false, reasoning: false } },
+  {
+    id: 'llama3.1',
+    name: 'Llama 3.1',
+    provider: 'ollama',
+    contextWindow: 128000,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: false },
+  },
+  {
+    id: 'llama3.3',
+    name: 'Llama 3.3',
+    provider: 'ollama',
+    contextWindow: 128000,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: false },
+  },
+  {
+    id: 'mistral',
+    name: 'Mistral',
+    provider: 'ollama',
+    contextWindow: 32000,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: false },
+  },
+  {
+    id: 'qwen2.5',
+    name: 'Qwen 2.5',
+    provider: 'ollama',
+    contextWindow: 32000,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: false },
+  },
+  {
+    id: 'qwen3',
+    name: 'Qwen 3',
+    provider: 'ollama',
+    contextWindow: 32768,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: true },
+  },
+  {
+    id: 'codellama',
+    name: 'Code Llama',
+    provider: 'ollama',
+    contextWindow: 16000,
+    supportsVision: false,
+    maxOutput: 4096,
+    capabilities: { tools: false, vision: false, reasoning: false },
+  },
 ];
 
 export const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
@@ -31,9 +90,7 @@ export const ollamaProvider: AIProvider = {
     // Faz 7 A2: sistem mesajları (compaction özeti) system alanına taşınır.
     const systemText = [systemPrompt?.trim(), systemTextOf(messages)].filter(Boolean).join('\n\n');
     const numPredict = Math.min(
-      p.maxTokens ??
-        lookupModel(model, config.registry, ollamaProvider.models)?.maxOutput ??
-        4096,
+      p.maxTokens ?? lookupModel(model, config.registry, ollamaProvider.models)?.maxOutput ?? 4096,
       OLLAMA_MAX_OUTPUT_CAP,
     );
     const url = `${base}/api/chat`;
@@ -45,9 +102,7 @@ export const ollamaProvider: AIProvider = {
         model,
         messages: [
           // Faz 7 A2: sistem mesajları (compaction özeti) system alanına taşınır.
-          ...(systemText
-            ? [{ role: 'system', content: systemText }]
-            : []),
+          ...(systemText ? [{ role: 'system', content: systemText }] : []),
           ...withoutSystemMessages(messages).map((m) => {
             if (m.role === 'tool') {
               return { role: 'tool', content: m.content };

@@ -8,7 +8,9 @@ export type Provider =
   | 'xai'
   | 'minimax'
   | 'moonshotai'
-  | 'zhipuai';
+  | 'zhipuai'
+  | 'nvidia'
+  | 'evren';
 
 export type ProviderId = Provider;
 
@@ -62,7 +64,7 @@ export interface ProviderDefinition {
   keyUrl?: string;
   /** Konsol sayfasının adı ("Anahtar al" ipucu metni için). */
   keyUrlLabel?: string;
-};
+}
 
 export type Message = {
   id: string;
@@ -71,7 +73,13 @@ export type Message = {
   timestamp: number;
   model?: string;
   provider?: Provider;
-  tokens?: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number };
+  tokens?: {
+    input: number;
+    output: number;
+    reasoning?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  };
   /**
    * Son API isteğinin bağlam boyutu (girdi + çıktı).
    * Agent turlarında `tokens` tur boyunca **kümülatiftir**; bağlam göstergesi
@@ -85,7 +93,13 @@ export type Message = {
   /** Faz 4: imzalı thinking blokları (Anthropic geri gönderimi için). */
   thinking?: Array<{ thinking: string; signature: string }>;
   /** Faz 1 (K5): assistant mesajının tool çağrıları. */
-  toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+  toolCalls?: Array<{
+    id: string;
+    name: string;
+    args: Record<string, unknown>;
+    /** Çağrının yapıldığı an (kronolojik yerleşim ve süre ölçümü için). */
+    ts?: number;
+  }>;
   /** Faz 1 (K5): tool sonucu mesajının bağlı olduğu çağrı (system rolünde saklanır). */
   toolCallId?: string;
   toolName?: string;
@@ -146,6 +160,8 @@ export type ApiKeys = {
   minimax: string;
   moonshotai: string;
   zhipuai: string;
+  nvidia: string;
+  evren: string;
 };
 
 export type LineType = 'user' | 'ai' | 'sys' | 'err' | 'warn';
@@ -176,6 +192,10 @@ export type ToolEvent = {
   name: string;
   /** Argüman önizlemesi (tek satır). */
   args: string;
+  /** Kullanıcıya gösterilen asıl hedef (yol, komut, desen…). */
+  target?: string;
+  /** Onay bekleyen araç (kart "çalışıyor" yerine "onay bekleniyor" gösterir). */
+  awaitingApproval?: boolean;
   status: 'run' | 'ok' | 'err';
   /** Araç çıktısı (sonuç geldiyse). */
   output?: string;
@@ -212,7 +232,7 @@ export interface CustomEndpoint {
   name: string;
   baseUrl: string;
   models: string[];
-};
+}
 
 /**
  * Elle eklenen / keşfedilip eklenen model.
@@ -237,10 +257,38 @@ export interface DiscoveredModel {
   id: string;
   source: 'openrouter' | 'ollama' | 'openai' | 'gemini' | 'modelsDev';
   contextWindow?: number;
+  /** API'nin verdiği görünen ad (varsa). */
+  name?: string;
+  /** API'nin verdiği azami çıktı token'ı (varsa). */
+  maxOutput?: number;
   fetchedAt: number;
   /** models.dev kaynağında katalog kaydı (yalnız `source='modelsDev'`). */
   catalog?: CatalogEntry;
 }
+
+/**
+ * Bir sağlayıcının `/models` ucundan canlı çekilen model kaydı.
+ * Metadata eksikse `liveEntryToModel` çekirdek/models.dev kataloğundan
+ * zenginleştirir; API kimlik listesi her zaman önceliklidir.
+ */
+export interface LiveModelEntry {
+  id: string;
+  name?: string;
+  contextWindow?: number;
+  maxOutput?: number;
+}
+
+/** Sağlayıcı başına canlı model listesi (API'den). */
+export interface LiveProviderCatalog {
+  /** Listenin çekildiği an (ms). */
+  fetchedAt: number;
+  models: LiveModelEntry[];
+  /** Son yenileme hatası — eski liste korunur, yalnız bilgi amaçlıdır. */
+  error?: string;
+}
+
+/** Canlı model kataloğu: yalnız başarıyla çekilmiş sağlayıcılar bulunur. */
+export type LiveCatalog = Partial<Record<Provider, LiveProviderCatalog>>;
 
 /** Model başına istek parametreleri (boş = sağlayıcı varsayılanı, gönderilmez). */
 export interface ModelParams {

@@ -21,6 +21,17 @@ export interface ExecResult {
 interface ExecOut {
   stdout: string;
   stderr: string;
+  /** Rust backend'in ortak output policy'den geçirdiği model payload'ı. */
+  output?: string;
+  artifact?: {
+    path: string;
+    bytes: number;
+    lines: number;
+    summary: string;
+  };
+  hard?: boolean;
+  /** Drain timeout nedeniyle yakalama eksik tamamlandıysa Rust işaretler. */
+  capture_incomplete?: boolean;
   code: number;
   truncated: boolean;
   cancelled?: boolean;
@@ -138,9 +149,23 @@ export async function cancelExec(runId: string): Promise<boolean> {
 }
 
 function formatExecOut(out: ExecOut): string {
-  const tail = out.truncated ? `\n${t('tool.outputTruncated')}` : '';
-  const errPart = out.stderr ? `\n[stderr]\n${out.stderr}` : '';
-  return `[exit ${out.code}]\n${out.stdout}${errPart}${tail}`;
+  // Yeni backend çıktıyı already modele hazır gönderir (medium/hard payload'ı
+  // da artifact bilgisini içerir). Eski mock/backend sözleşmesi korunur.
+  const text =
+    typeof out.output === 'string'
+      ? out.output
+      : (() => {
+          const tail = out.truncated ? `\n${t('tool.outputTruncated')}` : '';
+          const errPart = out.stderr ? `\n[stderr]\n${out.stderr}` : '';
+          return `[exit ${out.code}]\n${out.stdout}${errPart}${tail}`;
+        })();
+  const hasIncompleteMarker = text
+    .split(/\r?\n/)
+    .some((line) => line.trim() === 'capture_incomplete=true');
+  if (out.capture_incomplete && !hasIncompleteMarker) {
+    return `${text}\ncapture_incomplete=true`;
+  }
+  return text;
 }
 
 export async function toolExec(
@@ -164,6 +189,10 @@ export async function toolExec(
   if (!d.autoApproved && !opts?.approved) {
     throw new Error(`onay gerekli: ${strArg(call.args, 'cmd')} · /apply ile onayla`);
   }
+  // İzin listesinde olmayan komut: yalnızca kullanıcı açıkça onayladığında
+  // çalışır. Rust tarafı bu bayrakla allowlist kontrolünü atlar (yalnızca
+  // o çağrı için; rm/predicate/jail kontrolleri yine de çalışır).
+  const allowUnlisted = !!d.unlisted && !!opts?.approved;
   const cmd = strArg(call.args, 'cmd', '');
   const rawArgs = Array.isArray(call.args.args)
     ? (call.args.args as unknown[]).filter((a): a is string => typeof a === 'string')
@@ -188,6 +217,7 @@ export async function toolExec(
       timeoutMs,
       root,
       extraAllow,
+      allowUnlisted,
     },
     opts?.onStream,
   );

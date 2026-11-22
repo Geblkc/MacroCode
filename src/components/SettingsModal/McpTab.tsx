@@ -122,25 +122,17 @@ export default function McpTab(props: Props) {
                     <button
                       className="mini-btn"
                       title={
-                        envVisible[c.key]
-                          ? t('settings.mcp.envHide')
-                          : t('settings.mcp.envShow')
+                        envVisible[c.key] ? t('settings.mcp.envHide') : t('settings.mcp.envShow')
                       }
-                      onClick={() =>
-                        setEnvVisible((m) => ({ ...m, [c.key]: !m[c.key] }))
-                      }
+                      onClick={() => setEnvVisible((m) => ({ ...m, [c.key]: !m[c.key] }))}
                     >
                       <Icon name={envVisible[c.key] ? 'eye-off' : 'eye'} size="sm" />
-                      {envVisible[c.key]
-                        ? t('settings.mcp.envHide')
-                        : t('settings.mcp.envShow')}
+                      {envVisible[c.key] ? t('settings.mcp.envHide') : t('settings.mcp.envShow')}
                     </button>
                   </div>
                   <textarea
                     className="input input-area"
-                    value={
-                      envVisible[c.key] ? c.envText : maskEnvText(c.envText)
-                    }
+                    value={envVisible[c.key] ? c.envText : maskEnvText(c.envText)}
                     spellCheck={false}
                     rows={2}
                     readOnly={!envVisible[c.key]}
@@ -189,8 +181,7 @@ export default function McpTab(props: Props) {
 
             {info && !info.busy && (
               <div className={info.error ? 'form-err' : 'field-note'}>
-                {info.error ??
-                  t('settings.mcp.discovered', { count: info.count })}
+                {info.error ?? t('settings.mcp.discovered', { count: info.count })}
               </div>
             )}
           </div>

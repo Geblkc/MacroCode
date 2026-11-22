@@ -1,24 +1,121 @@
 import type { AIProvider, ProviderConfig } from './common';
-import { MAX_OUTPUT_TOKEN_CAP, ProviderError, feedSSELines, lookupModel, parseDataUrl, parseJsonPayload, throwIfHttpError, toUsage } from './common';
+import {
+  MAX_OUTPUT_TOKEN_CAP,
+  ProviderError,
+  feedSSELines,
+  lookupModel,
+  parseDataUrl,
+  parseJsonPayload,
+  throwIfHttpError,
+  toUsage,
+} from './common';
 import { sanitizeParams } from './params';
 import { effortThinkingBudget, geminiThinkingLevel } from './effort';
 import { geminiFunctionCallToToolCall, toGeminiTools } from '../engine/toolspec';
 import { createToolCallId } from '../engine/types';
 
 const MODELS: AIProvider['models'] = [
-  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.6-flash', name: 'Gemini 3.6 Flash', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.5-flash', name: 'Gemini 3.5 Flash', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', provider: 'gemini', contextWindow: 1048576, supportsVision: true, maxOutput: 65536, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'gemini-3-pro', name: 'Gemini 3 Pro', provider: 'gemini', contextWindow: 1000000, supportsVision: true, maxOutput: 131072, capabilities: { tools: true, vision: true, reasoning: true } },
+  {
+    id: 'gemini-4-argon',
+    name: 'Gemini 4 Argon',
+    provider: 'gemini',
+    contextWindow: 1048576,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.8-flash',
+    name: 'Gemini 3.8 Flash',
+    provider: 'gemini',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.6-flash',
+    name: 'Gemini 3.6 Flash',
+    provider: 'gemini',
+    contextWindow: 1048576,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.5-flash',
+    name: 'Gemini 3.5 Flash',
+    provider: 'gemini',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.5-flash-lite',
+    name: 'Gemini 3.5 Flash Lite',
+    provider: 'gemini',
+    contextWindow: 1048576,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.1-pro-preview',
+    name: 'Gemini 3.1 Pro Preview',
+    provider: 'gemini',
+    contextWindow: 1048576,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.1-flash-lite',
+    name: 'Gemini 3.1 Flash Lite',
+    provider: 'gemini',
+    contextWindow: 1048576,
+    supportsVision: true,
+    maxOutput: 65536,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3-pro',
+    name: 'Gemini 3 Pro',
+    provider: 'gemini',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 131072,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
   // Faz 12: "Nano Banana" görsel modelleri (models.dev verisiyle).
   // Not: çıktıları **görsel** — uygulama yalnızca metin çıktısı işler.
-  { id: 'gemini-2.5-flash-image', name: 'Nano Banana', provider: 'gemini', contextWindow: 32768, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
-  { id: 'gemini-3-pro-image', name: 'Nano Banana Pro', provider: 'gemini', contextWindow: 65536, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
-  { id: 'gemini-3.1-flash-image', name: 'Nano Banana 2', provider: 'gemini', contextWindow: 131072, supportsVision: true, maxOutput: 32768, capabilities: { tools: false, vision: true, reasoning: true } },
+  {
+    id: 'gemini-2.5-flash-image',
+    name: 'Nano Banana',
+    provider: 'gemini',
+    contextWindow: 32768,
+    supportsVision: true,
+    maxOutput: 32768,
+    capabilities: { tools: false, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3-pro-image',
+    name: 'Nano Banana Pro',
+    provider: 'gemini',
+    contextWindow: 65536,
+    supportsVision: true,
+    maxOutput: 32768,
+    capabilities: { tools: false, vision: true, reasoning: true },
+  },
+  {
+    id: 'gemini-3.1-flash-image',
+    name: 'Nano Banana 2',
+    provider: 'gemini',
+    contextWindow: 131072,
+    supportsVision: true,
+    maxOutput: 32768,
+    capabilities: { tools: false, vision: true, reasoning: true },
+  },
 ];
 
 export const geminiProvider: AIProvider = {
@@ -31,9 +128,7 @@ export const geminiProvider: AIProvider = {
     if (!apiKey.trim()) {
       throw new ProviderError('api anahtarı eksik', 401);
     }
-    const systemExtra = messages
-      .filter((m) => m.role === 'system')
-      .map((m) => m.content);
+    const systemExtra = messages.filter((m) => m.role === 'system').map((m) => m.content);
     const systemText = [systemPrompt?.trim(), ...systemExtra].filter(Boolean).join('\n\n');
     const buildGeminiContents = (rawMessages: typeof messages) => {
       const out: Array<{ role: string; parts: Array<Record<string, unknown>> }> = [];
@@ -112,10 +207,7 @@ export const geminiProvider: AIProvider = {
         ? usesThinkingLevel
           ? { thinkingLevel: geminiThinkingLevel(p.reasoningEffort) }
           : {
-              thinkingBudget: Math.min(
-                effortThinkingBudget(p.reasoningEffort),
-                maxOutputTokens,
-              ),
+              thinkingBudget: Math.min(effortThinkingBudget(p.reasoningEffort), maxOutputTokens),
             }
         : undefined;
     const res = await fetchImpl(url, {
@@ -163,7 +255,14 @@ export const geminiProvider: AIProvider = {
           if (u) onChunk({ text: '', done: false, usage: u });
         }
         const candidates = json.candidates as
-          | { content?: { parts?: { text?: string; functionCall?: { id?: string; name?: string; args?: Record<string, unknown> } }[] } }[]
+          | {
+              content?: {
+                parts?: {
+                  text?: string;
+                  functionCall?: { id?: string; name?: string; args?: Record<string, unknown> };
+                }[];
+              };
+            }[]
           | undefined;
         const parts = candidates?.[0]?.content?.parts ?? [];
         for (const part of parts) {

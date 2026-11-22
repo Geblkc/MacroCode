@@ -27,7 +27,11 @@ describe('Faz 3 — write_file', () => {
       throw new Error('dosya zaten var: a.ts · edit_file kullan');
     });
     await expect(
-      toolWriteFile('/tmp', { id: 'w4', name: 'write_file', args: { path: 'a.ts', content: 'x' } }, impl),
+      toolWriteFile(
+        '/tmp',
+        { id: 'w4', name: 'write_file', args: { path: 'a.ts', content: 'x' } },
+        impl,
+      ),
     ).rejects.toThrow(/dosya zaten var/);
   });
 });

@@ -72,6 +72,8 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -82,8 +84,48 @@ jobs:
 
       - run: npm ci
 
+      - name: Testler
+        run: |
+          npx tsc --noEmit
+          npm test
+          npm run build
+          cargo test --lib --manifest-path src-tauri/Cargo.toml
+
+      # Authenticode: OV/EV sertifikası `WINDOWS_CERTIFICATE_BASE64` secret'ı
+      # olarak tanımlıysa içe aktarılır; yoksa adım atlanır (imzasız build).
+      - name: Kod imzalama sertifikasını içe aktar
+        id: cert
+        if: env.WINDOWS_CERTIFICATE_BASE64 != ''
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE_BASE64))
+          $pw = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+          Remove-Item $pfx -Force
+          "thumbprint=$($cert.Thumbprint)" >> $env:GITHUB_OUTPUT
+
       - name: Paketleri derle
-        run: npm run tauri build -- --bundles nsis,msi
+        shell: pwsh
+        env:
+          WIN_CERT_THUMBPRINT: ${{ steps.cert.outputs.thumbprint }}
+        run: |
+          $extra = @()
+          if ($env:WIN_CERT_THUMBPRINT) {
+            $cfg = @{
+              bundle = @{
+                windows = @{
+                  certificateThumbprint = $env:WIN_CERT_THUMBPRINT
+                  digestAlgorithm       = 'sha256'
+                  timestampUrl          = 'http://timestamp.digicert.com'
+                }
+              }
+            } | ConvertTo-Json -Depth 6
+            $cfgPath = Join-Path $env:RUNNER_TEMP 'signing.json'
+            Set-Content -Path $cfgPath -Value $cfg -Encoding utf8
+            $extra = @('--config', $cfgPath)
+          }
+          npm run tauri build -- --bundles nsis,msi @extra
 
       - name: Topla
         shell: pwsh
@@ -100,14 +142,80 @@ jobs:
           path: bundles/
           if-no-files-found: error
 
+  macos:
+    name: macOS (dmg · app)
+    runs-on: macos-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - run: npm ci
+
+      - name: Testler
+        run: |
+          npx tsc --noEmit
+          npm test
+          npm run build
+
+      # Developer ID sertifikası `APPLE_CERTIFICATE` (base64 .p12) olarak
+      # tanımlıysa keychain'e yüklenir. Tanımlı değilse build imzasız çıkar.
+      - name: Apple sertifikasını içe aktar
+        if: env.APPLE_CERTIFICATE != ''
+        run: |
+          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
+          security create-keychain -p actions build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p actions build.keychain
+          security import certificate.p12 -k build.keychain \
+            -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k actions build.keychain
+          rm -f certificate.p12
+
+      - name: Paketleri derle (universal)
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run tauri build -- --target universal-apple-darwin --bundles dmg,app
+
+      - name: Topla
+        run: |
+          mkdir -p bundles
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg bundles/ 2>/dev/null || true
+          # Updater için .app.tar.gz + .sig (Tauri üretir).
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz bundles/ 2>/dev/null || true
+          cp src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app.tar.gz.sig bundles/ 2>/dev/null || true
+          ls -lh bundles
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-packages
+          path: bundles/
+          if-no-files-found: error
+
   release:
     name: GitHub Release
-    needs: [linux, windows]
+    needs: [linux, windows, macos]
     # Yalnızca `v*` tag push'unda yayınla (workflow_dispatch'ta da bir tag
     # seçilerek çalıştırılmalı — "Use workflow from" → tag).
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: bundles
@@ -122,13 +230,19 @@ jobs:
 
           APPIMAGE="$(ls MacroCode_*_amd64.AppImage | head -n1)"
           EXE="$(ls *-setup.exe | head -n1)"
+          MAC_TGZ="$(ls *universal.app.tar.gz 2>/dev/null | head -n1 || ls *.app.tar.gz | head -n1)"
           # Tauri imza dosyaları indirilen artifact'ların içinde gelir.
           APPIMAGE_SIG="$(cat "${APPIMAGE}.sig")"
           EXE_SIG="$(cat "${EXE}.sig")"
+          MAC_SIG="$(cat "${MAC_TGZ}.sig")"
 
-          # Sürüm notları: tag'deki bundles/releasenote.md varsa onu kullan.
-          NOTES="$(curl -fsSL "https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_REF_NAME}/bundles/releasenote.md" || true)"
-          [ -n "${NOTES}" ] || NOTES="MacroCode ${GITHUB_REF_NAME}"
+          # Sürüm notları: depoda izlenen docs/releases/vX.Y.Z.md dosyası.
+          NOTES_FILE="../docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "${NOTES_FILE}" ]; then
+            NOTES="$(cat "${NOTES_FILE}")"
+          else
+            NOTES="MacroCode ${GITHUB_REF_NAME}"
+          fi
 
           jq -n \
             --arg version "${VERSION}" \
@@ -138,13 +252,17 @@ jobs:
             --arg appimage_sig "${APPIMAGE_SIG}" \
             --arg exe_url "${BASE}/${EXE}" \
             --arg exe_sig "${EXE_SIG}" \
+            --arg mac_url "${BASE}/${MAC_TGZ}" \
+            --arg mac_sig "${MAC_SIG}" \
             '{
               version: $version,
               notes: $notes,
               pub_date: $pub_date,
               platforms: {
                 "linux-x86_64": { signature: $appimage_sig, url: $appimage_url },
-                "windows-x86_64": { signature: $exe_sig, url: $exe_url }
+                "windows-x86_64": { signature: $exe_sig, url: $exe_url },
+                "darwin-x86_64": { signature: $mac_sig, url: $mac_url },
+                "darwin-aarch64": { signature: $mac_sig, url: $mac_url }
               }
             }' > latest.json
           cat latest.json
@@ -160,6 +278,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: MacroCode ${{ github.ref_name }}
-          generate_release_notes: true
+          body_path: docs/releases/${{ github.ref_name }}.md
           files: |
             bundles/*

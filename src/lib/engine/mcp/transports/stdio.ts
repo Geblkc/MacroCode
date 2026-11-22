@@ -20,15 +20,11 @@ export interface StdioTransportOptions {
 const DEFAULT_TIMEOUT_MS = 15_000;
 
 /** Yanıt-benzeri satıra kadar okur (bildirim satırları atlanır). */
-async function readResponse(
-  procId: string,
-  timeoutMs: number,
-  startedAt: number,
-): Promise<string> {
+async function readResponse(procId: string, timeoutMs: number, startedAt: number): Promise<string> {
   for (;;) {
     const elapsed = Date.now() - startedAt;
     if (elapsed >= timeoutMs) throw new McpError('mcp: stdio yanıt zaman aşımı');
-    const line = await invoke<string>('mcp_read', { id: procId, timeout_ms: timeoutMs - elapsed });
+    const line = await invoke<string>('mcp_read', { id: procId, timeoutMs: timeoutMs - elapsed });
     const t = line.trim();
     if (!t) continue;
     try {

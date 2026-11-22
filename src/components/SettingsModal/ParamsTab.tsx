@@ -16,12 +16,7 @@ interface Props {
 }
 
 /** Model parametreleri + yedek model + fiyat tablosu. */
-export default function ParamsTab({
-  draft,
-  patch,
-  catalogLoaded,
-  onApplyCatalogPrices,
-}: Props) {
+export default function ParamsTab({ draft, patch, catalogLoaded, onApplyCatalogPrices }: Props) {
   const t = useT();
   const [sub, setSub] = useState<'model' | 'prices'>('model');
   // Fiyat tablosu kendi arama/süzgecini kullanır (model listesinden bağımsız).

@@ -22,7 +22,9 @@ export default function AppearanceTab({ draft, patch }: Props) {
         <div className="sec-title">{t('settings.appearance.viewSection')}</div>
 
         <div className="field">
-          <label className="field-label">{t('settings.appearance.fontSize', { size: draft.fontSize })}</label>
+          <label className="field-label">
+            {t('settings.appearance.fontSize', { size: draft.fontSize })}
+          </label>
           <input
             className="slider"
             type="range"
@@ -67,7 +69,10 @@ export default function AppearanceTab({ draft, patch }: Props) {
           />
           <span>
             {t('settings.appearance.clockFormatValue', {
-              format: draft.clockFormat === '12h' ? t('settings.appearance.clock12') : t('settings.appearance.clock24'),
+              format:
+                draft.clockFormat === '12h'
+                  ? t('settings.appearance.clock12')
+                  : t('settings.appearance.clock24'),
             })}
           </span>
         </div>

@@ -26,7 +26,8 @@ export default function ChatTab({ draft, patch, onOpenProviders }: Props) {
   const t = useT();
   // API anahtarı olmayan sağlayıcının modelleri listelenmez.
   const view = useMemo(() => modelView(draft), [draft]);
-  const summarizerKnown = !draft.summarizerModel || view.all.some((m) => m.id === draft.summarizerModel);
+  const summarizerKnown =
+    !draft.summarizerModel || view.all.some((m) => m.id === draft.summarizerModel);
   // Geçersiz allowlist satırları motor tarafında yok sayılır — kullanıcıya bildir.
   const badAllowLines = useMemo(
     () => allowListIssues(draft.customAllowList),
@@ -154,12 +155,29 @@ export default function ChatTab({ draft, patch, onOpenProviders }: Props) {
             value={Math.round(draft.execTimeoutMs / 1000)}
             onChange={(e) =>
               patch({
-                execTimeoutMs:
-                  Math.max(1, Math.min(600, Number(e.target.value) || 300)) * 1000,
+                execTimeoutMs: Math.max(1, Math.min(600, Number(e.target.value) || 300)) * 1000,
               })
             }
           />
           <span className="field-note">{t('settings.chat.execTimeoutNote')}</span>
+        </div>
+
+        <div className="field">
+          <label className="field-label">{t('settings.chat.agentMaxSteps')}</label>
+          <input
+            className="input"
+            type="number"
+            min={0}
+            max={200}
+            step={1}
+            value={draft.agentMaxSteps}
+            onChange={(e) =>
+              patch({
+                agentMaxSteps: Math.max(0, Math.min(200, Math.round(Number(e.target.value) || 0))),
+              })
+            }
+          />
+          <span className="field-note">{t('settings.chat.agentMaxStepsNote')}</span>
         </div>
 
         <div className="checkrow">

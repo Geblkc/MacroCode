@@ -201,9 +201,7 @@ export function parseModelsDev(raw: unknown, now: number = Date.now()): ModelsDe
  * models.dev kataloğunu çeker.
  * `fetchImpl` verilirse (test) o, yoksa `fetchFor` (Tauri'da Rust proxy) kullanılır.
  */
-export async function fetchModelsDevCatalog(
-  fetchImpl?: typeof fetch,
-): Promise<ModelsDevCatalog> {
+export async function fetchModelsDevCatalog(fetchImpl?: typeof fetch): Promise<ModelsDevCatalog> {
   const res = await fetchFor(MODELS_DEV_URL, fetchImpl)(MODELS_DEV_URL, {
     headers: { accept: 'application/json' },
   });

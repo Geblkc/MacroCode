@@ -1,10 +1,17 @@
 import { useState } from 'react';
-import { PROVIDER_DEFS, PROVIDER_IDS, getCapabilitiesForModel, isModelEnabled } from '../../lib/providers';
+import {
+  PROVIDER_DEFS,
+  PROVIDER_IDS,
+  getCapabilitiesForModel,
+  hasProviderKey,
+  isModelEnabled,
+} from '../../lib/providers';
 import ModelPicker from '../ModelPicker';
 import { Icon } from '../icons';
 import Segmented from '../Segmented';
 import Switch from '../Switch';
 import { useT } from '../../lib/i18n';
+import { useSettingsStore } from '../../store/settings';
 import type { TranslationKey } from '../../lib/i18n/locales/tr';
 import type { CustomModel, DiscoveredModel, ModelCapabilities, Provider } from '../../types';
 import type { Draft } from './types';
@@ -45,6 +52,8 @@ const CATALOG_LABELS: Record<string, string> = {
   minimax: 'MiniMax',
   moonshotai: 'Kimi (Moonshot AI)',
   zhipuai: 'GLM (Zhipu AI)',
+  nvidia: 'NVIDIA',
+  evren: 'EVREN LLM',
 };
 
 function fmtCtx(n: number): string {
@@ -72,6 +81,13 @@ export default function ModelsTab(props: Props) {
   const t = useT();
   const { draft, patch } = props;
   const [sub, setSub] = useState<'list' | 'catalog' | 'manual'>('list');
+  const liveCatalog = useSettingsStore((s) => s.liveCatalog);
+  const liveErrors = useSettingsStore((s) => s.liveErrors);
+  const liveBusy = useSettingsStore((s) => s.liveBusy);
+  const apiKeys = useSettingsStore((s) => s.apiKeys);
+  const refreshLive = useSettingsStore((s) => s.refreshLiveCatalog);
+  const liveProviders = PROVIDER_IDS.filter((p) => hasProviderKey(p, apiKeys));
+  const anyLiveBusy = liveProviders.some((p) => liveBusy[p]);
 
   // Liste alt sekmesi
   const [listQuery, setListQuery] = useState('');
@@ -88,7 +104,11 @@ export default function ModelsTab(props: Props) {
   const [newProvider, setNewProvider] = useState<Provider>('openai');
   const [newContext, setNewContext] = useState('');
   const [newMaxOutput, setNewMaxOutput] = useState('');
-  const [caps, setCaps] = useState<ModelCapabilities>({ tools: true, vision: false, reasoning: false });
+  const [caps, setCaps] = useState<ModelCapabilities>({
+    tools: true,
+    vision: false,
+    reasoning: false,
+  });
   const [localErr, setLocalErr] = useState<string | null>(null);
 
   const view = modelView(draft);
@@ -106,7 +126,8 @@ export default function ModelsTab(props: Props) {
     const q = query.trim().toLowerCase();
     if (!q) return true;
     const c = m.catalog;
-    const haystack = `${m.id} ${c?.name ?? ''} ${c?.description ?? ''} ${c?.family ?? ''}`.toLowerCase();
+    const haystack =
+      `${m.id} ${c?.name ?? ''} ${c?.description ?? ''} ${c?.family ?? ''}`.toLowerCase();
     return haystack.includes(q);
   });
   const catalogProviders = [...new Set(catalogRows.map((m) => m.catalog?.provider ?? ''))]
@@ -131,7 +152,9 @@ export default function ModelsTab(props: Props) {
       name: newName.trim() || id,
       capabilities: { ...caps },
       ...(newContext.trim() && Number.isFinite(ctx) && ctx > 0 ? { contextWindow: ctx } : {}),
-      ...(newMaxOutput.trim() && Number.isFinite(maxOut) && maxOut > 0 ? { maxOutput: maxOut } : {}),
+      ...(newMaxOutput.trim() && Number.isFinite(maxOut) && maxOut > 0
+        ? { maxOutput: maxOut }
+        : {}),
     });
     setNewId('');
     setNewName('');
@@ -253,10 +276,16 @@ export default function ModelsTab(props: Props) {
                           <span className={mCaps?.tools ? 'on' : ''} title={t('titlebar.capTools')}>
                             <Icon name="wrench" size="sm" />
                           </span>
-                          <span className={mCaps?.vision ? 'on' : ''} title={t('titlebar.capVision')}>
+                          <span
+                            className={mCaps?.vision ? 'on' : ''}
+                            title={t('titlebar.capVision')}
+                          >
                             <Icon name="eye" size="sm" />
                           </span>
-                          <span className={mCaps?.reasoning ? 'on' : ''} title={t('titlebar.capReasoning')}>
+                          <span
+                            className={mCaps?.reasoning ? 'on' : ''}
+                            title={t('titlebar.capReasoning')}
+                          >
                             <Icon name="spark" size="sm" />
                           </span>
                         </span>
@@ -297,6 +326,65 @@ export default function ModelsTab(props: Props) {
 
       {/* ── Katalog & keşif ── */}
       <div hidden={sub !== 'catalog'}>
+        <div className="sec">
+          <div className="sec-title">
+            {t('settings.models.liveSection')}
+            <button
+              className="mini-btn"
+              disabled={anyLiveBusy || liveProviders.length === 0}
+              onClick={() => void refreshLive(undefined, true)}
+            >
+              {anyLiveBusy ? t('settings.models.liveBusy') : t('settings.models.liveRefreshAll')}
+            </button>
+          </div>
+          <div className="field-note mb-2">{t('settings.models.liveNote')}</div>
+          {liveProviders.length === 0 ? (
+            <div className="field-note">{t('settings.models.liveNone')}</div>
+          ) : (
+            liveProviders.map((p) => {
+              const live = liveCatalog?.[p];
+              const err = liveErrors[p];
+              const busy = !!liveBusy[p];
+              return (
+                <div key={p} className="mb-2">
+                  <span className="field-row">
+                    <span className="field-label flex-2 m-0">
+                      {PROVIDER_DEFS[p]?.label ?? p}
+                      {live ? (
+                        <span className="status-dim">
+                          {' '}
+                          · {t('settings.models.liveCount', { count: live.models.length })}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className={`st ${live ? 'ok' : 'no'}`}>
+                      {live ? t('settings.models.liveApi') : t('settings.models.liveFallback')}
+                    </span>
+                    <button
+                      className="mini-btn"
+                      disabled={busy}
+                      onClick={() => void refreshLive(p, true)}
+                    >
+                      {busy ? t('common.loading') : t('common.refresh')}
+                    </button>
+                  </span>
+                  {err ? (
+                    <span className="field-note">
+                      {t('settings.models.liveError', { message: err })}
+                    </span>
+                  ) : live ? (
+                    <span className="field-note">
+                      {t('settings.models.liveUpdated', {
+                        time: new Date(live.fetchedAt).toLocaleString(),
+                      })}
+                    </span>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+
         <div className="sec">
           <div className="sec-title">{t('settings.models.refreshSection')}</div>
           <div className="field-note mb-2">{t('settings.models.refreshNote')}</div>
@@ -369,7 +457,9 @@ export default function ModelsTab(props: Props) {
                             output: fmtUsd(c.cost.output),
                           })}${
                             c.cost.cache_read !== undefined
-                              ? t('settings.models.catalogCostCache', { cache: fmtUsd(c.cost.cache_read) })
+                              ? t('settings.models.catalogCostCache', {
+                                  cache: fmtUsd(c.cost.cache_read),
+                                })
                               : ''
                           }`
                         : '',
@@ -377,15 +467,14 @@ export default function ModelsTab(props: Props) {
                       .filter(Boolean)
                       .join(' · ');
                     return (
-                      <span
-                        key={`${m.source}:${m.id}`}
-                        className="field-row mb-1"
-                        title={title}
-                      >
+                      <span key={`${m.source}:${m.id}`} className="field-row mb-1" title={title}>
                         <span className="field-label flex-2 m-0">
                           {m.id}
                           <span className="caps inline">
-                            <span className={c?.toolCall ? 'on' : ''} title={t('titlebar.capTools')}>
+                            <span
+                              className={c?.toolCall ? 'on' : ''}
+                              title={t('titlebar.capTools')}
+                            >
                               <Icon name="wrench" size="sm" />
                             </span>
                             <span
@@ -394,7 +483,10 @@ export default function ModelsTab(props: Props) {
                             >
                               <Icon name="eye" size="sm" />
                             </span>
-                            <span className={c?.reasoning ? 'on' : ''} title={t('titlebar.capReasoning')}>
+                            <span
+                              className={c?.reasoning ? 'on' : ''}
+                              title={t('titlebar.capReasoning')}
+                            >
                               <Icon name="spark" size="sm" />
                             </span>
                           </span>
@@ -525,7 +617,10 @@ export default function ModelsTab(props: Props) {
                   aria-pressed={caps[k]}
                   onClick={() => setCaps((c) => ({ ...c, [k]: !c[k] }))}
                 >
-                  <Icon name={k === 'tools' ? 'wrench' : k === 'vision' ? 'eye' : 'spark'} size="sm" />
+                  <Icon
+                    name={k === 'tools' ? 'wrench' : k === 'vision' ? 'eye' : 'spark'}
+                    size="sm"
+                  />
                   {t('settings.models.capLabel', { cap: k })}
                 </button>
               ))}

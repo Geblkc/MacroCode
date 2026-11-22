@@ -41,7 +41,9 @@ describe('Faz 7 A2 — sistem rolü mesajları (compaction özeti)', () => {
 
   it('Anthropic: özet istek gövdesinin system alanına taşınır', async () => {
     const fetchImpl = vi.fn(async () =>
-      sseResponse(['data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}']),
+      sseResponse([
+        'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"ok"}}',
+      ]),
     );
     await anthropicProvider.stream({
       apiKey: 'sk-ant-test-key',
@@ -52,7 +54,10 @@ describe('Faz 7 A2 — sistem rolü mesajları (compaction özeti)', () => {
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     const [, opts] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
-    const body = JSON.parse(String(opts.body)) as { system?: string; messages: Array<{ role: string }> };
+    const body = JSON.parse(String(opts.body)) as {
+      system?: string;
+      messages: Array<{ role: string }>;
+    };
     expect(body.system).toContain('SEN SİSTEM');
     expect(body.system).toContain(SUMMARY);
     expect(body.messages.every((m) => m.role !== 'system')).toBe(true);

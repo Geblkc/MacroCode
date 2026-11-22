@@ -11,7 +11,11 @@ import { approxHistoryTokens } from './tokens';
 import type { AgentHistoryItem } from './agent';
 import type { Message } from '../../types';
 
-function item(role: string, chars: number, extra: Partial<AgentHistoryItem> = {}): AgentHistoryItem {
+function item(
+  role: string,
+  chars: number,
+  extra: Partial<AgentHistoryItem> = {},
+): AgentHistoryItem {
   return { role, content: 'x'.repeat(chars), ...extra };
 }
 
@@ -58,7 +62,10 @@ describe('Faz 2 — compaction', () => {
     const { keep, drop } = splitAtCompactionPoint(h, 1000);
     // tool sonucu keep'teyse eşleşen assistant da keep'te olmalı
     const keepIds = new Set(
-      keep.flatMap((m) => [...(m.toolCalls ?? []).map((c) => c.id), ...(m.toolCallId ? [m.toolCallId] : [])]),
+      keep.flatMap((m) => [
+        ...(m.toolCalls ?? []).map((c) => c.id),
+        ...(m.toolCallId ? [m.toolCallId] : []),
+      ]),
     );
     if (keep.some((m) => m.toolCallId === 'k1')) {
       expect(keepIds.has('k1')).toBe(true);
@@ -98,7 +105,9 @@ describe('Faz 2 — compaction', () => {
 
   it('transcript tool JSON kırpılır', () => {
     const t = buildTranscript([
-      item('assistant', 10, { toolCalls: [{ id: 'c', name: 'exec', args: { cmd: 'x'.repeat(1000) } }] }),
+      item('assistant', 10, {
+        toolCalls: [{ id: 'c', name: 'exec', args: { cmd: 'x'.repeat(1000) } }],
+      }),
     ]);
     expect(t).toContain('tool ▸ exec');
     expect(t.length).toBeLessThanOrEqual(12_000 + 300);
@@ -112,12 +121,11 @@ describe('Faz 2 — compaction', () => {
       timestamp: i,
     }));
     const budget = 800;
-    const { messages: next, dropped, kept } = await compactSessionMessages(
-      msgs,
-      budget,
-      async () => 'özet',
-      1720000000000,
-    );
+    const {
+      messages: next,
+      dropped,
+      kept,
+    } = await compactSessionMessages(msgs, budget, async () => 'özet', 1720000000000);
     expect(dropped).toBeGreaterThan(0);
     expect(next[0].role).toBe('system');
     expect(next[0].content).toContain('[özet');

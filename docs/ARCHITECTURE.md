@@ -3,7 +3,7 @@
 > Bu belge, MacroCode projesinin **güncel mimarisini** tanımlayan canlı referans belgesidir.
 > Tarihsizdir: sadece mevcut durum anlatılır. Tarihli işlem geçmişi için bkz. `Değişiklik Raporu.md`.
 > Kod değiştiğinde bu dosya da güncellenmelidir.
-> Son güncelleme: 2026-10-30 · Sürüm: `0.2.1` (sabit) · 10 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai) · models.dev kataloğu entegrasyonu
+> Son güncelleme: 2026-11-22 · Sürüm: `1.0.0` (sabit) · 12 provider (anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai/nvidia/evren) · models.dev kataloğu entegrasyonu
 > **Çoklu dil (i18n)** eklendi: TR/EN/DE/FR/ES — sıfır bağımlılık, elle yazılmış motor (bkz. §18).
 > **Görsel yeniden tasarım** uygulandı: yeni token sistemi, durum çubuğu, ikon seti, zengin markdown + sözdizimi renklendirme, yeniden tasarlanan ayarlar modalı, yüksek kontrast modu.
 > **Klasör seçme altyapısı** eklendi: `tauri-plugin-dialog` ile yerel klasör diyaloğu
@@ -52,13 +52,13 @@
 ## 1. Proje Genel Bakış
 
 **MacroCode**, kullanıcıların kendi API anahtarlarını girerek birden fazla AI sağlayıcısıyla
-(Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI) **terminal benzeri bir arayüzde** sohbet edebildiği,
+(Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi, GLM, NVIDIA, EVREN) **terminal benzeri bir arayüzde** sohbet edebildiği,
 açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 
 | Özellik | Değer |
 |---|---|
 | Ürün adı | `MacroCode` |
-| Sürüm | `0.2.1` |
+| Sürüm | `1.0.0` |
 | Kimlik / Bundle ID | `com.macrocode.app` |
 | Model | **BYOK** (Bring Your Own Key) — abonelik yok, kullanıcı kendi anahtarını kullanır |
 | Hedef kullanıcı | Geliştirici (terminal arayüzü seven, gizliliğine değer veren) |
@@ -108,13 +108,13 @@ Anthropic (Tauri + toolsuz + görselsiz) **Rust `stream_anthropic` proxy** (`Cha
 | Alan | İçerik |
 |---|---|
 | İskelet | Tauri + React + Vite + Zustand, özel Titlebar, sidebar, terminal |
-| Keystore + settings | 10 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
-| Provider katmanı | 10 sağlayıcı SSE streaming, registry + capability lookup |
+| Keystore + settings | 12 provider anahtar/URL yönetimi + model/systemPrompt/fontSize |
+| Provider katmanı | 12 sağlayıcı SSE streaming, registry + capability lookup |
 | Model kataloğu | `docs/MODELS.md` — registry listesi (27 model) + models.dev eşleşmesi |
 | Slash komutları + streaming hook | 26 komut (`COMMAND_SPECS` tek kaynak + inputbar öneri menüsü; `/mode`+`/build`+`/plan`+`/ask`) + `/export` varyantları, abort + usage kaydı |
 | Terminal UI | Markdown render, boot sequence, SQLite persist (debounce) |
 | Rust proxy | `stream_anthropic` (tool-use + vision + thinking, saf proxy) |
-| Agent motoru | `createAgentRun` (maxSteps 8, duraklatılabilir) + workspace fs/patch/shell tool'ları + skills + `subagent` aracı |
+| Agent motoru | `createAgentRun` (varsayılan sınırsız adım; ayarlardan 1–200 güvenlik sönümü, duraklatılabilir) + workspace fs/patch/shell tool'ları + skills + `subagent` aracı |
 
 ---
 
@@ -258,7 +258,7 @@ MacroCode/
 │   │   ├── markdown.ts          # Blok + satır içi markdown tokenizer + güvenli DOM render
 │   │   ├── search.ts            # konuşma içi arama (saf): findHits satır bazlı + stepHit tur gezinmesi
 │   │   ├── engine/              # UI'dan bağımsız motor (vitest'li)
-│   │   │   ├── agent.ts         # createAgentRun (maxSteps 8, onay-bekleyenlerde durur) + buildAgentHistory
+│   │   │   ├── agent.ts         # createAgentRun (sınırsız adım varsayılan, maxSteps ayarıyla sınır, onayda durur) + buildAgentHistory
 │   │   │   ├── agentModes.ts    # build/plan/ask: filterToolsForMode + getDisallowedToolsForMode + getModePrompt (saf, testli)
 │   │   │   ├── context.ts       # ignore/secret/budget/prioritize + summarizeWorkspace
 │   │   │   ├── compactionMemo.ts # özet hafızası (özet + sonrası mesajlar; tekrar özetlemeyi önler, Faz 7; id tabanlı kesim Faz 9)
@@ -266,7 +266,9 @@ MacroCode/
 │   │   │   ├── policy.ts        # client-side jail + onay politikası (BLOCKED_DIRS bileşen bazlı, Y1)
 │   │   │   ├── providers.ts     # supportsTools capability lookup
 │   │   │   ├── skills.ts        # skill registry (repo-guide yerleşik)
-│   │   │   ├── toolspec.ts      # kanonik 11 tool (subagent dahil) + provider dönüşümleri
+│   │   │   ├── toolspec.ts      # kanonik 12 tool (subagent dahil) + provider dönüşümleri
+│   │   │   ├── toolOutput.ts   # merkezî tool-output policy: head/tail, artifact, hard-mode
+│   │   │   ├── toolOutputPolicy.json # TS/Rust ortak output eşikleri
 │   │   │   ├── allowlist.json   # exec allowlist tek kaynağı (TS+Rust)
 │   │   │   ├── blocks.json      # Faz 10 D2c: blok listeleri tek kaynağı (TS import + Rust include_str!)
 │   │   │   ├── subagent.ts      # salt-okunur alt-agent (kendi bütçesi, tek özet; `subagent` aracı olarak bağlı)
@@ -315,12 +317,14 @@ MacroCode/
         ├── lib.rs               # Tauri Builder: pluginler (store/sql/**dialog**) + invoke_handler (keystore + stream_anthropic + fs/exec/mcp) + McpState + exit hook
         └── commands/
             ├── mod.rs           # pub mod keystore/stream/fs/exec/mcp/paths + re-export'lar
+            ├── db.rs             # db_save_sessions: tek SQLite transaction'da snapshot yazımı
             ├── keystore.rs      # set/get/delete_api_key, key_status, has_any_key, key_hint (7 + custom_*)
             ├── paths.rs         # get_app_paths (app_data_dir + keys.json + sessions.db) — Faz 13
             ├── stream.rs        # stream_anthropic Rust SSE proxy (Channel<StreamEvent>)
             ├── mcp.rs           # mcp_spawn/write/read/kill (tokio subprocess, kill_on_drop)
-            ├── fs.rs            # list_dir/read_file(offset)/grep_files(regex)/glob_files/write_file(O_EXCL)/apply_patch (root jail, backup+atomic) + undo_patch manifest doğrulaması (safe_backup_name, K1) + list_tree (Faz 9 repo haritası) + memory_read/memory_append (Faz 9 kalıcı not)
-            └── exec.rs          # exec_cmd (allowlist.json tek kaynak + kullanıcı extra_allow tablosu [Faz 8 L3], timeout 1-30sn varsayılan 15sn, 8k truncate; M5 cwd jail root zorunlu; M6 git yol argümanı jail'i; FILE_ARG_CMDS + L1 extra_allow jail'i atlatamaz)
+            ├── fs.rs            # list_dir/read_file(offset+column)/grep_files(regex)/glob_files/write_file(O_EXCL)/apply_patch (root jail, backup+atomic) + undo_patch manifest doğrulaması (safe_backup_name, K1) + list_tree (Faz 9 repo haritası) + memory_read/memory_append (Faz 9 kalıcı not) + managed artifact pagination
+            ├── tool_output.rs   # ortak output policy eşikleri, güvenli artifact yazma/özetleme
+            └── exec.rs          # exec_cmd (allowlist.json tek kaynak + kullanıcı extra_allow tablosu [Faz 8 L3], timeout 1-600sn; TS varsayılan 30/120/300sn, Rust fallback 15sn, dosyaya yakalama + output policy; M5 cwd jail root zorunlu; M6 git yol argümanı jail'i; FILE_ARG_CMDS + L1 extra_allow jail'i atlatamaz; allow_unlisted = yalnızca kullanıcı onayıyla allowlist kontrolü atlanır)
 ```
 
 ---
@@ -515,6 +519,9 @@ interface SettingsStore {
   prices: Record<string, ModelPrice>; // 1M token/USD (eksikse maliyet yok)
   discovered: DiscoveredModel[];   // keşfedilen, henüz eklenmemiş
   modelsDevCatalog: ModelsDevCatalog | null; // models.dev kataloğu (PERSIST EDİLMEZ — ayrı localStorage anahtarı)
+  liveCatalog: LiveCatalog | null; // sağlayıcı API'sinden canlı model listeleri (PERSIST EDİLMEZ — ayrı localStorage anahtarı)
+  liveErrors: Partial<Record<Provider, string>>; // son canlı yenileme hatası (eski liste korunur)
+  liveBusy: Partial<Record<Provider, boolean>>;  // yenileme sürüyor (UI)
   summarizerProvider: Provider | ''; // Faz 2: boş = aktif sağlayıcı
   summarizerModel: string;         // Faz 2: boş = aktif model
   showThinking: boolean;           // Faz 4: reasoning bloğu görünürlüğü
@@ -629,6 +636,28 @@ META_ID         = '__meta__'   // aktif session id bu satırda tutulur
 
 `bootedRef` — StrictMode çift-çalışmasına karşı guard.
 
+### 6.4 Proje anlık görüntüleri (`snapshots.rs`)
+
+Agent'ın dosya düzenlemeleri için **workspace genelinde** geri yükleme noktası.
+Mevcut `undo_patch` tek dosya bazlıdır; snapshot tüm projeyi kapsar.
+
+- Depolama: `<workspace>/.macrocode/snapshots/<id>/<göreli-yol>` + `manifest.json`.
+  `.macrocode` dizini `blocks.json` gereği taramaya girmez (öz-yineleme yok).
+- Filtre: `blocks.json` tek kaynağı (`.git`, `node_modules`, `.env*`, secret uzantılar),
+  symlink'ler atlanır, binary / 1 MB üstü dosyalar `excluded` olarak kaydedilir
+  (geri yüklemede bunlara dokunulmaz). Limit: 5000 dosya / 50 MB.
+- Komutlar: `create_snapshot(root, label)`, `list_snapshots(root)`,
+  `restore_snapshot(root, id)`, `delete_snapshot(root, id)`. Tüm işlemler tek bir
+  `Mutex<()>` ile serialize edilir; manifest atomik yazılır (tmp + rename).
+- **Geri yükleme güvenliği:** restore öncesi mevcut durum otomatik olarak
+  `before-restore-<id>` snapshot'ı olarak kaydedilir; dosyalar atomik yazılır,
+  snapshot'ta olmayan (sonradan eklenmiş) dosyalar silinir. Snapshot tüketilmez.
+- Arayüz: `/snapshot [etiket]`, `/snapshots`, `/restore <id>`, `/snapshot-del <id>`
+  + Titlebar workspace menüsünden "Proje Anlık Görüntüleri" paneli.
+- Agent aracı: `create_snapshot` yalnız `build` modunda sunulur (disk yazdığı için
+  `plan`/`ask` ve `auto-read` kapalı). `restore_snapshot` ajana verilmez — daima
+  kullanıcı onayından geçer.
+
 ---
 
 ## 7. AI Provider Katmanı (`src/lib/providers/`)
@@ -724,7 +753,9 @@ Yardımcılar: `common.ts` → `systemTextOf(messages)` / `withoutSystemMessages
 
 ### 7.5 Registry (`providers/index.ts`) + `openaiCompatible.ts` + `rustStream.ts`
 
-- `PROVIDER_DEFS` + `PROVIDER_IDS` + `PROVIDERS` (10 provider). `ALL_MODELS` registry'den türetilir.
+- `PROVIDER_DEFS` + `PROVIDER_IDS` + `PROVIDERS` (12 provider). `ALL_MODELS` registry'den türetilir.
+  `nvidia` çekirdek model taşımaz — modeller yalnızca canlı `/v1/models` keşfinden gelir.
+  `evren` modelleri `evren/` önekli tutulur; `mapModel` istek gövdesinde öneği sıyırır.
 - `getModel/getCapabilitiesForModel/supportsToolsForModel/getMaxOutputForModel/getProviderForModel`, `isKnownModel`.
 - `suggestProvider()` — `/provider` ve `getProvider` hatasında "bunu mu demek istedin" önerisi.
 - `resolveModels(customs)` — registry + elle eklenenler (çakışmada custom kazanır);
@@ -796,6 +827,32 @@ Ollama bu listede yoktur (yerel modeller `discoverOllama` ile bulunur).
   Uygulama: Titlebar açılır listesi (arama kutusu + "🔑 … anahtar ekle" satırı),
   Ayarlar > Modeller + Sohbet (aynı filtre + "anahtar ekle"), `/model` komutu
   (sağlayıcı başına model sayısı; anahtarsız sağlayıcı uyarı satırı).
+
+### 7.7 Canlı API Kataloğu (`providers/discovery.ts` + `providers/liveCatalog.ts`)
+
+Model listesinin **birincil kaynağı sağlayıcının kendi `/models` ucudur**.
+
+- **`discovery.ts`** — `discoverProviderModels(provider, {apiKey, baseUrl,
+  ollamaUrl})`: Anthropic (`/v1/models`, `x-api-key` + `anthropic-version`,
+  sayfalı), Gemini (`/v1beta/models`, yalnız `generateContent`), OpenAI uyumlu
+  sağlayıcılar (`{base}/models`), OpenRouter (public), Ollama (`/api/tags`).
+  Her istek 10 sn timeout + `fetchFor` (CSP dışı host → Rust proxy).
+  `isLikelyChatModelId()` embedding/TTS/görsel/moderasyon id'lerini eler.
+- **`liveCatalog.ts`** — sağlayıcı başına `{fetchedAt, models}`; localStorage
+  `macrocode-live-models` (24 saat TTL, zustand persist'ine girmez).
+  `liveEntryToModel()` API kaydını çekirdek/models.dev metadata'sıyla
+  zenginleştirir; eşleşmeyen modelde güvenli varsayılanlar (araç kapalı).
+- **`resolveModels()`** — canlı listesi olan sağlayıcının modellerini API
+  listesiyle değiştirir (`provider` sırası korunur); API yoksa çekirdek +
+  models.dev kullanılır. `customModels` her durumda kazanır.
+- **Store** — `liveCatalog`, `liveErrors`, `liveBusy`;
+  `loadLiveCatalog()` (önbellek), `refreshLiveCatalog(provider?, force?)`,
+  `clearLiveCatalog()`. Açılışta, anahtar/URL değişiminde ve Ayarlar → Modeller
+  → “Tümünü yenile” ile tetiklenir. Hata durumunda son başarılı liste korunur,
+  yoksa mevcut kataloğa düşülür.
+- **UI** — Ayarlar → Modeller → Katalog & keşif üstünde “Canlı API kataloğu”
+  bölümü: sağlayıcı başına model sayısı, kaynak (API / mevcut katalog), son
+  güncelleme ve yenile butonu.
 
 ---
 
@@ -870,7 +927,7 @@ const { sendAgent } = useAgent();
   onay akışında uygulanıyordu → dosya değişmiyordu).
 - **Faz 9 (P9.5 — B3) — hafıza kesimi id tabanlı:** compaction hafızası artık
   `coveredIds` ile kesiyor (zaman damgası kesimindeki "aynı ms" riski giderildi).
-- **Faz 8 L1 — `subagent` aracı (11. çekirdek tool):** salt-okunur alt-agent
+- **Faz 8 L1 — `subagent` aracı (12. çekirdek tool):** salt-okunur alt-agent
   (kendi bütçesiyle, `disallowTools` ile yazma/özyineleme kapalı) koordinatöre tek
   özet döner; alt-ajanın **metni** ana akışa ikinci kez akmaz (araç olayları geçer).
 - **Faz 8 L2 — `plan` → `todo`:** plan adımları `plan-N` görev id'leriyle türetilir
@@ -882,6 +939,34 @@ const { sendAgent } = useAgent();
 - **Faz 7 A4:** kullanım sayacı **tur içi `max`**, **tur arası `sum`** (`sumUsage`).
   Tek istekte kümülatif gelen usage event'leri `mergeUsage` (max) ile birleşir; her tur
   ayrı bir istek olduğu için turlar toplanır. Aksi halde maliyet "en büyük tur" olarak raporlanıyordu.
+
+### 8.1 Tool çıktı politikası ve artifact okuma
+
+Tüm provider-facing tool sonuçları (başarı, hata, MCP, FS, patch, subagent ve
+exec) ortak output policy'den geçer. TS agent katmanı bunu
+`engine/toolOutput.ts` ile uygular; exec çıktısı Rust backend'de aynı policy
+ile önceden şekillendirilir. Eşikler `engine/toolOutputPolicy.json` dosyasında
+tutulur; Rust backend aynı dosyayı `include_str!` ile gömer.
+
+- **≤ 12.000 karakter:** içerik modele değiştirilmeden gider.
+- **12.000 karakter üstü (orta):** ilk 4.000 ve son 2.000 karakter korunur,
+  orta bölüm atlanır; tam çıktı `.macrocode/tool-outputs/tool-output-*.log`
+  artifact'ına yazılır.
+- **128 KiB / 20.000 satır (hard):** modele ham içerik gönderilmez; yalnızca
+  artifact yolu, bayt/satır sayısı, kısa özet ve `read_file` talimatı verilir.
+- Exec stdout/stderr akışı geçici dosyaya yakalanır; hard sınırda canlı içerik
+  akışı durur, dosya yakalaması sürer. Capture dosyaları süreç spawn edilmeden
+  önce açılır; drain timeout olursa eksik yakalama `capture_incomplete=true`
+  ile açıkça bildirilir. Artifact yazma başarısız olursa ham hard içerik
+  gövdesi gösterilmez.
+- Model, artifact'ı `read_file(path, offset, limit)` ile sayfalayabilir. Uzun
+  satır devamı için `next_offset`/`next_column` metadata'sı döner. Keyfi
+  artifact baytları modele UTF-8 metin projeksiyonu olarak verilir; normal
+  `.macrocode` dosyaları (context, backups vb.) kapalı kalır.
+
+Modele giden kırpma açıklamaları İngilizce ve yapılandırılmıştır; kullanıcı
+terminalindeki `agent.outputClipped` / `agent.outputArtifactFailed` notice'leri
+i18n sözlüğünden gelir.
 
 > Slash komutları `send`'e gitmez; ayrıştırma `App.handleSend` içindedir (bkz. §9).
 
@@ -898,7 +983,7 @@ const { sendAgent } = useAgent();
 | `/reset` | Mesajları siler (`clearSession`) |
 | `/session` | Yeni session |
 | `/model` / `/model <id>` | Aktif modeli gösterir / ayarlar (bilinmeyense uyarı + registry/custom capability satırı) |
-| `/provider <p>` | Sağlayıcıyı doğrular + ayarlar (10 provider; yazım hatasında öneri) |
+| `/provider <p>` | Sağlayıcıyı doğrular + ayarlar (12 provider; yazım hatasında öneri) |
 | `/key` | Ayarlar modalını açar |
 | `/export` / `/export md` | Markdown indirir (L6/L7: gizli değer kalıpları redakte edilir) |
 | `/export json` / `/backup` | JSON yedek indirir (L6/L7: aynı redaksiyon, JSON yapısı korunur) |
@@ -1188,11 +1273,11 @@ güvenlik/kapsam dokümanı: `docs/GIT.md`.
 
 **Faz 3 — içerik ayrıntılandırması:**
 
-- **Sağlayıcılar 4 bölüme ayrıldı:** Bulut sağlayıcıları (6 kart) · Yerel sağlayıcı
+- **Sağlayıcılar 4 bölüme ayrıldı:** Bulut sağlayıcıları (11 kart) · Yerel sağlayıcı
   (Ollama, ayrı kart) · Özel taban URL · Özel uçlar.
-- **`PROVIDER_DEFS` → `keyUrl` + `keyUrlLabel` + `defaultBaseUrl`** (10 sağlayıcı).
+- **`PROVIDER_DEFS` → `keyUrl` + `keyUrlLabel` + `defaultBaseUrl`** (12 sağlayıcı).
   Her kartta **"Anahtar al"** dış bağlantısı (konsol adresiyle) görünür.
-- **"Tümünü test et"** butonu — 10 sağlayıcıyı sırayla test eder.
+- **"Tümünü test et"** butonu — 12 sağlayıcıyı sırayla test eder.
 - **Aktif sağlayıcı rozeti** (sağlayıcının başlığında yeşil "aktif" çipi).
 - **Base URL override**: placeholder artık **fabrika adresini** gösterir; dolu
   olduğunda **"sıfırla"** butonu çıkar. (Override yalnız OpenAI-uyumlu 4
@@ -1315,10 +1400,10 @@ Depolama: `app_data_dir/keys.json`. Format: `{ "<provider>": { "key": "<secret-o
 | `set_api_key` | Boş key reddi → `store.set` → `save()` |
 | `get_api_key` | Yoksa boş string |
 | `delete_api_key` | `store.delete` → `save()` |
-| `key_status` | 7 alan bool (`anthropic/openai/gemini/ollama_url/openrouter/deepseek/xai`, camelCase) |
+| `key_status` | 12 alan bool (`anthropic/openai/gemini/ollama_url/openrouter/deepseek/xai/minimax/moonshotai/zhipuai/nvidia/evren`, camelCase) |
 | `has_any_key` | Herhangi biri dolu mu |
 
-`VALID_PROVIDERS` 7 eleman (`ollamaUrl` kanonik) + `custom_<slug>` öneki (harf/rakam/`-`/`_`, ≤48).
+`VALID_PROVIDERS` 12 eleman (`ollamaUrl` kanonik) + `custom_<slug>` öneki (harf/rakam/`-`/`_`, ≤48).
 `normalize_provider`: `ollama`/`ollamaurl` → `ollamaUrl`.
 `key_hint` → `••••` + son 4 (tam değer dönmez; boşta boş string).
 Hata mesajları Türkçe ve aksiyon odaklı.
@@ -1413,9 +1498,9 @@ kabuğu) · `--fs-2xs..--fs-2xl` (10/11/12/13/15/18/24px) · `--line-height` 1.6
 
 **Boşluk:** `--sp-1..--sp-8` (2/4/8/12/16/24/32/48px) · **Yarıçap:** `--r-xs/s/md/lg/pill`
 
-**Hareket:** `--ease-out` · `--ease-in-out` · `--dur-1..--dur-4` (90/160/240/420ms)
+**Hareket:** `--ease-out` · `--ease-in-out` · `--dur-1..--dur-4` (90/160/240/420ms) · `--t-fast` (hızlı etkileşimler)
 
-**Ölçü:** `--h-titlebar` 40px · `--h-statusbar` 24px · `--w-sidebar` 240px (sürüklenebilir) · `--measure` 78ch
+**Ölçü:** `--h-titlebar` 40px · `--h-statusbar` 24px · `--sidebar-w` 240px (Sidebar.tsx sürükler) · `--measure` 78ch
 
 **Yüksek kontrast** (`styles/high-contrast.css`): `html[data-contrast="high"]` token
 override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sistem
@@ -1466,10 +1551,13 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 17. **Faz 8 L3:** `exec` allowlist'i iki katmanlıdır — TS `policy.ts` (karar) + Rust `exec.rs` (savunma). Kullanıcı tablosu (`customAllowList`) **her ikisine de** geçer; iki tablo **birleşik (OR)** uygulanır. `rm` kuralları hiçbir tabloda gevşemez.
 18. **Faz 8 L1:** `subagent` aracı onaysız çalışır (salt-okunur) — token harcar, dosya yazmaz. Alt-agent'ın kendi olayları ana akışa **metin dışında** geçer.
 19. **Faz 8 L7:** `auto-edit` modunda yazma araçları onaysız çalışır; bloklu dizinler (`.git`, `node_modules`, …) Rust `resolve_rooted` + TS `isPathSafe` ile yine kapalıdır. `exec` her modda onaylıdır.
+19a. **İzin listesindeki olmayan komutlar (unlisted):** `exec` için allowlist kapalı bir "izin verilen komut" tablosudur; listede olmayan bir komut (ör. `bash`, `docker ps`) **reddedilmez**, onay kartına düşer (`PolicyDecision.unlisted`). Kart kırmızı bir "izin listesinde değil" uyarısı gösterir; kullanıcı onaylarsa komut çalıştırılır. TS→Rust geçişinde `allow_unlisted` bayrağı **yalnızca onay yolunda** `true` olur ve Rust'ta yalnızca allowlist kontrolünü atlar — `rm` kuralları, komut-çalıştıran flag'ler (`find -exec`, `rg --pre`) ve dosya/cwd jail'i onayla da gevşemez. `auto-read` modunda `exec` tamamen kapalıdır.
+19b. **SQLite kilit düzeltmesi:** `tauri-plugin-sql` bağlantı havuzunda frontend'den ayrı `BEGIN`/`COMMIT` çağrıları gönderilmez; oturum snapshot'ı Rust `db_save_sessions` komutuyla tek transaction'da yazılır. Audit/usage/onay yazmaları `db.ts` içindeki FIFO kuyruğunda sıralanır, WAL modu açılır ve `SQLITE_BUSY` için kısa retry yapılır. Onay kuyruğu kilitliyse localStorage/bellek yedeğine düşer; agent akışı kesilmez.
 20. **Faz 9:** repo bağlamı system prompt'a **her istekte** gider (token maliyeti) → harita modelin context penceresine göre ölçeklidir (pencere × %2, tavan 8k karakter); anahtar dosya 2k, kalıcı not 4k karakter ile sınırlıdır. `.macrocode/context.md` 64KB'da durur (Rust tarafında sınır).
 21. **Faz 9:** `list_tree` yalnızca dosya listesi verir (göreli yol); bloklu dizinler, secret dosyalar ve 256KB üstü dosyalar Rust tarafından elenir.
 22. **Faz 10 O2:** `proxy_fetch` yalnızca http/https + izinli metot/başlık; link-local/metadata IP'leri (169.254/16, fe80::/10, 0.0.0.0/8, 100.64/10) engellenir (alan adı **çözülerek** denetlenir). LAN (`192.168.x`, `10.x`) ve `localhost` serbesttir (Ollama). Timeout 120 sn, yanıt sınırı 32 MB.
 23. **Faz 10 D1:** `keys.json` Unix'te `0600` (yalnızca sahibi okur).
+23a. **Ajan yedekleri:** `apply_patch` yedekleri `.macrocode/backups/` altına `<id>_<sanitize>.bak` olarak yazılır. Boşluk/unicode `_`'ye çevrilir; `.bak` uzantısı sayesinde proje test/lint araçları yedeği kaynak sanmaz. Geri alma `manifest.json` üzerinden `safe_backup_name` + jail doğrulamasıyla yapılır.
 24. **Faz 10 D2c:** blok listeleri `engine/blocks.json`'dan gelir (TS import, Rust `include_str!`) → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
 25. **Faz 10 + L6/L7:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder** (anahtar/token/JWT/URL-kimlik alan ve değer kalıpları) → API anahtarı loglanmaz. `/export`, `/backup` ve `/copy` çıktıları ile kalıcı `audit_log` kayıtları da aynı `redact` fonksiyonundan geçer; transkripte yapıştırılmış anahtarlar dosya/panoya/DB'ye düz metin taşınmaz.
 26. **Faz 11:** Prompt cache Anthropic'te **eşik kuralına bağlıdır** — önek < 1024 token (Haiku 2048) ise `cache_control` gönderilmez (API 400 döner). Tahmin char/4'tür; güvenlik payı 160 token'dır.
@@ -1601,7 +1689,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Log/gözlemlenebilirlik | `lib/logger.ts` (`logInfo/logWarn/logError` + redaksiyon) + `/log` komutu |
 | Proxy sertleştirme | `commands/proxy.rs` (method/header/IP/timeout/boyut kısıtları) + `rustFetch.ts` |
 | CI | `.github/workflows/ci.yml` (tsc+vitest+build+fmt+**clippy**+cargo test) + `scripts/smoke-test.sh` |
-| Dağıtım | `scripts/build-linux.sh` (deb/rpm/AppImage → `bundles/`) + `scripts/release.sh` (tag) + `.github/workflows/release.yml` (Linux+Windows → GitHub Release) + `docs/PACKAGING.md` |
+| Dağıtım | `scripts/build-linux.sh` (deb/rpm/AppImage → `bundles/`) + `scripts/release.sh` (sürüm bump) + `.github/workflows/release.yml` (Linux+Windows+macOS → GitHub Release) + `docs/PACKAGING.md` |
 | Prompt cache | `providers/promptCache.ts` (eşik + işaretleme) + `anthropic.ts` (`cache_control`) + `openaiCompatible.ts` (`prompt_cache_key`) + ayar `cachePrompts` |
 | Kalıcı compaction | `engine/compactionMemo.ts` (memoToPersisted/memoFromPersisted/resolveMemo) + `Session.compaction` + `store/session.ts` (`setCompaction`) |
 | Ajan devamı (run_state) | `engine/agent.ts` (`AgentRunState` + `createAgentRun(..., resume)`) + `engine/approvals.ts` (`runState`) + `useAgent.ts` (`restorePendingRuns`) |

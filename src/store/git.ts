@@ -263,11 +263,7 @@ export const useGitStore = create<GitStore>()(
           set({ selected: { path, staged } });
           const stillCurrent = () => {
             const cur = get().selected;
-            return (
-              rootOf() === root &&
-              cur?.path === path &&
-              cur?.staged === staged
-            );
+            return rootOf() === root && cur?.path === path && cur?.staged === staged;
           };
           try {
             const diff = await gitApi.diff(root, path, staged);

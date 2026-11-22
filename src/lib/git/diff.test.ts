@@ -89,8 +89,8 @@ describe('git diff ayrıştırıcı', () => {
   it('boş/anlamsız metin → boş sonuç', () => {
     expect(parseUnifiedDiff('').files).toEqual([]);
     expect(parseUnifiedDiff('  not a diff\n').files).toEqual([]);
-    expect(displayPath({ oldPath: null, newPath: null, header: [], hunks: [], binary: false })).toBe(
-      '(bilinmeyen)',
-    );
+    expect(
+      displayPath({ oldPath: null, newPath: null, header: [], hunks: [], binary: false }),
+    ).toBe('(bilinmeyen)');
   });
 });

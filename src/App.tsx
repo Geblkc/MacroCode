@@ -7,6 +7,7 @@ import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
 import StatsScreen from './components/StatsScreen';
 import ConfirmDialog from './components/ConfirmDialog';
+import SnapshotsModal from './components/SnapshotsModal';
 import GitPanel from './components/git/GitPanel';
 import ToastHost from './components/Toast';
 import { useStream } from './hooks/useStream';
@@ -15,6 +16,13 @@ import { resetKeyHistory } from './hooks/useKeyHistory';
 import { useWorkspaceStore } from './store/workspace';
 import { listSkills } from './lib/engine/skills';
 import { applyPendingPatch, listPending, undoLastPatch } from './lib/engine/tools/patch';
+import {
+  createSnapshot,
+  deleteSnapshot,
+  formatSnapshotLine,
+  listSnapshots,
+  restoreSnapshot,
+} from './lib/engine/tools/snapshot';
 import { listApprovals, restoreApprovals, takeApproval } from './lib/engine/approvals';
 import type { PendingApproval } from './lib/engine/approvals';
 import type { ApprovalMode, ToolCall } from './lib/engine/types';
@@ -27,13 +35,25 @@ import { isTauri } from './lib/tauri';
 import { recentLogs } from './lib/logger';
 import { compactSessionMessages, shouldCompact } from './lib/engine/compact';
 import { makeSummarizeFn, summarizerConfig } from './lib/summarize';
-import { buildExportMarkdown, buildSessionBackup, handleSlashCommand, parseSessionBackup, type CommandContext } from './lib/commands';
+import {
+  buildExportMarkdown,
+  buildSessionBackup,
+  handleSlashCommand,
+  parseSessionBackup,
+  type CommandContext,
+} from './lib/commands';
 import { runGitCommand } from './lib/git/commands';
 import { gitApi } from './lib/git/api';
 import { useGitStore } from './store/git';
 import { copyText } from './lib/clipboard';
-import { createSessionPersister, loadSessionsFromDb, readAuditLog, saveSessionsToDb, sqlError } from './lib/db';
-import type { ExtraLine, Provider } from './types';
+import {
+  createSessionPersister,
+  loadSessionsFromDb,
+  readAuditLog,
+  saveSessionsToDb,
+  sqlError,
+} from './lib/db';
+import type { AgentMode, ExtraLine, Provider } from './types';
 import type { RetryInfo } from './lib/providers/common';
 import { createId, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
@@ -102,7 +122,8 @@ interface RetryState {
 export default function App() {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
-const [statsOpen, setStatsOpen] = useState(false);
+  const [statsOpen, setStatsOpen] = useState(false);
+  const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [extrasBySession, setExtrasBySession] = useState<Record<string, ExtraLine[]>>({});
   const [retryState, setRetryState] = useState<RetryState | null>(null);
   /** Terminal araması kapanınca giriş alanına odak döner (InputBar yayını). */
@@ -201,7 +222,8 @@ const [statsOpen, setStatsOpen] = useState(false);
       extrasCountRef.current.set(sessionId, count);
       // Uyarı kararı + ek satır updater DIŞINDA: StrictMode'da updater iki kez
       // çalışır; yan etkisiz saf kalması gerekir.
-      const firstCap = isNewToolLine && count > MAX_EXTRAS_PER_SESSION && !extrasCappedRef.current.has(sessionId);
+      const firstCap =
+        isNewToolLine && count > MAX_EXTRAS_PER_SESSION && !extrasCappedRef.current.has(sessionId);
       if (firstCap) extrasCappedRef.current.add(sessionId);
       const warn: ExtraLine | null = firstCap
         ? { id: createId(), ts: Date.now(), type: 'sys', content: t('extrasCapped') }
@@ -226,7 +248,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         }
         const next = [...arr, full, ...(warn ? [warn] : [])];
         const capped =
-          next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next;
+          next.length > MAX_EXTRAS_PER_SESSION
+            ? next.slice(next.length - MAX_EXTRAS_PER_SESSION)
+            : next;
         return { ...prev, [sessionId]: capped };
       });
     },
@@ -247,7 +271,9 @@ const [statsOpen, setStatsOpen] = useState(false);
       return {
         ...prev,
         [sessionId]:
-          next.length > MAX_EXTRAS_PER_SESSION ? next.slice(next.length - MAX_EXTRAS_PER_SESSION) : next,
+          next.length > MAX_EXTRAS_PER_SESSION
+            ? next.slice(next.length - MAX_EXTRAS_PER_SESSION)
+            : next,
       };
     });
   }, []);
@@ -664,11 +690,11 @@ const [statsOpen, setStatsOpen] = useState(false);
         }
         try {
           pushExtra(sessionId, { type: 'sys', content: t('commands.compactRunning') });
-          const { messages: next, dropped, kept } = await compactSessionMessages(
-            msgs,
-            limit,
-            makeSummarizeFn(cfg),
-          );
+          const {
+            messages: next,
+            dropped,
+            kept,
+          } = await compactSessionMessages(msgs, limit, makeSummarizeFn(cfg));
           if (dropped === 0) {
             pushExtra(sessionId, { type: 'sys', content: t('commands.compactNotNeeded') });
             return;
@@ -685,7 +711,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.compactFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.compactFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -821,11 +849,16 @@ const [statsOpen, setStatsOpen] = useState(false);
         try {
           const line = await appendMemory(ws.root, note);
           clearRepoContextCache();
-          pushExtra(sessionId, { type: 'sys', content: t('commands.noteSaved', { note: line.trim() }) });
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('commands.noteSaved', { note: line.trim() }),
+          });
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.noteFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.noteFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -840,8 +873,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         try {
           clearRepoContextCache();
           const ctx = await buildRepoContext(ws.root, {
-            model: useSessionStore.getState().getActiveSession()?.model
-              || useSettingsStore.getState().currentModel,
+            model:
+              useSessionStore.getState().getActiveSession()?.model ||
+              useSettingsStore.getState().currentModel,
             customModels: useSettingsStore.getState().customModels,
           });
           const lines: string[] = [
@@ -850,7 +884,10 @@ const [statsOpen, setStatsOpen] = useState(false);
               files: ctx.keyFiles.length ? ctx.keyFiles.join(', ') : t('common.none'),
             }),
           ];
-          const map = ctx.text.split('\n').filter((l) => l.startsWith('- ')).slice(0, 25);
+          const map = ctx.text
+            .split('\n')
+            .filter((l) => l.startsWith('- '))
+            .slice(0, 25);
           if (map.length) {
             lines.push(t('commands.contextMap'));
             lines.push(...map);
@@ -863,7 +900,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.contextFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.contextFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -884,7 +923,10 @@ const [statsOpen, setStatsOpen] = useState(false);
               : ws.approvalMode === 'auto-read'
                 ? t('commands.approval.autoRead')
                 : t('commands.approval.autoEdit');
-          pushExtra(sessionId, { type: 'sys', content: t('commands.approvalCurrent', { mode: label }) });
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('commands.approvalCurrent', { mode: label }),
+          });
           return;
         }
         const mode = MODES[arg];
@@ -911,7 +953,8 @@ const [statsOpen, setStatsOpen] = useState(false);
         pushExtra(sessionId, {
           type: 'sys',
           content:
-            t('commands.approvalSet', { mode }) + (ws.root ? '' : t('commands.approvalNoWorkspace')),
+            t('commands.approvalSet', { mode }) +
+            (ws.root ? '' : t('commands.approvalNoWorkspace')),
         });
         return;
       }
@@ -942,10 +985,13 @@ const [statsOpen, setStatsOpen] = useState(false);
         const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
         const currentMode = session?.agentMode ?? 'build';
 
+        const modeName = (m: AgentMode) =>
+          t(m === 'build' ? 'mode.build' : m === 'plan' ? 'mode.plan' : 'mode.ask');
+
         if (!targetMode) {
           pushExtra(sessionId, {
             type: 'sys',
-            content: t('commands.modeCurrent', { mode: t(`mode.${currentMode}` as any) }),
+            content: t('commands.modeCurrent', { mode: modeName(currentMode) }),
           });
           return;
         }
@@ -953,7 +999,7 @@ const [statsOpen, setStatsOpen] = useState(false);
         useSessionStore.getState().setAgentMode(sessionId, targetMode);
         pushExtra(sessionId, {
           type: 'sys',
-          content: t('commands.modeSet', { mode: t(`mode.${targetMode}` as any) }),
+          content: t('commands.modeSet', { mode: modeName(targetMode) }),
         });
         return;
       }
@@ -986,7 +1032,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.filesFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.filesFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -1065,7 +1113,10 @@ const [statsOpen, setStatsOpen] = useState(false);
           } else {
             const a = approvals.map((p) => `${p.id.slice(0, 8)} ${p.call.name}`).join(' · ');
             const b = pend.map((p) => `${p.id.slice(0, 8)} ${p.path}`).join(' · ');
-            pushExtra(sessionId, { type: 'sys', content: t('commands.applyPending', { list: [a, b].filter(Boolean).join(' · ') }) });
+            pushExtra(sessionId, {
+              type: 'sys',
+              content: t('commands.applyPending', { list: [a, b].filter(Boolean).join(' · ') }),
+            });
           }
           return;
         }
@@ -1079,7 +1130,9 @@ const [statsOpen, setStatsOpen] = useState(false);
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.applyFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.applyFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -1097,7 +1150,117 @@ const [statsOpen, setStatsOpen] = useState(false);
         } catch (e) {
           pushExtra(sessionId, {
             type: 'err',
-            content: t('commands.undoFailed', { message: e instanceof Error ? e.message : String(e) }).slice(0, 300),
+            content: t('commands.undoFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
+          });
+        }
+        return;
+      }
+      if (low === '/snapshot' || low.startsWith('/snapshot ')) {
+        const ws = useWorkspaceStore.getState();
+        if (!ws.root) {
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
+          return;
+        }
+        const label = trimmed.slice(9).trim();
+        try {
+          const snap = await createSnapshot(ws.root, label);
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: t('commands.snapshotCreated', {
+              id: snap.id.slice(0, 12),
+              n: snap.file_count,
+              size: (snap.total_bytes / (1024 * 1024)).toFixed(2),
+            }),
+          });
+        } catch (e) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('commands.snapshotFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
+          });
+        }
+        return;
+      }
+      if (low === '/snapshots' || low.startsWith('/snapshots ')) {
+        const ws = useWorkspaceStore.getState();
+        if (!ws.root) {
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
+          return;
+        }
+        try {
+          const list = await listSnapshots(ws.root);
+          pushExtra(sessionId, {
+            type: 'sys',
+            content: list.length
+              ? list.map((s) => formatSnapshotLine(s)).join('\n')
+              : t('commands.snapshotListEmpty'),
+          });
+        } catch (e) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('commands.snapshotFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
+          });
+        }
+        return;
+      }
+      if (low === '/restore' || low.startsWith('/restore ')) {
+        const ws = useWorkspaceStore.getState();
+        if (!ws.root) {
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
+          return;
+        }
+        const id = trimmed.slice(8).trim();
+        if (!id) {
+          pushExtra(sessionId, { type: 'warn', content: t('commands.restoreNeedId') });
+          return;
+        }
+        const ok = await askConfirm({
+          title: t('snapshot.restoreTitle'),
+          message: t('snapshot.restoreMessage', { name: id, id }),
+          confirmLabel: t('snapshot.restore'),
+          cancelLabel: t('common.cancel'),
+          danger: true,
+          initialFocus: 'cancel',
+        });
+        if (!ok) return;
+        try {
+          const msg = await restoreSnapshot(ws.root, id);
+          pushExtra(sessionId, { type: 'sys', content: msg });
+          void useGitStore.getState().refresh(ws.root);
+        } catch (e) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('commands.restoreFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
+          });
+        }
+        return;
+      }
+      if (low === '/snapshot-del' || low.startsWith('/snapshot-del ')) {
+        const ws = useWorkspaceStore.getState();
+        if (!ws.root) {
+          pushExtra(sessionId, { type: 'err', content: t('commands.workspaceMissingRoot') });
+          return;
+        }
+        const id = trimmed.slice(13).trim();
+        if (!id) {
+          pushExtra(sessionId, { type: 'warn', content: t('commands.restoreNeedId') });
+          return;
+        }
+        try {
+          pushExtra(sessionId, { type: 'sys', content: await deleteSnapshot(ws.root, id) });
+        } catch (e) {
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('commands.snapshotFailed', {
+              message: e instanceof Error ? e.message : String(e),
+            }).slice(0, 300),
           });
         }
         return;
@@ -1181,8 +1344,7 @@ const [statsOpen, setStatsOpen] = useState(false);
           openSettings: () => setSettingsOpen(true),
           customModels: () => useSettingsStore.getState().customModels,
           prices: () => useSettingsStore.getState().prices,
-          providerHasKey: (p: Provider) =>
-            hasProviderKey(p, useSettingsStore.getState().apiKeys),
+          providerHasKey: (p: Provider) => hasProviderKey(p, useSettingsStore.getState().apiKeys),
         };
         const result = handleSlashCommand(trimmed, ctx);
         if (result.lines.length > 0) {
@@ -1194,7 +1356,8 @@ const [statsOpen, setStatsOpen] = useState(false);
           downloadFile(
             result.exportText,
             result.exportFilename ?? stampedFilename('macrocode-session', isJson ? 'json' : 'md'),
-            result.exportMime ?? (isJson ? 'application/json;charset=utf-8' : 'text/markdown;charset=utf-8'),
+            result.exportMime ??
+              (isJson ? 'application/json;charset=utf-8' : 'text/markdown;charset=utf-8'),
           );
         }
         return;
@@ -1206,7 +1369,10 @@ const [statsOpen, setStatsOpen] = useState(false);
         const modelId = active?.model || useSettingsStore.getState().currentModel;
         const caps = getCapabilitiesForModel(modelId, useSettingsStore.getState().customModels);
         if (caps && !caps.vision) {
-          pushExtra(sessionId, { type: 'err', content: t('errors.visionUnsupported', { model: modelId }) });
+          pushExtra(sessionId, {
+            type: 'err',
+            content: t('errors.visionUnsupported', { model: modelId }),
+          });
           return;
         }
       }
@@ -1237,7 +1403,8 @@ const [statsOpen, setStatsOpen] = useState(false);
       const err = await send(
         trimmed,
         images,
-        (fb) => pushExtra(sessionId, { type: 'sys', content: t('agent.fallbackUsed', { model: fb }) }),
+        (fb) =>
+          pushExtra(sessionId, { type: 'sys', content: t('agent.fallbackUsed', { model: fb }) }),
         (line) => pushExtra(sessionId, { type: 'sys', content: line }),
         (info) => reportRetry(sessionId, info),
       );
@@ -1255,6 +1422,8 @@ const [statsOpen, setStatsOpen] = useState(false);
       pushExtra,
       setPending,
       dropPending,
+      pendingBySession,
+      resolvePending,
       runRootCommand,
       performUpdateCheck,
       runUpdateInstall,
@@ -1273,6 +1442,9 @@ const [statsOpen, setStatsOpen] = useState(false);
       // models.dev kataloğu: önbellekten anında yükle (ağ yok), bayatsa
       // arka planda yenile — fiyatlar otomatik dolar, metadata zenginleşir.
       useSettingsStore.getState().loadModelsDevCatalog();
+      // Canlı model listeleri: önbellekten anında yükle; anahtarı olan
+      // sağlayıcılar için bayatsa arka planda API'den yenile.
+      useSettingsStore.getState().loadLiveCatalog();
       void (async () => {
         const st = useSettingsStore.getState();
         if (!st.modelsDevCatalog || isStale(st.modelsDevCatalog)) {
@@ -1281,6 +1453,13 @@ const [statsOpen, setStatsOpen] = useState(false);
           } catch {
             // Katalog kritik değil — hata sessizce geçer.
           }
+        }
+      })();
+      void (async () => {
+        try {
+          await useSettingsStore.getState().refreshLiveCatalog();
+        } catch {
+          // API listesi kritik değil — mevcut katalog kullanılır.
         }
       })();
       // Kalicilik onceligi: SQLite > localStorage (zustand persist).
@@ -1333,7 +1512,10 @@ const [statsOpen, setStatsOpen] = useState(false);
       // yerden sürülebilir (eskiden "yeniden başlatılamadı" deniyordu).
       let resumedRuns = 0;
       try {
-        resumedRuns = await restorePendingRuns((sessionId, info) => reportRetry(sessionId, info));
+        resumedRuns = await restorePendingRuns(
+          (sessionId, info) => reportRetry(sessionId, info),
+          (sessionId, text) => pushExtra(sessionId, { type: 'warn', content: text }),
+        );
       } catch {
         // Geri yükleme hatası boot'u durdurmaz.
       }
@@ -1404,7 +1586,7 @@ const [statsOpen, setStatsOpen] = useState(false);
         });
       }
     })();
-  }, [pushExtra]);
+  }, [pushExtra, reportRetry, restorePendingRuns, t]);
 
   // Yazı boyutu ayarı -> CSS değişkeni (SettingsModal'dan canlı uygulanır).
   useEffect(() => {
@@ -1493,7 +1675,9 @@ const [statsOpen, setStatsOpen] = useState(false);
       } catch (e) {
         pushExtra(sessionId, {
           type: 'err',
-          content: t('commands.importFailed', { message: e instanceof Error ? e.message : String(e) }),
+          content: t('commands.importFailed', {
+            message: e instanceof Error ? e.message : String(e),
+          }),
         });
         return;
       }
@@ -1517,7 +1701,7 @@ const [statsOpen, setStatsOpen] = useState(false);
         content: t('commands.imported', { count: fresh.length }),
       });
     },
-    [pushExtra],
+    [pushExtra, t],
   );
 
   const exportActiveJson = useCallback(() => {
@@ -1533,7 +1717,7 @@ const [statsOpen, setStatsOpen] = useState(false);
       'application/json;charset=utf-8',
     );
     pushExtra(sess.id, { type: 'sys', content: t('commands.jsonReady') });
-  }, [pushExtra]);
+  }, [pushExtra, t]);
 
   const importBackupFile = useCallback(
     (file: File) => {
@@ -1547,15 +1731,15 @@ const [statsOpen, setStatsOpen] = useState(false);
           pushExtra(sess.id, { type: 'err', content: t('commands.fileUnreadable') });
         });
     },
-    [importBackupText, pushExtra],
+    [importBackupText, pushExtra, t],
   );
 
   // ── Faz 3: global oturum kısayolları ──────────────────────────────
   // Ctrl+N yeni oturum · Ctrl+Tab / Ctrl+Shift+Tab oturum gezinmesi.
-  // Modifier'lı olduğu için IME'den bağımsız; ayarlar modalı açıkken pasif.
+  // Modifier'lı olduğu için IME'den bağımsız; modallar açıkken pasif.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (settingsOpen) return;
+      if (settingsOpen || statsOpen || snapshotsOpen) return;
       // IME bestesi sırasında kısayollar tetiklenmez (Faz 4).
       if (e.isComposing) return;
       const mod = e.ctrlKey || e.metaKey;
@@ -1591,15 +1775,13 @@ const [statsOpen, setStatsOpen] = useState(false);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [settingsOpen, streaming, abort]);
+  }, [settingsOpen, statsOpen, snapshotsOpen, streaming, abort]);
 
   return (
     <div className="app">
       <Titlebar
         sessionName={session?.name ?? 'macrocode'}
-        sessionProvider={session?.provider}
-        sessionModel={session?.model}
-        onOpenSettings={() => setSettingsOpen(true)}
+        onOpenSnapshots={() => setSnapshotsOpen(true)}
         onRootCommand={(arg) => void runRootCommand(arg)}
       />
       <div className="body">
@@ -1644,14 +1826,12 @@ const [statsOpen, setStatsOpen] = useState(false);
             onRejectAll={() => {
               if (activeId) void handleReject(activeId);
             }}
-            onAlwaysAllow={
-              (cmd) => {
-                if (activeId) handleAlwaysAllow(activeId, cmd);
-              }
-            }
+            onAlwaysAllow={(cmd) => {
+              if (activeId) handleAlwaysAllow(activeId, cmd);
+            }}
             onRootCommand={(arg) => void runRootCommand(arg)}
             onFocusInput={() => inputFocus.current?.()}
-            searchEnabled={!settingsOpen}
+            searchEnabled={!settingsOpen && !statsOpen && !snapshotsOpen}
           />
           <InputBar
             onSend={(t, imgs) => void handleSend(t, imgs)}
@@ -1676,6 +1856,7 @@ const [statsOpen, setStatsOpen] = useState(false);
                 useSessionStore.getState().setAgentMode(activeId, m);
               }
             }}
+            onOpenSettings={() => setSettingsOpen(true)}
           />
         </div>
         <GitPanel confirm={askConfirm} />
@@ -1693,6 +1874,15 @@ const [statsOpen, setStatsOpen] = useState(false);
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <StatsScreen open={statsOpen} onClose={() => setStatsOpen(false)} />
+      <SnapshotsModal
+        open={snapshotsOpen}
+        root={wsRoot}
+        onClose={() => setSnapshotsOpen(false)}
+        onMessage={(text, kind) => {
+          if (activeId) pushExtra(activeId, { type: kind ?? 'sys', content: text });
+        }}
+        confirm={askConfirm}
+      />
       <ConfirmDialog
         open={confirmReq !== null}
         title={confirmReq?.title ?? ''}

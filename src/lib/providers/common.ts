@@ -1,6 +1,7 @@
 import type { Model, ModelParams, Provider } from '../../types';
 import type { ToolCall, ToolDefinition, UsageLike } from '../engine/types';
 import { t } from '../i18n/core';
+import { errorMessage, isDatabaseBusyError } from '../dbErrors';
 
 export type { UsageLike };
 
@@ -269,7 +270,10 @@ export function toUsage(
 
 /** Usage birleştirme (kümülatif event'ler max ile birleşir; reasoning de korunur). */
 export function mergeUsage(
-  prev: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number } | null | undefined,
+  prev:
+    | { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number }
+    | null
+    | undefined,
   next: TokenUsage,
 ): { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number } {
   const merged = {
@@ -390,8 +394,17 @@ export function formatProviderError(err: unknown): string | null {
     const name = (err as { name?: string }).name;
     if (name === 'AbortError') return null;
   }
-  if (typeof DOMException !== 'undefined' && err instanceof DOMException && err.name === 'AbortError') {
+  if (
+    typeof DOMException !== 'undefined' &&
+    err instanceof DOMException &&
+    err.name === 'AbortError'
+  ) {
     return null;
+  }
+  // SQLite kilidi provider/API hatası değildir; eski akışta bu mesaj
+  // "bilinmeyen hata" olarak gösterilip agent akışını kesiyordu.
+  if (isDatabaseBusyError(err)) {
+    return t('errors.dbLocked', { message: errorMessage(err).slice(0, 160) });
   }
   if (err instanceof ProviderError) {
     const s = err.status ?? 0;
@@ -406,7 +419,12 @@ export function formatProviderError(err: unknown): string | null {
     }
     if (s === 400 || s === 413) {
       const d = err.message.toLowerCase();
-      if (d.includes('context') || d.includes('token') || d.includes('length') || d.includes('maximum')) {
+      if (
+        d.includes('context') ||
+        d.includes('token') ||
+        d.includes('length') ||
+        d.includes('maximum')
+      ) {
         return t('errors.contextLimit');
       }
       return t('errors.requestFailed', { status: s, message: err.message });

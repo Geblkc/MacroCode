@@ -12,7 +12,7 @@ import {
 import { supportsTools } from './providers';
 
 describe('Faz A — kanonik tools', () => {
-  it('11 çekirdek tool tanımlı', () => {
+  it('12 çekirdek tool tanımlı', () => {
     expect(CORE_TOOLS.map((t) => t.name)).toEqual([
       'read_file',
       'list_dir',
@@ -21,6 +21,7 @@ describe('Faz A — kanonik tools', () => {
       'propose_patch',
       'edit_file',
       'write_file',
+      'create_snapshot',
       'exec',
       'todo',
       'subagent',
@@ -38,6 +39,7 @@ describe('Faz A — kanonik tools', () => {
     const byName = Object.fromEntries(CORE_TOOLS.map((t) => [t.name, t]));
     expect(byName.grep.parameters.properties).toHaveProperty('regex');
     expect(byName.read_file.parameters.properties).toHaveProperty('offset');
+    expect(byName.read_file.parameters.properties).toHaveProperty('column');
     expect(byName.glob.parameters.required).toEqual(['pattern']);
     expect(byName.write_file.parameters.required).toEqual(['path', 'content']);
     expect(byName.todo.parameters.required).toEqual(['action']);
@@ -75,10 +77,7 @@ describe('Faz A — kanonik tools', () => {
   });
 
   it('Anthropic tool_use birikimi çalışır', () => {
-    const calls = accumulateAnthropicToolUse(
-      [{ id: 't1', name: 'list_dir' }],
-      ['{"path":"src"}'],
-    );
+    const calls = accumulateAnthropicToolUse([{ id: 't1', name: 'list_dir' }], ['{"path":"src"}']);
     expect(calls[0]).toMatchObject({ id: 't1', name: 'list_dir', args: { path: 'src' } });
   });
 

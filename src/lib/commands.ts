@@ -10,7 +10,15 @@ import {
 import { sessionCost, formatCost } from './pricing';
 import { redact } from './logger';
 import { t, type TranslationKey } from './i18n/core';
-import type { AgentMode, CustomModel, LineType, Message, ModelPrice, Provider, Session } from '../types';
+import type {
+  AgentMode,
+  CustomModel,
+  LineType,
+  Message,
+  ModelPrice,
+  Provider,
+  Session,
+} from '../types';
 
 export interface CommandLine {
   type: LineType;
@@ -113,6 +121,15 @@ export const COMMAND_SPECS: CommandSpec[] = [
   { name: 'files', group: 'workspace', descKey: 'commands.desc.files' },
   { name: 'apply', group: 'workspace', args: '[id]', descKey: 'commands.desc.apply' },
   { name: 'undo', group: 'workspace', args: '[id]', descKey: 'commands.desc.undo' },
+  { name: 'snapshot', group: 'workspace', args: '[etiket]', descKey: 'commands.desc.snapshot' },
+  { name: 'snapshots', group: 'workspace', descKey: 'commands.desc.snapshots' },
+  { name: 'restore', group: 'workspace', args: '<id>', descKey: 'commands.desc.restore' },
+  {
+    name: 'snapshot-del',
+    group: 'workspace',
+    args: '<id>',
+    descKey: 'commands.desc.snapshotDel',
+  },
   { name: 'context', group: 'workspace', descKey: 'commands.desc.context' },
   {
     name: 'git',
@@ -174,7 +191,11 @@ function helpLines(): CommandLine[] {
 }
 
 /** Karakter/4 yaklasik token sayimi. */
-export function approxTokens(messages: Message[]): { input: number; output: number; total: number } {
+export function approxTokens(messages: Message[]): {
+  input: number;
+  output: number;
+  total: number;
+} {
   let input = 0;
   let output = 0;
   for (const m of messages) {
@@ -204,10 +225,7 @@ export function realTokens(messages: Message[]): {
   let cacheWrite = 0;
   let withUsage = 0;
   for (const m of messages) {
-    if (
-      m.tokens &&
-      (m.tokens.input > 0 || m.tokens.output > 0 || (m.tokens.reasoning ?? 0) > 0)
-    ) {
+    if (m.tokens && (m.tokens.input > 0 || m.tokens.output > 0 || (m.tokens.reasoning ?? 0) > 0)) {
       input += m.tokens.input;
       output += m.tokens.output;
       reasoning += m.tokens.reasoning ?? 0;
@@ -242,7 +260,8 @@ export function tokenSummaryLine(session: Session, prices?: Record<string, Model
   if (prices) {
     const { cost: c, priced } = sessionCost(session.messages, prices);
     if (priced > 0) {
-      cost = t('tokens.cost', { cost: formatCost(c) }) +
+      cost =
+        t('tokens.cost', { cost: formatCost(c) }) +
         (priced < real.withUsage ? t('tokens.costPartial') : '');
     }
   }
@@ -253,7 +272,8 @@ export function tokenSummaryLine(session: Session, prices?: Record<string, Model
       total: approx.total,
     });
   }
-  const reason = real.reasoning > 0 ? t('tokens.reasoning', { amount: formatTokenCount(real.reasoning) }) : '';
+  const reason =
+    real.reasoning > 0 ? t('tokens.reasoning', { amount: formatTokenCount(real.reasoning) }) : '';
   // Faz 11: önbellek kullanımı görünür (önbellek işe yarıyor mu?).
   const cache =
     real.cacheRead > 0 || real.cacheWrite > 0
@@ -312,7 +332,9 @@ export function buildExportMarkdown(session: Session): string {
     parts.push(`**[${formatTime(m.timestamp)}] ${authorLabel(m, session)}:**`);
     parts.push(m.content);
     if (m.reasoning?.trim()) {
-      parts.push(`<details><summary>${t('export.reasoning')}</summary>\n\n${m.reasoning}\n\n</details>`);
+      parts.push(
+        `<details><summary>${t('export.reasoning')}</summary>\n\n${m.reasoning}\n\n</details>`,
+      );
     }
     if (m.images && m.images.length > 0) {
       parts.push(t('export.images', { count: m.images.length }));
@@ -449,7 +471,8 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/reset': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
+      if (!session)
+        return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       ctx.resetSession();
       return { handled: true, lines: [{ type: 'sys', content: t('commands.resetDone') }] };
     }
@@ -481,7 +504,9 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
         return { handled: true, lines };
       }
       ctx.setModel(arg);
-      const lines: CommandLine[] = [{ type: 'sys', content: t('commands.modelSet', { model: arg }) }];
+      const lines: CommandLine[] = [
+        { type: 'sys', content: t('commands.modelSet', { model: arg }) },
+      ];
       if (!isKnownModel(arg, customs)) {
         lines.push({ type: 'warn', content: t('commands.modelUnknown') });
       } else {
@@ -491,7 +516,9 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
             caps.tools ? 'tools✓' : 'tools✗',
             caps.vision ? 'vision✓' : null,
             caps.reasoning ? 'reasoning✓' : null,
-          ].filter(Boolean).join(' · ');
+          ]
+            .filter(Boolean)
+            .join(' · ');
           if (tags) lines.push({ type: 'sys', content: t('commands.capabilities', { tags }) });
         }
         // Anahtar yoksa model seçilir ama uyarılır (liste kuralı burada da geçerli).
@@ -521,7 +548,10 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
         };
       }
       ctx.setProvider(p);
-      return { handled: true, lines: [{ type: 'sys', content: t('commands.providerSet', { provider: p }) }] };
+      return {
+        handled: true,
+        lines: [{ type: 'sys', content: t('commands.providerSet', { provider: p }) }],
+      };
     }
 
     case '/key':
@@ -530,7 +560,8 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/export': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
+      if (!session)
+        return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       if (session.messages.length === 0) {
         return { handled: true, lines: [{ type: 'warn', content: t('commands.exportEmpty') }] };
       }
@@ -554,7 +585,8 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/backup': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
+      if (!session)
+        return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       if (session.messages.length === 0) {
         return { handled: true, lines: [{ type: 'warn', content: t('commands.backupEmpty') }] };
       }
@@ -569,7 +601,8 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
 
     case '/tokens': {
       const session = ctx.getSession();
-      if (!session) return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
+      if (!session)
+        return { handled: true, lines: [{ type: 'err', content: t('commands.noSession') }] };
       return {
         handled: true,
         lines: [{ type: 'sys', content: tokenSummaryLine(session, ctx.prices?.()) }],

@@ -6,8 +6,19 @@ import type { ToolCall, ToolDefinition, ToolName } from '../types';
 import type { McpTool } from './protocol';
 
 const TR_MAP: Record<string, string> = {
-  Ş: 's', ş: 's', Ğ: 'g', ğ: 'g', Ü: 'u', ü: 'u',
-  Ö: 'o', ö: 'o', Ç: 'c', ç: 'c', I: 'i', ı: 'i', İ: 'i',
+  Ş: 's',
+  ş: 's',
+  Ğ: 'g',
+  ğ: 'g',
+  Ü: 'u',
+  ü: 'u',
+  Ö: 'o',
+  ö: 'o',
+  Ç: 'c',
+  ç: 'c',
+  I: 'i',
+  ı: 'i',
+  İ: 'i',
 };
 
 /** Görünen addan kayıt-uyumlu id üretir (`mcp_<slug>`, küçük harf).
@@ -48,7 +59,9 @@ export function parseMcpName(name: string): { server: string; tool: string } | n
 export function toToolDefinitions(server: string, tools: McpTool[]): ToolDefinition[] {
   return tools.map((t) => ({
     name: mcpToolName(server, t.name) as ToolName,
-    description: t.description?.trim() ? `[mcp:${server}] ${t.description}` : `[mcp:${server}] ${t.name}`,
+    description: t.description?.trim()
+      ? `[mcp:${server}] ${t.description}`
+      : `[mcp:${server}] ${t.name}`,
     parameters:
       t.inputSchema && typeof t.inputSchema === 'object' ? t.inputSchema : { type: 'object' },
   }));

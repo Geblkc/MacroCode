@@ -159,7 +159,11 @@ function signature(paths: string[]): string {
  */
 export async function buildRepoContext(
   root: string,
-  opts: { model?: string; customModels?: import('../../types').CustomModel[]; maxChars?: number } = {},
+  opts: {
+    model?: string;
+    customModels?: import('../../types').CustomModel[];
+    maxChars?: number;
+  } = {},
 ): Promise<RepoContext> {
   const empty: RepoContext = {
     root,
@@ -172,8 +176,7 @@ export async function buildRepoContext(
   if (!root) return empty;
   // Tauri dışında (tarayıcı-dev) Rust komutları yok → bağlam hazırlanamaz;
   // bu bir hata değil, sessizce boş geçilir (agent zaten Tauri gerektirir).
-  const isTauri =
-    typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
   if (!isTauri) return empty;
   let paths: string[] = [];
   try {

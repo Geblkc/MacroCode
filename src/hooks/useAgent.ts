@@ -12,6 +12,7 @@ import { costForTokens } from '../lib/pricing';
 import { parseCustomAllowList } from '../lib/engine/policy';
 import { supportsTools } from '../lib/engine/providers';
 import { createId, useSessionStore } from '../store/session';
+import { useAgentActivityStore, type AgentActivityPatch } from '../store/agentActivity';
 import { useSettingsStore } from '../store/settings';
 import { useWorkspaceStore } from '../store/workspace';
 import { apiKeyFor, providerNeedsKey } from './useStream';
@@ -30,7 +31,9 @@ import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
 import { useT } from '../lib/i18n';
 import { t } from '../lib/i18n/core';
 import type { Provider, ToolEvent } from '../types';
+import { isBlankAssistantMessage } from '../lib/message';
 import { getModePrompt } from '../lib/engine/agentModes';
+import { previewArgs, toolTarget } from '../lib/engine/toolPreview';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 
 export interface AgentToolLine {
@@ -41,21 +44,23 @@ export interface AgentToolLine {
 }
 
 /** Faz 1 G2/G5: oturum başına aktif run (onayda durur, resolve ile devam eder). */
-const activeRuns = new Map<string, AgentRun>();
-
-export function getActiveAgentRun(sessionId: string): AgentRun | undefined {
-  return activeRuns.get(sessionId);
+interface ActiveAgentRun {
+  run: AgentRun;
+  /** Aktivite olaylarının bu run'a bağlı kaldığı sabit kimlik. */
+  activityRunId: string;
 }
 
-/** Araç argümanlarının tek satırlık önizlemesi. */
-function previewArgs(args: Record<string, unknown>): string {
-  const parts: string[] = [];
-  for (const [k, v] of Object.entries(args ?? {})) {
-    if (v === undefined || v === null) continue;
-    const s = typeof v === 'string' ? v : JSON.stringify(v);
-    parts.push(`${k}=${s.length > 60 ? s.slice(0, 60) + '…' : s}`);
+const activeRuns = new Map<string, ActiveAgentRun>();
+
+export function getActiveAgentRun(sessionId: string): AgentRun | undefined {
+  return activeRuns.get(sessionId)?.run;
+}
+
+/** Eski turun geç temizliği daha yeni bir run kaydını silmez. */
+function clearActiveRun(sessionId: string, activityRunId: string): void {
+  if (activeRuns.get(sessionId)?.activityRunId === activityRunId) {
+    activeRuns.delete(sessionId);
   }
-  return parts.join(' ');
 }
 
 /** Araç çıktısı önizlemesi (tek satır, uzun çıktı kırpılır). */
@@ -66,163 +71,266 @@ function previewOutput(out: string, limit = 220): string {
 }
 
 /**
- * Faz 7 A3: agent'ın yazdığı asistan mesajı artık "son assistant" değil,
- * **tur başına sabit hedef** (tool sonuçları araya girdiğinde cevap parçalanıyordu).
- */
-
-/**
  * Faz 12 B.8 — ortak run olay işleyicisi.
  *
  * Hem yeni turda hem de **geri yüklenen** (restart sonrası) turda agent'ın
- * çıktısı aynı assistant mesajına yazılmalı → tek yerden.
+ * çıktısı aynı mesaj dizisine yazılmalı → tek yerden.
+ *
+ * v1.0: tool sonuçları kalıcı katmana `system` mesajı olarak yazıldığı için,
+ * aradan sonra gelen metin **yeni bir assistant mesajına** yazılır. Böylece
+ * nihai cevap transkripte araç çıktılarının ALTINDA görünür. Hedef yalnızca
+ * son mesaj assistant değilse (yani bir tool sonucu araya girdiyse) yenilenir;
+ * tur başına tek mesaja sabitlemek cevabı yukarıda tutuyordu.
  */
-function makeRunEventHandler(opts: {
+export interface RunEventHandler {
+  (e: AgentEvent): void;
+  /** Tur sonunda içeriğin yazıldığı mesaj id'si (boş temizliği için). */
+  targetId(): string;
+}
+
+export function makeRunEventHandler(opts: {
   sessionId: string;
   assistantId: string;
-  provider: string;
+  provider: Provider;
   model: string;
   callNames: Map<string, string>;
   emit: (line: AgentToolLine) => void;
-}) {
-  const { sessionId, assistantId, provider, model, callNames, emit } = opts;
+  /** Agent aktivite şeridini aşama değişimlerine bağlar. */
+  activity?: {
+    runId: string;
+    update: (patch: AgentActivityPatch) => void;
+  };
+}): RunEventHandler {
+  const { sessionId, assistantId, provider, model, callNames, emit, activity } = opts;
+  const updateActivity = activity?.update;
   const store = useSessionStore.getState;
   /** P0.2: exec canlı çıktısı çağrı id'si başına birikir. */
   const streamBuf = new Map<string, string>();
-  return (e: AgentEvent) => {
-    if (e.k === 'text' && e.delta) {
-      // Faz 7 A3: hedef mesaj sabit (tool sonrası "son mesaj" kuralı
-      // cevabı parçalamıştı) — tur başına tek assistant mesajı.
-      store().appendToMessage(sessionId, assistantId, e.delta);
-    } else if (e.k === 'reasoning' && e.delta) {
-      try {
-        store().appendReasoning(sessionId, assistantId, e.delta);
-      } catch {
-        // store hatası akışı durdurmaz
-      }
-    } else if (e.k === 'thinking' && e.blocks.length > 0) {
-      try {
-        store().setAssistantThinking(sessionId, assistantId, e.blocks);
-      } catch {
-        // yoksay
-      }
-    } else if (e.k === 'usage') {
-      try {
-        store().setMessageLastRequest(sessionId, assistantId, {
-          input: e.usage.input,
-          output: e.usage.output,
-        });
-      } catch {
-        // yoksay
-      }
-      // v0.2.3: her API adımı için usage_events kaydı (stats ekranı).
-      try {
-        const settings = useSettingsStore.getState();
-        const price = settings.prices[model];
-        const ws = useWorkspaceStore.getState();
-        const project = ws.label || (ws.root ? ws.root.split(/[\\/]/).filter(Boolean).pop() : undefined);
-        void appendUsageEvent({
-          id: createId(),
-          ts: Date.now(),
-          sessionId,
-          provider,
-          model,
-          ...(project ? { project } : {}),
-          inputTokens: e.usage.input ?? 0,
-          outputTokens: e.usage.output ?? 0,
-          reasoningTokens: e.usage.reasoning ?? 0,
-          cacheReadTokens: e.usage.cacheRead ?? 0,
-          cacheWriteTokens: e.usage.cacheWrite ?? 0,
-          latencyMs: 0,
-          ttftMs: 0,
-          status: 'ok',
-          costUsd: price ? costForTokens(e.usage, price) : 0,
-          estimated: price ? 0 : 1,
-          toolMs: 0,
-        });
-      } catch {
-        // stats kaydı akışı durdurmaz
-      }
-    } else if (e.k === 'done' && e.usage) {
-      try {
-        store().setMessageUsage(sessionId, assistantId, e.usage);
-      } catch {
-        // yoksay
-      }
-    } else if (e.k === 'tool_call') {
-      callNames.set(e.call.id, String(e.call.name));
-      streamBuf.delete(e.call.id);
-      try {
-        store().appendToolCalls(sessionId, assistantId, [
-          { id: e.call.id, name: String(e.call.name), args: e.call.args as Record<string, unknown> },
-        ]);
-      } catch {
-        // store hatası akışı durdurmaz
-      }
-      emit({
-        type: 'sys',
-        content: `/// tool ▸ ${e.call.name} ${JSON.stringify(e.call.args).slice(0, 160)}`,
-        tool: {
-          id: String(e.call.id),
-          name: String(e.call.name),
-          args: previewArgs(e.call.args as Record<string, unknown>),
-          status: 'run',
-        },
-      });
-    } else if (e.k === 'tool_stream') {
-      // P0.2: aynı tool id'siyle birleşen canlı çıktı. Terminal.tsx kartı
-      // id üzerinden upsert eder; burada kümülatif metni taşırız.
-      const toolName = callNames.get(e.id) ?? 'exec';
-      const next = `${streamBuf.get(e.id) ?? ''}${e.data}`.slice(-8000);
-      streamBuf.set(e.id, next);
-      emit({
-        type: 'sys',
-        content: `/// tool ▸ ${toolName}`,
-        tool: {
-          id: String(e.id),
-          name: toolName,
-          args: '',
-          status: 'run',
-          output: next,
-        },
-      });
-    } else if (e.k === 'tool_preview') {
-      emit({ type: 'sys', content: `/// ${t('tool.output')} (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}` });
-    } else if (e.k === 'tool_result') {
-      const toolName = callNames.get(e.id);
-      streamBuf.delete(e.id);
-      try {
-        store().addToolMessages(sessionId, [
-          {
-            role: 'system',
-            content: e.output.slice(0, 4000),
-            toolCallId: e.id,
-            ...(toolName ? { toolName } : {}),
-            isError: !e.ok,
+  let targetId = assistantId;
+
+  /**
+   * Son kalıcı mesaj assistant değilse (tool sonucu araya girdiyse) yeni bir
+   * assistant mesajı açıp dizinin sonuna ekler; aksi halde aynı mesaja devam
+   * eder. Böylece cevap parçalanmaz, ama araç çıktılarının üstünde de kalmaz.
+   */
+  const ensureTarget = () => {
+    const msgs = store().sessions.find((s) => s.id === sessionId)?.messages ?? [];
+    const last = msgs[msgs.length - 1];
+    if (last?.id === targetId && last.role === 'assistant') return;
+    const id = createId();
+    store().addMessage(sessionId, {
+      id,
+      role: 'assistant',
+      content: '',
+      timestamp: Date.now(),
+      model,
+      provider,
+    });
+    targetId = id;
+  };
+
+  return Object.assign(
+    (e: AgentEvent) => {
+      if (e.k === 'turn_start') {
+        updateActivity?.({ phase: 'thinking', tool: null, retry: null });
+      } else if (e.k === 'text' && e.delta) {
+        updateActivity?.({ phase: 'writing' });
+        ensureTarget();
+        store().appendToMessage(sessionId, targetId, e.delta);
+      } else if (e.k === 'reasoning' && e.delta) {
+        updateActivity?.({ phase: 'thinking' });
+        try {
+          ensureTarget();
+          store().appendReasoning(sessionId, targetId, e.delta);
+        } catch {
+          // store hatası akışı durdurmaz
+        }
+      } else if (e.k === 'thinking' && e.blocks.length > 0) {
+        updateActivity?.({ phase: 'thinking' });
+        try {
+          ensureTarget();
+          store().setAssistantThinking(sessionId, targetId, e.blocks);
+        } catch {
+          // yoksay
+        }
+      } else if (e.k === 'notice') {
+        // Adım sınırı / kapanış turu gibi durumları terminalde görünür kıl.
+        emit({ type: 'warn', content: e.text });
+      } else if (e.k === 'usage') {
+        try {
+          // Metin/araç çağrısı hedefi zaten açtı; usage yeni mesaj açmaz
+          // (resolve akışında boş placeholder kalmasın).
+          store().setMessageLastRequest(sessionId, targetId, {
+            input: e.usage.input,
+            output: e.usage.output,
+          });
+        } catch {
+          // yoksay
+        }
+        // v0.2.3: her API adımı için usage_events kaydı (stats ekranı).
+        try {
+          const settings = useSettingsStore.getState();
+          const price = settings.prices[model];
+          const ws = useWorkspaceStore.getState();
+          const project =
+            ws.label || (ws.root ? ws.root.split(/[\\/]/).filter(Boolean).pop() : undefined);
+          void appendUsageEvent({
+            id: createId(),
+            ts: Date.now(),
+            sessionId,
+            provider,
+            model,
+            ...(project ? { project } : {}),
+            inputTokens: e.usage.input ?? 0,
+            outputTokens: e.usage.output ?? 0,
+            reasoningTokens: e.usage.reasoning ?? 0,
+            cacheReadTokens: e.usage.cacheRead ?? 0,
+            cacheWriteTokens: e.usage.cacheWrite ?? 0,
+            latencyMs: 0,
+            ttftMs: 0,
+            status: 'ok',
+            costUsd: price ? costForTokens(e.usage, price) : 0,
+            estimated: price ? 0 : 1,
+            toolMs: 0,
+          });
+        } catch {
+          // stats kaydı akışı durdurmaz
+        }
+      } else if (e.k === 'done') {
+        updateActivity?.({ phase: 'finalizing', tool: null });
+        if (e.usage) {
+          try {
+            store().setMessageUsage(sessionId, targetId, e.usage);
+          } catch {
+            // yoksay
+          }
+        }
+      } else if (e.k === 'tool_call') {
+        const toolName = String(e.call.name);
+        callNames.set(e.call.id, toolName);
+        streamBuf.delete(e.call.id);
+        updateActivity?.({
+          phase: 'tool',
+          tool: {
+            id: String(e.call.id),
+            name: toolName,
+            target: toolTarget(toolName, e.call.args as Record<string, unknown>),
           },
-        ]);
-      } catch {
-        // yoksay
-      }
-      if (toolName) {
-        // Yapılandırılmış araç kartı (çağrı + sonuç tek kartta birleşir).
+          retry: null,
+        });
+        try {
+          ensureTarget();
+          store().appendToolCalls(sessionId, targetId, [
+            {
+              id: e.call.id,
+              name: String(e.call.name),
+              args: e.call.args as Record<string, unknown>,
+              ts: Date.now(),
+            },
+          ]);
+        } catch {
+          // store hatası akışı durdurmaz
+        }
         emit({
-          type: e.ok ? 'sys' : 'err',
-          content: e.ok
-            ? `▸ ${toolName}: ${previewOutput(e.output)}`
-            : t('agent.toolFailed', { tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}` }),
+          type: 'sys',
+          content: `/// tool ▸ ${e.call.name} ${JSON.stringify(e.call.args).slice(0, 160)}`,
+          tool: {
+            id: String(e.call.id),
+            name: String(e.call.name),
+            args: previewArgs(e.call.args as Record<string, unknown>),
+            target: toolTarget(String(e.call.name), e.call.args as Record<string, unknown>),
+            status: 'run',
+          },
+        });
+      } else if (e.k === 'tool_stream') {
+        updateActivity?.({ phase: 'tool' });
+        // P0.2: aynı tool id'siyle birleşen canlı çıktı. Terminal.tsx kartı
+        // id üzerinden upsert eder; burada kümülatif metni taşırız.
+        const toolName = callNames.get(e.id) ?? 'exec';
+        const next = `${streamBuf.get(e.id) ?? ''}${e.data}`.slice(-8000);
+        streamBuf.set(e.id, next);
+        emit({
+          type: 'sys',
+          content: `/// tool ▸ ${toolName}`,
           tool: {
             id: String(e.id),
             name: toolName,
             args: '',
-            status: e.ok ? 'ok' : 'err',
-            output: e.output.slice(0, 4000),
+            status: 'run',
+            output: next,
           },
         });
-      } else if (!e.ok) {
-        emit({ type: 'err', content: t('agent.toolFailed', { tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}` }) });
+      } else if (e.k === 'tool_preview') {
+        emit({
+          type: 'sys',
+          content: `/// ${t('tool.output')} (${e.id.slice(0, 8)}):\n${e.output.slice(0, 800)}`,
+        });
+      } else if (e.k === 'tool_result') {
+        updateActivity?.({ phase: 'finalizing', tool: null });
+        const toolName = callNames.get(e.id);
+        streamBuf.delete(e.id);
+        try {
+          store().addToolMessages(sessionId, [
+            {
+              role: 'system',
+              content: e.output,
+              toolCallId: e.id,
+              ...(toolName ? { toolName } : {}),
+              isError: !e.ok,
+            },
+          ]);
+        } catch {
+          // yoksay
+        }
+        if (toolName) {
+          // Yapılandırılmış araç kartı (çağrı + sonuç tek kartta birleşir).
+          emit({
+            type: e.ok ? 'sys' : 'err',
+            content: e.ok
+              ? `▸ ${toolName}: ${previewOutput(e.output)}`
+              : t('agent.toolFailed', { tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}` }),
+            tool: {
+              id: String(e.id),
+              name: toolName,
+              args: '',
+              status: e.ok ? 'ok' : 'err',
+              output: e.output,
+            },
+          });
+        } else if (!e.ok) {
+          emit({
+            type: 'err',
+            content: t('agent.toolFailed', {
+              tool: `${e.id.slice(0, 8)}: ${e.output.slice(0, 300)}`,
+            }),
+          });
+        }
       }
+    },
+    { targetId: () => targetId },
+  );
+}
+
+/**
+ * Tur boyunca açılan boş asistan mesajlarını temizler. `onlyIds` verilirse
+ * yalnızca o turun mesajlarına bakılır; verilmezse oturumdaki tüm boş asistan
+ * mesajları temizlenir (onay akışı sonrası kalıntılar için).
+ * `true` dönerse hiç görünür içerik üretilmemiş demektir.
+ */
+function cleanBlankAssistantMessages(sessionId: string, onlyIds?: string[]): boolean {
+  const store = useSessionStore.getState;
+  const msgs = store().sessions.find((s) => s.id === sessionId)?.messages ?? [];
+  let allBlank = true;
+  for (const m of msgs) {
+    if (m.role !== 'assistant') continue;
+    if (onlyIds && !onlyIds.includes(m.id)) continue;
+    if (!isBlankAssistantMessage(m)) {
+      allBlank = false;
+      continue;
     }
-  };
+    store().removeMessage(sessionId, m.id);
+  }
+  return allBlank;
 }
 
 /**
@@ -231,11 +339,31 @@ function makeRunEventHandler(opts: {
  */
 export function useAgent() {
   const t = useT();
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef = useRef<{
+    controller: AbortController;
+    sessionId: string;
+    activityRunId: string;
+  } | null>(null);
 
   const abort = useCallback(() => {
-    abortRef.current?.abort();
-    for (const run of activeRuns.values()) run.abort();
+    const current = abortRef.current;
+    current?.controller.abort();
+
+    const activityStore = useAgentActivityStore.getState();
+    const hadActiveRun = activeRuns.size > 0;
+    // Hazırlık aşamasındaki henüz kayıt edilmemiş run da sahibine doğru temizlenir.
+    if (current) {
+      activityStore.end(current.sessionId, current.activityRunId);
+    }
+    for (const [sessionId, active] of activeRuns.entries()) {
+      active.run.abort();
+      activityStore.end(sessionId, active.activityRunId);
+      activeRuns.delete(sessionId);
+    }
+    if (current || hadActiveRun) {
+      useSessionStore.getState().setStreaming(false);
+    }
+    abortRef.current = null;
   }, []);
 
   const sendAgent = useCallback(
@@ -254,6 +382,10 @@ export function useAgent() {
       let session = useSessionStore.getState().getActiveSession();
       if (!session) session = useSessionStore.getState().createSession();
       const sessionId = session.id;
+      // Aynı oturumda onay bekleyen/çalışan bir run varsa yeni tur başlatma.
+      // Bu, restore sonrası aynı oturumda iki run'ın birbirinin durumunu
+      // ezip aktivite `runId` eşleşmesini bozmasını engeller.
+      if (activeRuns.has(sessionId)) return null;
       const store = useSessionStore.getState;
       const settings = useSettingsStore.getState();
       const ws = useWorkspaceStore.getState();
@@ -282,6 +414,9 @@ export function useAgent() {
       const userId = createId();
       const assistantId = createId();
       const now = Date.now();
+      const runId = createId();
+      const activityStore = useAgentActivityStore.getState();
+      activityStore.begin(sessionId, runId);
       store().setStreaming(true);
       store().addMessage(sessionId, {
         id: userId,
@@ -303,18 +438,37 @@ export function useAgent() {
 
       // Faz 7: compaction hafızası varsa geçmiş = "özet + o özetten sonraki mesajlar".
       // (Aynı özet her turda yeniden yapılmaz.)
-      const sessionMessages = useSessionStore.getState().sessions.find((s) => s.id === sessionId)
-        ?.messages ?? [];
+      const sessionMessages =
+        useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.messages ?? [];
       const rawHistory = buildAgentHistory(sessionMessages, assistantId);
       // Faz 12 B.6: bellekte yoksa oturumdaki kalıcı kopya (restart sonrası).
       const memo = resolveMemo<AgentHistoryItem>(sessionId, session.compaction);
       const history: AgentHistoryItem[] = applyMemo(memo, rawHistory);
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
+      abortRef.current = { controller: ctrl, sessionId, activityRunId: runId };
       const callNames = new Map<string, string>();
+      const emit = (line: AgentToolLine) => onToolLine?.(line);
+      const updateActivity = (patch: AgentActivityPatch) => {
+        useAgentActivityStore.getState().update(sessionId, runId, patch);
+      };
+      const handler = makeRunEventHandler({
+        sessionId,
+        assistantId,
+        provider: providerName,
+        model,
+        callNames,
+        emit,
+        activity: { runId, update: updateActivity },
+      });
+      /**
+       * Tur boyunca açılan (boş kalmış) assistant mesajlarını temizler.
+       * `toolCalls` taşıyan mesaj silinmez — tool sonuç eşleşmesi bozulmasın.
+       * `true` dönerse tur hiç metin üretmemiş demektir.
+       */
+      const cleanEmptyAssistant = (): boolean =>
+        cleanBlankAssistantMessages(sessionId, [assistantId, handler.targetId()]);
 
       try {
-        const emit = (line: AgentToolLine) => onToolLine?.(line);
         // Faz 5: MCP bağlamı + araçları (düşen sunucu sessizce atlanır).
         configureMcp({ servers: settings.mcpServers, secrets: settings.mcpSecrets, root: ws.root });
         let extraTools: ToolDefinition[] = [];
@@ -396,7 +550,27 @@ export function useAgent() {
         } catch {
           // Bağlam hazırlanamazsa agent yine çalışır (tool keşfi ile).
         }
+        if (ctrl.signal.aborted) {
+          cleanEmptyAssistant();
+          return null;
+        }
         const mode = session.agentMode ?? 'build';
+        const reportAgentRetry = (info: RetryInfo | null) => {
+          if (info) {
+            updateActivity({
+              phase: 'retrying',
+              tool: null,
+              retry: {
+                attempt: info.nextAttempt,
+                maxAttempts: info.maxAttempts,
+                delayMs: info.delayMs,
+              },
+            });
+          } else {
+            updateActivity({ phase: 'thinking', retry: null });
+          }
+          onRetry?.(info);
+        };
         const run = createAgentRun(historyWithUser, {
           provider: providerName,
           apiKey,
@@ -428,6 +602,7 @@ export function useAgent() {
           extraTools,
           extraAllow: parseCustomAllowList(settings.customAllowList),
           execTimeoutMs: settings.execTimeoutMs,
+          maxSteps: settings.agentMaxSteps,
           // Faz 8 L1: alt-agent kendi compaction'ı için özetleyici (yoksa kısaltma).
           summarize: async (transcript: string) => {
             const cfg = summarizerConfig({
@@ -443,31 +618,50 @@ export function useAgent() {
             return makeSummarizeFn(cfg)(transcript);
           },
           ...(settings.auditEnabled ? { auditSessionId: sessionId } : {}),
-          ...(onRetry ? { onRetry } : {}),
-          onEvent: makeRunEventHandler({
-            sessionId,
-            assistantId,
-            provider: providerName,
-            model,
-            callNames,
-            emit,
-          }),
+          onRetry: reportAgentRetry,
+          onEvent: handler,
         });
-        activeRuns.set(sessionId, run);
-        logInfo('agent.run.start', { provider: providerName, model, messages: historyWithUser.length });
+        activeRuns.set(sessionId, { run, activityRunId: runId });
+        logInfo('agent.run.start', {
+          provider: providerName,
+          model,
+          messages: historyWithUser.length,
+        });
         const result = await run.step();
         if (result.kind === 'needs-approval') {
+          const pendingCall = result.pending[0];
+          updateActivity({
+            phase: 'awaiting_approval',
+            tool: pendingCall
+              ? {
+                  id: String(pendingCall.id),
+                  name: String(pendingCall.name),
+                  target: toolTarget(
+                    String(pendingCall.name),
+                    pendingCall.args as Record<string, unknown>,
+                  ),
+                }
+              : null,
+            retry: null,
+          });
           // Faz 12 B.8: run durumu kalıcı yazılır → uygulama yeniden başlatıldığında
           // bekleyen iş kaldığı yerden sürülür (eskiden "yeniden başlatılamadı").
           const runState = run.serialize();
           for (const call of result.pending) {
-            await queueApproval({
-              id: call.id,
-              sessionId,
-              call,
-              createdAt: Date.now(),
-              runState,
-            });
+            try {
+              await queueApproval({
+                id: call.id,
+                sessionId,
+                call,
+                createdAt: Date.now(),
+                runState,
+              });
+            } catch (error) {
+              // Kalıcı onay kuyruğu agent'ın durmasını gerektirmez.
+              logError('agent.approval.persist.failed', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
           }
           onPending?.(result.pending);
           emit({
@@ -479,36 +673,31 @@ export function useAgent() {
           });
           return null;
         }
-        activeRuns.delete(sessionId);
+        clearActiveRun(sessionId, runId);
         logInfo('agent.run.done', { provider: providerName, model, kind: result.kind });
-        // Faz 7 A3: boş placeholder'ı id ile bul (tool mesajları araya girdiği
-        // için "son mesaj" kontrolü artık geçerli değil).
-        const msgs = store().getActiveSession()?.messages ?? [];
-        const mine = msgs.find((m) => m.id === assistantId);
-        if (mine && mine.content === '') {
-          store().removeMessage(sessionId, assistantId);
-          return t('agent.errEmptyReply');
-        }
+        // v1.0: turun başındaki placeholder ve tool sonrası açılan hedef mesaj
+        // birlikte değerlendirilir (ikisi de boşsa gerçekten cevap yok demektir).
+        if (cleanEmptyAssistant()) return t('agent.errEmptyReply');
         return null;
       } catch (err) {
-        activeRuns.delete(sessionId);
+        clearActiveRun(sessionId, runId);
         logError('agent.run.error', {
           provider: providerName,
           model,
           error: err instanceof Error ? err.message : String(err),
         });
         if (ctrl.signal.aborted) return null;
-        const msgs = store().getActiveSession()?.messages ?? [];
-        const mine = msgs.find((m) => m.id === assistantId);
-        if (mine && mine.content === '') {
-          store().removeMessage(sessionId, assistantId);
-        }
+        cleanEmptyAssistant();
         return formatProviderError(err);
       } finally {
-        const stillPending = activeRuns.has(sessionId);
+        const activeRunId = activeRuns.get(sessionId)?.activityRunId;
+        const stillPending = activeRunId === runId;
         if (!stillPending) {
-          store().setStreaming(false);
-          if (abortRef.current === ctrl) abortRef.current = null;
+          // Aynı oturumda daha yeni bir run başladıysa global streaming
+          // bayrağını ve yeni aktiviteyi bu eski turun temizliği bozmasın.
+          if (!activeRunId) store().setStreaming(false);
+          useAgentActivityStore.getState().end(sessionId, runId);
+          if (abortRef.current?.controller === ctrl) abortRef.current = null;
         }
         try {
           onRetry?.(null);
@@ -517,7 +706,7 @@ export function useAgent() {
         }
       }
     },
-    [],
+    [t],
   );
 
   const resolvePending = useCallback(
@@ -529,8 +718,10 @@ export function useAgent() {
       /** Onay sonrası devam eden turda retry göstergesini temizler. */
       onRetry?: (info: RetryInfo | null) => void,
     ): Promise<string | null> => {
-      const run = activeRuns.get(sessionId);
-      if (!run) {
+      const active = activeRuns.get(sessionId);
+      if (!active) {
+        // Bellekte run yok; varsa görünen aktivite başka bir run'a ait olabilir.
+        // Bu yolda aktiviteyi koşulsuz temizlemeyiz.
         const settings = useSettingsStore.getState();
         // Bellekte run yok (restart) — patch apply yine çalışır, agent devam etmez.
         // Yalnızca ONAYLANAN karar devam gerektirir; tamamı reddedildiyse işlem
@@ -538,7 +729,15 @@ export function useAgent() {
         // hatası üretiyordu).
         let needsRun = false;
         for (const d of decisions) {
-          const queued = await takeApproval(d.id);
+          let queued: Awaited<ReturnType<typeof takeApproval>>;
+          try {
+            queued = await takeApproval(d.id);
+          } catch (error) {
+            logError('agent.approval.take.failed', {
+              error: error instanceof Error ? error.message : String(error),
+            });
+            continue;
+          }
           if (!queued) continue;
           let line: string | null = null;
           if (d.approved) {
@@ -563,14 +762,46 @@ export function useAgent() {
         onRetry?.(null);
         return needsRun ? t('agent.cannotRestart') : null;
       }
+      const { run, activityRunId } = active;
+      const activityState = useAgentActivityStore.getState();
+      const existingActivity = activityState.activities[sessionId];
+      // Aktivite abort sonrası kapatılmış olabilir; aynı run kimliğiyle yeniden
+      // açılır. Böylece olay işleyicisi değişmeden spinner da yeniden başlamaz.
+      if (!existingActivity || existingActivity.runId !== activityRunId) {
+        activityState.begin(sessionId, activityRunId);
+      }
+      const updateActivity = (patch: AgentActivityPatch) => {
+        useAgentActivityStore.getState().update(sessionId, activityRunId, patch);
+      };
+      updateActivity({ phase: 'preparing', tool: null, retry: null });
+
       const store = useSessionStore.getState;
+      store().setStreaming(true);
       const callNames = new Map<string, string>();
       // Karar öncesi kuyruğu düşür.
       for (const d of decisions) {
-        await takeApproval(d.id);
+        let queued: Awaited<ReturnType<typeof takeApproval>>;
+        try {
+          queued = await takeApproval(d.id);
+        } catch (error) {
+          logError('agent.approval.take.failed', {
+            error: error instanceof Error ? error.message : String(error),
+          });
+          continue;
+        }
+        if (!queued) continue;
         if (!d.approved) {
           onToolLine?.({ type: 'sys', content: t('agent.rejected', { id: d.id.slice(0, 8) }) });
         } else {
+          const call = queued.call;
+          updateActivity({
+            phase: 'tool',
+            tool: {
+              id: String(call.id),
+              name: String(call.name),
+              target: toolTarget(String(call.name), call.args as Record<string, unknown>),
+            },
+          });
           onToolLine?.({ type: 'sys', content: t('agent.approved', { id: d.id.slice(0, 8) }) });
         }
       }
@@ -580,6 +811,21 @@ export function useAgent() {
         const result = await run.resolve(decisions);
         void callNames;
         if (result.kind === 'needs-approval') {
+          const pendingCall = result.pending[0];
+          updateActivity({
+            phase: 'awaiting_approval',
+            tool: pendingCall
+              ? {
+                  id: String(pendingCall.id),
+                  name: String(pendingCall.name),
+                  target: toolTarget(
+                    String(pendingCall.name),
+                    pendingCall.args as Record<string, unknown>,
+                  ),
+                }
+              : null,
+            retry: null,
+          });
           // M1: kalan kartlar kuyrukta KALIR — yeniden yazarken mevcut
           // `createdAt` korunur (sıra değişmesin) ve güncel `runState` yazılır
           // (INSERT OR REPLACE eski satırı siler; runState kaybı restart'ı bozar).
@@ -588,13 +834,20 @@ export function useAgent() {
           const prevById = new Map(existing.map((a) => [a.id, a]));
           for (const call of result.pending) {
             const prev = prevById.get(call.id);
-            await queueApproval({
-              id: call.id,
-              sessionId,
-              call,
-              createdAt: prev?.createdAt ?? Date.now(),
-              runState,
-            });
+            try {
+              await queueApproval({
+                id: call.id,
+                sessionId,
+                call,
+                createdAt: prev?.createdAt ?? Date.now(),
+                runState,
+              });
+            } catch (error) {
+              // DB kilidi onay kartının çalışmasını engellememeli.
+              logError('agent.approval.persist.failed', {
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
           }
           onPending?.(result.pending);
           onToolLine?.({
@@ -606,12 +859,17 @@ export function useAgent() {
           });
           return null;
         }
-        activeRuns.delete(sessionId);
+        clearActiveRun(sessionId, activityRunId);
+        // Onay turu metinsiz bitirse placeholder boş assistant satırı kalmasın.
+        cleanBlankAssistantMessages(sessionId);
         store().setStreaming(false);
+        useAgentActivityStore.getState().end(sessionId, activityRunId);
         return null;
       } catch (err) {
-        activeRuns.delete(sessionId);
+        clearActiveRun(sessionId, activityRunId);
+        cleanBlankAssistantMessages(sessionId);
         store().setStreaming(false);
+        useAgentActivityStore.getState().end(sessionId, activityRunId);
         return formatProviderError(err);
       } finally {
         try {
@@ -621,7 +879,7 @@ export function useAgent() {
         }
       }
     },
-    [],
+    [t],
   );
 
   /**
@@ -632,106 +890,141 @@ export function useAgent() {
    * Dönen sayı: geri yüklenen oturum sayısı.
    */
   const restorePendingRuns = useCallback(
-    async (onRetryFor?: (sessionId: string, info: RetryInfo | null) => void): Promise<number> => {
-    const settings = useSettingsStore.getState();
-    const ws = useWorkspaceStore.getState();
-    if (!ws.root) return 0;
-    const store = useSessionStore.getState;
-    let restored = 0;
-    let approvals: Awaited<ReturnType<typeof listApprovals>> = [];
-    try {
-      approvals = await listApprovals();
-    } catch {
-      return 0;
-    }
-    for (const a of approvals) {
-      if (activeRuns.has(a.sessionId)) continue;
-      if (!a.runState) continue;
-      let state: AgentRunState;
+    async (
+      onRetryFor?: (sessionId: string, info: RetryInfo | null) => void,
+      onNoticeFor?: (sessionId: string, text: string) => void,
+    ): Promise<number> => {
+      const settings = useSettingsStore.getState();
+      const ws = useWorkspaceStore.getState();
+      if (!ws.root) return 0;
+      const store = useSessionStore.getState;
+      let restored = 0;
+      let approvals: Awaited<ReturnType<typeof listApprovals>> = [];
       try {
-        state = JSON.parse(a.runState) as AgentRunState;
+        approvals = await listApprovals();
       } catch {
-        continue;
+        return 0;
       }
-      if (!state || !Array.isArray(state.msgs) || state.msgs.length === 0) continue;
-      const sess = store().sessions.find((s) => s.id === a.sessionId);
-      if (!sess) continue;
-      const providerName: Provider = sess.provider ?? settings.currentProvider;
-      const model = sess.model || settings.currentModel;
-      const apiKey = apiKeyFor(providerName, settings.apiKeys);
-      if (providerNeedsKey(providerName) && !apiKey.trim()) continue;
-
-      // MCP araçları (yeniden bağlan).
-      let extraTools: ToolDefinition[] = [];
-      try {
-        configureMcp({ servers: settings.mcpServers, secrets: settings.mcpSecrets, root: ws.root });
-        extraTools = await mcpToolsForAgent();
-      } catch {
-        extraTools = [];
-      }
-
-      // Çıktının yazılacağı assistant mesajı (yoksa yeni placeholder).
-      const msgs = store().sessions.find((s) => s.id === a.sessionId)?.messages ?? [];
-      let assistantId = '';
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'assistant') {
-          assistantId = msgs[i].id;
-          break;
+      for (const a of approvals) {
+        if (activeRuns.has(a.sessionId)) continue;
+        if (!a.runState) continue;
+        let state: AgentRunState;
+        try {
+          state = JSON.parse(a.runState) as AgentRunState;
+        } catch {
+          continue;
         }
-      }
-      if (!assistantId) {
-        assistantId = createId();
-        store().addMessage(a.sessionId, {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          timestamp: Date.now(),
-          model,
-          provider: providerName,
-        });
-      }
+        if (!state || !Array.isArray(state.msgs) || state.msgs.length === 0) continue;
+        const sess = store().sessions.find((s) => s.id === a.sessionId);
+        if (!sess) continue;
+        const providerName: Provider = sess.provider ?? settings.currentProvider;
+        const model = sess.model || settings.currentModel;
+        const apiKey = apiKeyFor(providerName, settings.apiKeys);
+        if (providerNeedsKey(providerName) && !apiKey.trim()) continue;
 
-      const callNames = new Map<string, string>();
-      const restoreMode = sess.agentMode ?? 'build';
-      const run = createAgentRun(
-        state.msgs,
-        {
-          provider: providerName,
-          apiKey,
-          model,
-          agentMode: restoreMode,
-          systemPrompt:
-            `${sess.systemPrompt || settings.systemPrompt || ''}\n${getModePrompt(restoreMode)}\n[workspace:${ws.label || ws.root}]`.trim() ||
-            undefined,
-          workspaceRoot: ws.root,
-          approvalMode: ws.approvalMode,
-          params: settings.modelParams[model],
-          registry: resolveModels(settings.customModels),
-          extraTools,
-          extraAllow: parseCustomAllowList(settings.customAllowList),
-          execTimeoutMs: settings.execTimeoutMs,
-          ...(settings.auditEnabled ? { auditSessionId: a.sessionId } : {}),
-          ...(settings.cachePrompts !== false
-            ? { cachePrompts: true, promptCacheKey: promptCacheKey(a.sessionId, model) }
-            : {}),
-          ...(onRetryFor
-            ? { onRetry: (info: RetryInfo | null) => onRetryFor(a.sessionId, info) }
-            : {}),
-          onEvent: makeRunEventHandler({
-            sessionId: a.sessionId,
-            assistantId,
-            provider: providerName,
+        // MCP araçları (yeniden bağlan).
+        let extraTools: ToolDefinition[] = [];
+        try {
+          configureMcp({
+            servers: settings.mcpServers,
+            secrets: settings.mcpSecrets,
+            root: ws.root,
+          });
+          extraTools = await mcpToolsForAgent();
+        } catch {
+          extraTools = [];
+        }
+
+        // Çıktının yazılacağı assistant mesajı (yoksa yeni placeholder).
+        const msgs = store().sessions.find((s) => s.id === a.sessionId)?.messages ?? [];
+        let assistantId = '';
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          if (msgs[i].role === 'assistant') {
+            assistantId = msgs[i].id;
+            break;
+          }
+        }
+        if (!assistantId) {
+          assistantId = createId();
+          store().addMessage(a.sessionId, {
+            id: assistantId,
+            role: 'assistant',
+            content: '',
+            timestamp: Date.now(),
             model,
-            callNames,
-            emit: () => {},
-          }),
-        },
-        state,
-      );
-      activeRuns.set(a.sessionId, run);
-      restored += 1;
-      logInfo('agent.run.restored', { sessionId: a.sessionId, provider: providerName, model });
-    }
+            provider: providerName,
+          });
+        }
+
+        const callNames = new Map<string, string>();
+        const restoreMode = sess.agentMode ?? 'build';
+        const runId = createId();
+        const updateActivity = (patch: AgentActivityPatch) => {
+          useAgentActivityStore.getState().update(a.sessionId, runId, patch);
+        };
+        useAgentActivityStore.getState().begin(a.sessionId, runId);
+        updateActivity({
+          phase: 'awaiting_approval',
+          tool: {
+            id: String(a.call.id),
+            name: String(a.call.name),
+            target: toolTarget(String(a.call.name), a.call.args as Record<string, unknown>),
+          },
+        });
+        const run = createAgentRun(
+          state.msgs,
+          {
+            provider: providerName,
+            apiKey,
+            model,
+            agentMode: restoreMode,
+            systemPrompt:
+              `${sess.systemPrompt || settings.systemPrompt || ''}\n${getModePrompt(restoreMode)}\n[workspace:${ws.label || ws.root}]`.trim() ||
+              undefined,
+            workspaceRoot: ws.root,
+            approvalMode: ws.approvalMode,
+            params: settings.modelParams[model],
+            registry: resolveModels(settings.customModels),
+            extraTools,
+            extraAllow: parseCustomAllowList(settings.customAllowList),
+            execTimeoutMs: settings.execTimeoutMs,
+            maxSteps: settings.agentMaxSteps,
+            ...(settings.auditEnabled ? { auditSessionId: a.sessionId } : {}),
+            ...(settings.cachePrompts !== false
+              ? { cachePrompts: true, promptCacheKey: promptCacheKey(a.sessionId, model) }
+              : {}),
+            onRetry: (info: RetryInfo | null) => {
+              if (info) {
+                updateActivity({
+                  phase: 'retrying',
+                  tool: null,
+                  retry: {
+                    attempt: info.nextAttempt,
+                    maxAttempts: info.maxAttempts,
+                    delayMs: info.delayMs,
+                  },
+                });
+              } else {
+                updateActivity({ phase: 'thinking', retry: null });
+              }
+              onRetryFor?.(a.sessionId, info);
+            },
+            onEvent: makeRunEventHandler({
+              sessionId: a.sessionId,
+              assistantId,
+              provider: providerName,
+              model,
+              callNames,
+              emit: (line) => onNoticeFor?.(a.sessionId, line.content),
+              activity: { runId, update: updateActivity },
+            }),
+          },
+          state,
+        );
+        activeRuns.set(a.sessionId, { run, activityRunId: runId });
+        restored += 1;
+        logInfo('agent.run.restored', { sessionId: a.sessionId, provider: providerName, model });
+      }
       return restored;
     },
     [],

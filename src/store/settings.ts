@@ -1,11 +1,46 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { invoke } from '@tauri-apps/api/core';
-import type { ApiKeys, CustomEndpoint, CustomModel, DiscoveredModel, McpServerConfig, Model, ModelParams, ModelPrice, ModelsDevCatalog, Provider } from '../types';
-import { ALL_MODELS, PROVIDER_DEFS, PROVIDER_IDS, toRegistryModel } from '../lib/providers';
-import { buildCatalogIndex, catalogPriceOf, matchCatalogEntry, setActiveCatalog } from '../lib/providers/catalog';
-import { fetchModelsDevCatalog, loadCachedCatalog, saveCachedCatalog } from '../lib/providers/modelsDev';
+import type {
+  ApiKeys,
+  CustomEndpoint,
+  CustomModel,
+  DiscoveredModel,
+  LiveCatalog,
+  McpServerConfig,
+  Model,
+  ModelParams,
+  ModelPrice,
+  ModelsDevCatalog,
+  Provider,
+} from '../types';
+import {
+  ALL_MODELS,
+  PROVIDER_DEFS,
+  PROVIDER_IDS,
+  hasProviderKey,
+  toRegistryModel,
+} from '../lib/providers';
+import {
+  buildCatalogIndex,
+  catalogPriceOf,
+  matchCatalogEntry,
+  setActiveCatalog,
+} from '../lib/providers/catalog';
+import {
+  fetchModelsDevCatalog,
+  loadCachedCatalog,
+  saveCachedCatalog,
+} from '../lib/providers/modelsDev';
+import {
+  isLiveStale,
+  loadCachedLiveCatalog,
+  saveCachedLiveCatalog,
+  setActiveLiveCatalog,
+} from '../lib/providers/liveCatalog';
+import { discoverProviderModels } from '../lib/providers/discovery';
 import { isTauri } from '../lib/tauri';
+import { t } from '../lib/i18n/core';
 import type { LanguageSetting } from '../lib/i18n/types';
 
 export { isTauri };
@@ -25,6 +60,8 @@ const EMPTY_KEYS: ApiKeys = {
   minimax: '',
   moonshotai: '',
   zhipuai: '',
+  nvidia: '',
+  evren: '',
 };
 
 /** Provider -> keystore anahtar adi (`ollama` URL saklar). */
@@ -75,6 +112,16 @@ interface SettingsStore {
    * `prices` tablosunu otomatik doldurmak için kaynak olur.
    */
   modelsDevCatalog: ModelsDevCatalog | null;
+  /**
+   * Sağlayıcı API'lerinden canlı çekilen model listeleri (bellekte; ayrı
+   * localStorage önbelleği vardır). Dolu olan sağlayıcıda `resolveModels()`
+   * bu listeyi kullanır, yoksa mevcut kataloğa düşer.
+   */
+  liveCatalog: LiveCatalog | null;
+  /** Canlı liste yenileme hataları (sağlayıcı bazında; eski liste korunur). */
+  liveErrors: Partial<Record<Provider, string>>;
+  /** Şu anda yenilenen sağlayıcılar (UI durumu). */
+  liveBusy: Partial<Record<Provider, boolean>>;
   /** Faz 2 (K4): özetleyici sağlayıcı — boş = aktif sağlayıcı. */
   summarizerProvider: Provider | '';
   /** Faz 2 (K4): özetleyici model — boş = aktif model. */
@@ -94,6 +141,8 @@ interface SettingsStore {
   customAllowList: string[];
   /** P0.2: exec için genel timeout üst sınırı (ms). */
   execTimeoutMs: number;
+  /** Agent adım üst sınırı. `0` = sınırsız (varsayılan); 1–200 = güvenlik sönümü. */
+  agentMaxSteps: number;
   /** Faz 6: denetim kaydı tutulsun mu (default true). */
   auditEnabled: boolean;
   /** Görünüm: yüksek kontrast paleti (token override). */
@@ -141,6 +190,16 @@ interface SettingsStore {
   loadModelsDevCatalog: () => void;
   /** models.dev kataloğunu ağdan yenile — fiyatlar otomatik dolar. */
   refreshModelsDevCatalog: (fetchImpl?: typeof fetch) => Promise<ModelsDevCatalog>;
+  /** Canlı model listesini önbellekten yükle (boot; ağ trafiği üretmez). */
+  loadLiveCatalog: () => void;
+  /**
+   * Sağlayıcı API'sinden model listesini yenile.
+   * - `provider` verilmezse anahtarı olan tüm sağlayıcılar (bayat olanlar).
+   * - `force` = TTL kontrolünü atla (anahtar ekleme / elle yenileme).
+   */
+  refreshLiveCatalog: (provider?: Provider, force?: boolean) => Promise<void>;
+  /** Sağlayıcının canlı listesini sil (anahtar kaldırıldığında). */
+  clearLiveCatalog: (provider: Provider) => void;
   setSummarizerProvider: (p: Provider | '') => void;
   setSummarizerModel: (id: string) => void;
   setShowThinking: (v: boolean) => void;
@@ -152,6 +211,8 @@ interface SettingsStore {
   setCustomAllowList: (list: string[]) => void;
   /** P0.2: exec timeout üst sınırı (1 sn–600 sn aralığına kırpılır). */
   setExecTimeoutMs: (ms: number) => void;
+  /** Agent adım sınırı (0 = sınırsız, 1–200 aralığına kırpılır). */
+  setAgentMaxSteps: (n: number) => void;
   setAuditEnabled: (v: boolean) => void;
   setContrast: (v: ContrastMode) => void;
   setUiFont: (v: UiFontMode) => void;
@@ -173,7 +234,13 @@ const noopStorage = {
   removeItem: (_name: string): void => {},
 };
 
-const EMPTY_STATUS = Object.fromEntries(PROVIDER_IDS.map((p) => [p, false])) as Record<Provider, boolean>;
+const EMPTY_STATUS = Object.fromEntries(PROVIDER_IDS.map((p) => [p, false])) as Record<
+  Provider,
+  boolean
+>;
+
+/** Aynı sağlayıcı için eşzamanlı canlı katalog isteğini engeller. */
+const liveInFlight = new Set<Provider>();
 
 /* ── Görünüm tipleri ── */
 
@@ -214,6 +281,9 @@ export const useSettingsStore = create<SettingsStore>()(
       prices: {},
       discovered: [],
       modelsDevCatalog: null,
+      liveCatalog: null,
+      liveErrors: {},
+      liveBusy: {},
       summarizerProvider: '',
       summarizerModel: '',
       showThinking: true,
@@ -222,9 +292,13 @@ export const useSettingsStore = create<SettingsStore>()(
       mcpSecrets: {},
       customAllowList: [],
       execTimeoutMs: 300_000,
+      agentMaxSteps: 0,
       auditEnabled: true,
-      contrast: 'normal',
-      uiFont: 'mono',
+      // Görünüm varsayılanları: yüksek kontrast + Inter arayüz fontu AÇIK.
+      // (Kullanıcı Ayarlar → Görünüm'den geri alabilir; persist edilen değer
+      //  varsa o kazanır.)
+      contrast: 'high',
+      uiFont: 'inter',
       clockFormat: '24h',
       showTimestamps: true,
       sidebarWidth: SIDEBAR_DEFAULT,
@@ -238,7 +312,12 @@ export const useSettingsStore = create<SettingsStore>()(
         const field = fieldOf(provider);
         set((s) => ({ apiKeys: { ...s.apiKeys, [field]: key } }));
         // Kalici yazma arka planda; hata sessizce yoksayilir (boot'ta tekrar denenecek).
-        void get().saveToStore().catch(() => {});
+        void get()
+          .saveToStore()
+          .catch(() => {});
+        // Anahtar eklenince canlı model listesini hemen çek; silinince temizle.
+        if (key.trim()) void get().refreshLiveCatalog(provider, true);
+        else get().clearLiveCatalog(provider);
       },
 
       setProvider: (provider) =>
@@ -248,16 +327,20 @@ export const useSettingsStore = create<SettingsStore>()(
 
       setSystemPrompt: (prompt) => set({ systemPrompt: prompt }),
 
-      setFontSize: (size) =>
-        set({ fontSize: Math.min(20, Math.max(10, Math.round(size))) }),
+      setFontSize: (size) => set({ fontSize: Math.min(20, Math.max(10, Math.round(size))) }),
 
-      setBaseUrlOverride: (provider, url) =>
+      setBaseUrlOverride: (provider, url) => {
         set((s) => {
           const next = { ...s.baseUrlOverride };
           if (url.trim()) next[provider] = url.trim();
           else delete next[provider];
           return { baseUrlOverride: next };
-        }),
+        });
+        const st = get();
+        if (hasProviderKey(provider, st.apiKeys)) {
+          void st.refreshLiveCatalog(provider, true);
+        }
+      },
 
       setCustomEndpoints: (list) => set({ customEndpoints: list }),
 
@@ -289,7 +372,11 @@ export const useSettingsStore = create<SettingsStore>()(
           if (params.temperature !== undefined && Number.isFinite(params.temperature)) {
             cleaned.temperature = params.temperature;
           }
-          if (params.maxTokens !== undefined && Number.isFinite(params.maxTokens) && params.maxTokens > 0) {
+          if (
+            params.maxTokens !== undefined &&
+            Number.isFinite(params.maxTokens) &&
+            params.maxTokens > 0
+          ) {
             cleaned.maxTokens = Math.floor(params.maxTokens);
           }
           if (params.topP !== undefined && Number.isFinite(params.topP)) {
@@ -373,6 +460,74 @@ export const useSettingsStore = create<SettingsStore>()(
         return catalog;
       },
 
+      loadLiveCatalog: () => {
+        const cached = loadCachedLiveCatalog();
+        setActiveLiveCatalog(cached);
+        set({ liveCatalog: cached });
+      },
+
+      refreshLiveCatalog: async (only, force = false) => {
+        const targets = (only ? [only] : PROVIDER_IDS).filter((p) => !liveInFlight.has(p));
+        await Promise.all(
+          targets.map(async (p) => {
+            const state = get();
+            // Anahtarı olmayan sağlayıcıdan model listesi istenmez (ollama hariç).
+            if (!hasProviderKey(p, state.apiKeys)) {
+              if (only) get().clearLiveCatalog(p);
+              return;
+            }
+            const existing = (state.liveCatalog ?? {})[p];
+            // Boot/toplu yenileme: taze listeyi tekrar çekme.
+            if (!only && !force && !isLiveStale(existing)) return;
+            liveInFlight.add(p);
+            set((s) => ({ liveBusy: { ...s.liveBusy, [p]: true } }));
+            try {
+              const models = await discoverProviderModels(p, {
+                apiKey: p === 'ollama' ? '' : state.apiKeys[p],
+                baseUrl: state.baseUrlOverride[p] || PROVIDER_DEFS[p].defaultBaseUrl,
+                ollamaUrl: state.apiKeys.ollamaUrl,
+              });
+              if (models.length === 0) {
+                throw new Error(t('errors.liveEmpty', { provider: PROVIDER_DEFS[p].label }));
+              }
+              const current = get().liveCatalog ?? {};
+              const next: LiveCatalog = {
+                ...current,
+                [p]: { fetchedAt: Date.now(), models },
+              };
+              setActiveLiveCatalog(next);
+              saveCachedLiveCatalog(next);
+              set((s) => {
+                const errors = { ...s.liveErrors };
+                delete errors[p];
+                return { liveCatalog: next, liveErrors: errors };
+              });
+            } catch (e) {
+              // Eski başarılı liste korunur; yalnız hata durumu yazılır.
+              const message = e instanceof Error ? e.message : String(e);
+              set((s) => ({ liveErrors: { ...s.liveErrors, [p]: message } }));
+            } finally {
+              liveInFlight.delete(p);
+              set((s) => ({ liveBusy: { ...s.liveBusy, [p]: false } }));
+            }
+          }),
+        );
+      },
+
+      clearLiveCatalog: (provider) => {
+        const current = get().liveCatalog ?? {};
+        if (!(provider in current) && !(provider in get().liveErrors)) return;
+        const next: LiveCatalog = { ...current };
+        delete next[provider];
+        setActiveLiveCatalog(next);
+        saveCachedLiveCatalog(next);
+        set((s) => {
+          const errors = { ...s.liveErrors };
+          delete errors[provider];
+          return { liveCatalog: next, liveErrors: errors };
+        });
+      },
+
       setSummarizerProvider: (p) => set({ summarizerProvider: p }),
 
       setSummarizerModel: (id) => set({ summarizerModel: id }),
@@ -403,6 +558,9 @@ export const useSettingsStore = create<SettingsStore>()(
         set({
           execTimeoutMs: Math.max(1_000, Math.min(600_000, Math.round(ms || 300_000))),
         }),
+
+      setAgentMaxSteps: (n) =>
+        set({ agentMaxSteps: Math.max(0, Math.min(200, Math.round(n || 0))) }),
 
       setAuditEnabled: (v) => set({ auditEnabled: v }),
 
@@ -559,6 +717,7 @@ export const useSettingsStore = create<SettingsStore>()(
               mcpSecrets: {},
               customAllowList: s.customAllowList,
               execTimeoutMs: s.execTimeoutMs,
+              agentMaxSteps: s.agentMaxSteps,
               auditEnabled: s.auditEnabled,
               contrast: s.contrast,
               uiFont: s.uiFont,
@@ -571,7 +730,7 @@ export const useSettingsStore = create<SettingsStore>()(
               lastUpdateCheck: s.lastUpdateCheck,
               ignoredUpdateVersion: s.ignoredUpdateVersion,
             }
-          : { ...s, modelsDevCatalog: null },
+          : { ...s, modelsDevCatalog: null, liveCatalog: null, liveErrors: {}, liveBusy: {} },
     },
   ),
 );

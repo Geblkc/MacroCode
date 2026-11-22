@@ -29,13 +29,7 @@ export interface GitRepoInfo {
   outsideRepo: boolean;
 }
 
-export type GitFileKind =
-  | 'added'
-  | 'modified'
-  | 'deleted'
-  | 'renamed'
-  | 'untracked'
-  | 'conflicted';
+export type GitFileKind = 'added' | 'modified' | 'deleted' | 'renamed' | 'untracked' | 'conflicted';
 
 export interface GitFile {
   path: string;

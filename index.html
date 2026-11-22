@@ -1,16 +1,17 @@
 <!doctype html>
-<html lang="tr">
+<!--
+  Görünüm varsayılanları statik olarak buradadır (yüksek kontrast + Inter
+  arayüz fontu). React mount olup `App.tsx` store değerlerini yazana kadar
+  oluşacak "normal palet + monospace" yanıp sönmesini (FOUC) önler.
+  Persist edilmiş bir kullanıcı tercihi varsa App.tsx bunları ezer.
+-->
+<html lang="tr" data-contrast="high" data-uifont="inter">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MacroCode</title>
     <link rel="icon" type="image/svg+xml" href="/macrocode-logo.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fontlar yerel olarak paketlenir (public/fonts) — çalışma anında ağ isteği yok. -->
   </head>
   <body>
     <div id="root"></div>

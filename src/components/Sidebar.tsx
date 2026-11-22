@@ -19,7 +19,11 @@ interface Props {
 }
 
 interface Group {
-  labelKey: 'sidebar.group.today' | 'sidebar.group.yesterday' | 'sidebar.group.thisWeek' | 'sidebar.group.older';
+  labelKey:
+    | 'sidebar.group.today'
+    | 'sidebar.group.yesterday'
+    | 'sidebar.group.thisWeek'
+    | 'sidebar.group.older';
   items: {
     id: string;
     name: string;
@@ -105,6 +109,8 @@ function relativeTime(ts: number, t: TFn): string {
   return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()}`;
 }
 
+const store = useSessionStore.getState;
+
 export default function Sidebar({
   onOpenSettings,
   onOpenStats,
@@ -125,8 +131,6 @@ export default function Sidebar({
   const [query, setQuery] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
-
-  const store = useSessionStore.getState;
 
   // ── Faz 3: satır içi yeniden adlandırma (çift tık veya kalem butonu) ──
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -217,7 +221,10 @@ export default function Sidebar({
   );
 
   return (
-    <aside className={`sidebar${collapsed ? ' collapsed' : ''}`} aria-label={t('sidebar.ariaLabel')}>
+    <aside
+      className={`sidebar${collapsed ? ' collapsed' : ''}`}
+      aria-label={t('sidebar.ariaLabel')}
+    >
       <div className="side-head">
         <span className="side-label">{t('sidebar.title')}</span>
         <span className="count-chip">{sessions.length}</span>
@@ -327,7 +334,11 @@ export default function Sidebar({
                           const modeLabel = t(MODE_LABEL_KEY[mode]);
                           return (
                             <>
-                              <span className={`smode smode-${mode}`} title={modeLabel} aria-label={modeLabel}>
+                              <span
+                                className={`smode smode-${mode}`}
+                                title={modeLabel}
+                                aria-label={modeLabel}
+                              >
                                 <Icon name={MODE_ICON[mode]} size="sm" />
                               </span>
                               <span className="smodel" title={modelId}>

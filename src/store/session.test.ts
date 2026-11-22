@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { useSessionStore } from './session';
 import type { Message } from '../types';
 
-function msg(over: Partial<Message> & { id: string; role: Message['role']; content: string }): Message {
+function msg(
+  over: Partial<Message> & { id: string; role: Message['role']; content: string },
+): Message {
   return { timestamp: 1, ...over } as Message;
 }
 
@@ -13,15 +15,20 @@ describe('Faz 1 G1 — session tool geçmişi persist', () => {
 
   it('tool alanları addMessage + partialize roundtrip korunur', () => {
     const s = useSessionStore.getState().createSession();
-    useSessionStore.getState().addMessage(s.id, msg({
-      id: 'a1',
-      role: 'assistant',
-      content: 'bakıyorum',
-      toolCalls: [{ id: 'c1', name: 'read_file', args: { path: 'a.ts' } }],
-    }));
-    useSessionStore.getState().addToolMessages(s.id, [
-      { role: 'system', content: 'içerik', toolCallId: 'c1', toolName: 'read_file' },
-    ]);
+    useSessionStore.getState().addMessage(
+      s.id,
+      msg({
+        id: 'a1',
+        role: 'assistant',
+        content: 'bakıyorum',
+        toolCalls: [{ id: 'c1', name: 'read_file', args: { path: 'a.ts' } }],
+      }),
+    );
+    useSessionStore
+      .getState()
+      .addToolMessages(s.id, [
+        { role: 'system', content: 'içerik', toolCallId: 'c1', toolName: 'read_file' },
+      ]);
     const sess = useSessionStore.getState().sessions.find((x) => x.id === s.id)!;
     expect(sess.messages).toHaveLength(2);
     expect(sess.messages[0].toolCalls?.[0].id).toBe('c1');
@@ -45,9 +52,9 @@ describe('Faz 1 G1 — session tool geçmişi persist', () => {
   it('appendToolCalls assistant mesajına ekler', () => {
     const s = useSessionStore.getState().createSession();
     useSessionStore.getState().addMessage(s.id, msg({ id: 'a9', role: 'assistant', content: '' }));
-    useSessionStore.getState().appendToolCalls(s.id, 'a9', [
-      { id: 'c9', name: 'exec', args: { cmd: 'ls' } },
-    ]);
+    useSessionStore
+      .getState()
+      .appendToolCalls(s.id, 'a9', [{ id: 'c9', name: 'exec', args: { cmd: 'ls' } }]);
     const m = useSessionStore.getState().sessions.find((x) => x.id === s.id)!.messages[0];
     expect(m.toolCalls).toHaveLength(1);
     expect(m.toolCalls?.[0].name).toBe('exec');
@@ -55,12 +62,14 @@ describe('Faz 1 G1 — session tool geçmişi persist', () => {
 
   it('Faz 4: reasoning ve thinking kalıcı katmanda taşınır', () => {
     const s = useSessionStore.getState().createSession();
-    useSessionStore.getState().addMessage(s.id, msg({ id: 'a1', role: 'assistant', content: 'yanıt' }));
+    useSessionStore
+      .getState()
+      .addMessage(s.id, msg({ id: 'a1', role: 'assistant', content: 'yanıt' }));
     useSessionStore.getState().appendReasoning(s.id, 'a1', 'önce ');
     useSessionStore.getState().appendReasoning(s.id, 'a1', 'düşündüm');
-    useSessionStore.getState().setAssistantThinking(s.id, 'a1', [
-      { thinking: 'plan', signature: 'sig' },
-    ]);
+    useSessionStore
+      .getState()
+      .setAssistantThinking(s.id, 'a1', [{ thinking: 'plan', signature: 'sig' }]);
     useSessionStore.getState().setMessageUsage(s.id, 'a1', { input: 10, output: 5, reasoning: 3 });
     const m = useSessionStore.getState().sessions.find((x) => x.id === s.id)!.messages[0];
     expect(m.reasoning).toBe('önce düşündüm');
@@ -142,9 +151,7 @@ describe('Faz 3 — renameSession', () => {
   it('60 karakterde kesilir (taşma koruması)', () => {
     const a = useSessionStore.getState().createSession();
     useSessionStore.getState().renameSession(a.id, 'x'.repeat(80));
-    expect(
-      useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name,
-    ).toHaveLength(60);
+    expect(useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name).toHaveLength(60);
   });
 
   it('bilinmeyen id hiçbir şeyi değiştirmez', () => {

@@ -29,10 +29,11 @@ d'authentification envoyés directement au fournisseur que vous avez configuré.
 
 | | |
 |---|---|
-| 🧠 **10 fournisseurs** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) et GLM (Zhipu AI). Un fournisseur n'apparaît dans les listes qu'une fois sa clé saisie (ou, pour Ollama, une URL locale). |
-| 🔮 **Des centaines de modèles** | Un petit catalogue éditorial enrichi avec les métadonnées de [models.dev](https://models.dev) : limites de contexte, capacités vision/raisonnement et tarifs. |
+| 🧠 **12 fournisseurs** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI), GLM (Zhipu AI), NVIDIA et EVREN LLM. Un fournisseur n'apparaît dans les listes qu'une fois sa clé saisie (ou, pour Ollama, une URL locale). |
+| 🔮 **Des centaines de modèles** | Les listes viennent en direct de l’API de chaque fournisseur (avec votre clé), enrichies par les métadonnées de [models.dev](https://models.dev). Si une liste API est indisponible, le catalogue intégré est utilisé. |
 | ⌨️ **Expérience terminal** | Commandes slash (`/model`, `/tokens`, `/compact`, `/help`…), historique des messages avec `↑ ↓`, comptage instantané des tokens à chaque tour. |
 | 🤖 **Mode agent** | Désignez un dossier de projet avec `/root` : il peut lire des fichiers, fouiller le code, éditer des fichiers et exécuter des commandes shell. Chaque écriture/exécution passe par une carte d'approbation que vous acceptez ou refusez ; `rm` est restreint et les dossiers système sont bloqués. Il se connecte également aux serveurs MCP (stdio ou HTTP) pour des outils supplémentaires. |
+| ⏱️ **Instantanés du projet** | Créez un point de restauration de tout le projet avec `/snapshot` (ou le menu d’espace de travail de la barre de titre), listez-les avec `/snapshots` et revenez en arrière avec `/restore <id>`. Secrets et dossiers ignorés sont exclus ; une copie de sécurité est créée avant chaque restauration. |
 | 🔀 **Git intégré** | Un panneau Git ancré et des commandes `/git` : statut, diff, indexation, commit (avec message IA facultatif), historique, branches, fetch/pull (fast-forward uniquement)/push. Les mutations demandent confirmation ; l'app ne stocke aucun identifiant et ne force jamais un push. |
 | 💸 **Maîtrise des coûts** | La mise en cache des prompts (breakpoints Anthropic / clés de cache compatibles OpenAI) allège les longues sessions ; `/tokens` indique précisément le coût de chaque tour, lectures du cache incluses. |
 | 🌍 **5 langues** | Interface intégralement traduite : English, Deutsch, Español, Français et Türkçe ; le changement s'applique instantanément, sans redémarrage. |
@@ -69,7 +70,7 @@ npm run build        # vérification des types + build web uniquement
 ## Documentation
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — la structure du projet, module par module
-- [`docs/MODELS.md`](docs/MODELS.md) — le catalogue de modèles et sa fusion avec models.dev
+- [`docs/MODELS.md`](docs/MODELS.md) — catalogue API en direct, règles de repli et fusion models.dev
 - [`docs/PACKAGING.md`](docs/PACKAGING.md) — construire `.deb` / `.rpm` / AppImage en local, installateurs Windows via CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — journal daté de chaque changement
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — recommandations pour les pull requests

@@ -136,4 +136,12 @@ describe('formatProviderError', () => {
   it('abort hatasi null doner', () => {
     expect(formatProviderError(new DOMException('aborted', 'AbortError'))).toBeNull();
   });
+
+  it('SQLite kilit hatası bilinmeyen hata olarak gösterilmez', () => {
+    setLocale('tr');
+    const msg = formatProviderError(new Error('database is locked (code: 5)'));
+    expect(msg).toContain('kilitli');
+    expect(msg).not.toContain('bilinmeyen hata');
+    setLocale('tr');
+  });
 });

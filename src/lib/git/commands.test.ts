@@ -76,7 +76,10 @@ function fakeApi(over: Partial<GitApi> = {}): GitApi {
   return { ...base, ...over };
 }
 
-function ctx(api: GitApi, over: Partial<GitCommandContext> = {}): GitCommandContext & {
+function ctx(
+  api: GitApi,
+  over: Partial<GitCommandContext> = {},
+): GitCommandContext & {
   lines: CommandLine[];
   confirmations: number;
 } {
@@ -103,11 +106,7 @@ function ctx(api: GitApi, over: Partial<GitCommandContext> = {}): GitCommandCont
 
 describe('/git — argüman ayrıştırma', () => {
   it('tırnaklı ve tırnaksız argümanlar', () => {
-    expect(parseArgs('src/a.ts "foo bar.txt" \'x y\'')).toEqual([
-      'src/a.ts',
-      'foo bar.txt',
-      'x y',
-    ]);
+    expect(parseArgs('src/a.ts "foo bar.txt" \'x y\'')).toEqual(['src/a.ts', 'foo bar.txt', 'x y']);
     expect(parseArgs('')).toEqual([]);
   });
 });
@@ -238,7 +237,7 @@ describe('/git — salt okunur komutlar', () => {
 });
 
 describe('/git — mutasyonlar ve onay', () => {
-  it('add yolları API\'ye geçirir (onay istemez)', async () => {
+  it("add yolları API'ye geçirir (onay istemez)", async () => {
     const api = fakeApi();
     const c = ctx(api);
     await runGitCommand('/git add "src/a.ts" src/b.ts', c);
@@ -298,11 +297,7 @@ describe('/git — mutasyonlar ve onay', () => {
     const c = ctx(api);
     await runGitCommand('/git commit --amend', c);
     expect(c.confirmations).toBe(1);
-    expect(api.commit).toHaveBeenCalledWith(
-      '/tmp/repo',
-      'feat: önceki\n\ngövde metni',
-      true,
-    );
+    expect(api.commit).toHaveBeenCalledWith('/tmp/repo', 'feat: önceki\n\ngövde metni', true);
   });
 
   it('switch -c yeni branch oluşturur, onay ister', async () => {

@@ -1,0 +1,45 @@
+version: 2
+updates:
+  # Frontend dependencies
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns: ["react", "react-dom", "@types/react", "@types/react-dom"]
+      tauri-js:
+        patterns: ["@tauri-apps/*"]
+      tooling:
+        patterns: ["typescript", "vite", "vitest", "@vitejs/*"]
+      lint-format:
+        patterns: ["eslint*", "@eslint/*", "typescript-eslint", "prettier"]
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # Rust backend
+  - package-ecosystem: cargo
+    directory: /src-tauri
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      tauri:
+        patterns: ["tauri*"]
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+
+  # GitHub Actions used by CI and release workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]

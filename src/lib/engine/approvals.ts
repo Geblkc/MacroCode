@@ -3,7 +3,7 @@
  * UI (App) boot'ta restoreApprovals çağırır, step() pending'i queueApproval ile yazar,
  * resolve öncesi takeApproval ile düşer.
  */
-import { openSql, PENDING_APPROVALS_TABLE_SQL as PENDING_SQL } from '../db';
+import { executeSqlWrite, openSql, PENDING_APPROVALS_TABLE_SQL as PENDING_SQL } from '../db';
 import type { ToolCall } from './types';
 
 export interface PendingApproval {
@@ -28,17 +28,75 @@ export interface ApprovalsDb {
 
 const memory = new Map<string, PendingApproval>();
 
+/** DB kilitliyken onayları kaybetmemek için localStorage yedeği. */
+const APPROVAL_STORAGE_KEY = 'macrocode-approvals';
+
+function readStoredApprovals(): PendingApproval[] {
+  if (typeof localStorage === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(APPROVAL_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (item): item is PendingApproval =>
+        !!item &&
+        typeof item === 'object' &&
+        typeof (item as PendingApproval).id === 'string' &&
+        typeof (item as PendingApproval).sessionId === 'string',
+    );
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredApprovals(items: PendingApproval[]): void {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    localStorage.setItem(APPROVAL_STORAGE_KEY, JSON.stringify(items));
+  } catch {
+    // localStorage dolu/kapalı olabilir; bellek yedeği yeterli.
+  }
+}
+
+function storeApprovalLocally(approval: PendingApproval): void {
+  const next = readStoredApprovals().filter((item) => item.id !== approval.id);
+  next.push(approval);
+  writeStoredApprovals(next);
+}
+
+function removeApprovalLocally(id: string): void {
+  const current = readStoredApprovals();
+  const next = current.filter((item) => item.id !== id);
+  if (next.length !== current.length) writeStoredApprovals(next);
+}
+
+function takeApprovalLocally(id: string): PendingApproval | undefined {
+  const current = readStoredApprovals();
+  const found = current.find((item) => item.id === id);
+  if (found) {
+    writeStoredApprovals(current.filter((item) => item.id !== id));
+  }
+  return found;
+}
+
+function fallbackApprovals(sessionId?: string): PendingApproval[] {
+  const merged = new Map<string, PendingApproval>();
+  for (const item of memory.values()) {
+    if (!sessionId || item.sessionId === sessionId) merged.set(item.id, item);
+  }
+  for (const item of readStoredApprovals()) {
+    if (!sessionId || item.sessionId === sessionId) merged.set(item.id, item);
+  }
+  return [...merged.values()].sort((a, b) => a.createdAt - b.createdAt);
+}
+
 async function openApprovalsDb(provided?: ApprovalsDb): Promise<ApprovalsDb | null> {
   if (provided) return provided;
   // Faz 7 A1: tek paylaşılan bağlantı (db.ts) — hata `sqlError()` ile görünür.
-  const db = await openSql();
-  if (!db) return null;
-  try {
-    await db.execute(PENDING_APPROVALS_TABLE_SQL);
-    return db;
-  } catch {
-    return null;
-  }
+  // Şema `openDb()` sırasında bir kez kurulur; burada tekrar CREATE çalıştırmak
+  // agent döngüsünde gereksiz yazma kilidi üretiyordu.
+  return openSql();
 }
 
 interface ApprovalRow {
@@ -69,21 +127,24 @@ export async function queueApproval(p: PendingApproval, db?: ApprovalsDb): Promi
   memory.set(p.id, p);
   const odb = await openApprovalsDb(db);
   if (!odb) {
-    try {
-      const raw = localStorage.getItem('macrocode-approvals');
-      const arr = raw ? (JSON.parse(raw) as PendingApproval[]) : [];
-      const next = [...arr.filter((a) => a.id !== p.id), p];
-      localStorage.setItem('macrocode-approvals', JSON.stringify(next));
-    } catch {
-      // localStorage yoksa bellek yeterli.
-    }
+    storeApprovalLocally(p);
     return;
   }
-  await odb.execute(PENDING_APPROVALS_TABLE_SQL);
-  await odb.execute(
-    'INSERT OR REPLACE INTO pending_approvals (id, session_id, call_data, run_state, created_at) VALUES ($1, $2, $3, $4, $5)',
-    [p.id, p.sessionId, JSON.stringify(p.call), p.runState ?? null, p.createdAt],
-  );
+  try {
+    await executeSqlWrite(
+      (sqlDb) =>
+        sqlDb.execute(
+          'INSERT OR REPLACE INTO pending_approvals (id, session_id, call_data, run_state, created_at) VALUES ($1, $2, $3, $4, $5)',
+          [p.id, p.sessionId, JSON.stringify(p.call), p.runState ?? null, p.createdAt],
+        ),
+      odb,
+    );
+    removeApprovalLocally(p.id);
+  } catch {
+    // Onay kuyruğu agent'ın durmasını gerektiremez. DB kilitliyse localStorage
+    // yedeğine yazıp akışı sürdürüyoruz.
+    storeApprovalLocally(p);
+  }
 }
 
 export async function takeApproval(
@@ -91,35 +152,29 @@ export async function takeApproval(
   db?: ApprovalsDb,
 ): Promise<PendingApproval | undefined> {
   const mem = memory.get(id);
-  if (mem) memory.delete(id);
   const odb = await openApprovalsDb(db);
   if (!odb) {
-    try {
-      const raw = localStorage.getItem('macrocode-approvals');
-      if (raw) {
-        const arr = JSON.parse(raw) as PendingApproval[];
-        const found = arr.find((a) => a.id === id);
-        localStorage.setItem(
-          'macrocode-approvals',
-          JSON.stringify(arr.filter((a) => a.id !== id)),
-        );
-        return found ?? mem;
-      }
-    } catch {
-      // yoksay
-    }
-    return mem;
+    const local = takeApprovalLocally(id);
+    if (local) memory.delete(id);
+    return local ?? mem;
   }
   try {
-    const rows = await odb.select<ApprovalRow[]>(
-      'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals WHERE id = $1',
-      [id],
-    );
-    await odb.execute('DELETE FROM pending_approvals WHERE id = $1', [id]);
-    const fromDb = rows.length > 0 ? rowToApproval(rows[0]) : null;
+    const fromDb = await executeSqlWrite(async (sqlDb) => {
+      const rows = await sqlDb.select<ApprovalRow[]>(
+        'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals WHERE id = $1',
+        [id],
+      );
+      await sqlDb.execute('DELETE FROM pending_approvals WHERE id = $1', [id]);
+      return rows.length > 0 ? rowToApproval(rows[0]) : null;
+    }, odb);
+    memory.delete(id);
+    removeApprovalLocally(id);
     return fromDb ?? mem;
   } catch {
-    return mem;
+    // Kilitli DB'de kayıt silinemezse localStorage/bellek kopyasını kullan.
+    const local = takeApprovalLocally(id);
+    if (local) memory.delete(id);
+    return local ?? mem;
   }
 }
 
@@ -128,36 +183,19 @@ export async function listApprovals(
   db?: ApprovalsDb,
 ): Promise<PendingApproval[]> {
   const odb = await openApprovalsDb(db);
-  if (!odb) {
-    const memList = [...memory.values()].filter((p) => !sessionId || p.sessionId === sessionId);
-    try {
-      const raw = localStorage.getItem('macrocode-approvals');
-      if (raw) {
-        const arr = JSON.parse(raw) as PendingApproval[];
-        for (const a of arr) {
-          if (!memory.has(a.id) && (!sessionId || a.sessionId === sessionId)) {
-            memList.push(a);
-          }
-        }
-      }
-    } catch {
-      // yoksay
-    }
-    return memList;
-  }
+  if (!odb) return fallbackApprovals(sessionId);
   try {
-    await odb.execute(PENDING_APPROVALS_TABLE_SQL);
-    const rows = sessionId
-      ? await odb.select<ApprovalRow[]>(
-          'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals WHERE session_id = $1 ORDER BY created_at ASC',
-          [sessionId],
-        )
-      : await odb.select<ApprovalRow[]>(
-          'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals ORDER BY created_at ASC',
-        );
-    const fromDb = rows
-      .map(rowToApproval)
-      .filter((p): p is PendingApproval => p !== null);
+    const fromDb = await executeSqlWrite(async (sqlDb) => {
+      const rows = sessionId
+        ? await sqlDb.select<ApprovalRow[]>(
+            'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals WHERE session_id = $1 ORDER BY created_at ASC',
+            [sessionId],
+          )
+        : await sqlDb.select<ApprovalRow[]>(
+            'SELECT id, session_id, call_data, run_state, created_at FROM pending_approvals ORDER BY created_at ASC',
+          );
+      return rows.map(rowToApproval).filter((p): p is PendingApproval => p !== null);
+    }, odb);
     // Bellekte olup DB'de olmayan (henüz yazılmamış) kayıtları birleştir.
     for (const m of memory.values()) {
       if (!fromDb.some((p) => p.id === m.id) && (!sessionId || m.sessionId === sessionId)) {
@@ -166,7 +204,7 @@ export async function listApprovals(
     }
     return fromDb;
   } catch {
-    return [...memory.values()].filter((p) => !sessionId || p.sessionId === sessionId);
+    return fallbackApprovals(sessionId);
   }
 }
 

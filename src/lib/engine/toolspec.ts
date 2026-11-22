@@ -13,13 +13,18 @@ export const CORE_TOOLS: ToolDefinition[] = [
   {
     name: 'read_file',
     description:
-      'Read a file inside the project. Cannot leave the workspace root. Use offset+limit for large files.',
+      'Read a file inside the project. Cannot leave the workspace root. Use offset+limit for large files. Managed tool-output artifacts at .macrocode/tool-outputs/<file>.log may also be read and paginated; other .macrocode files remain inaccessible. For an artifact continuation inside a long line, use the returned next_offset and next_column values.',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Workspace-relative file path' },
         limit: { type: 'number', description: 'Max lines (default 200)' },
         offset: { type: 'number', description: 'Start line, 1-based (paginate for large files)' },
+        column: {
+          type: 'number',
+          description:
+            'Start character column within the offset line, 1-based (artifact continuation)',
+        },
       },
       required: ['path'],
       additionalProperties: false,
@@ -38,7 +43,8 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'grep',
-    description: 'Search for text in the project. Use regex:true for a regular expression, otherwise literal.',
+    description:
+      'Search for text in the project. Use regex:true for a regular expression, otherwise literal.',
     parameters: {
       type: 'object',
       properties: {
@@ -65,7 +71,8 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'propose_patch',
-    description: 'Propose new content for a file (produces a preview; it is not applied without approval).',
+    description:
+      'Propose new content for a file (produces a preview; it is not applied without approval).',
     parameters: {
       type: 'object',
       properties: {
@@ -84,7 +91,10 @@ export const CORE_TOOLS: ToolDefinition[] = [
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Workspace-relative file path' },
-        search: { type: 'string', description: 'The existing code block to replace (must match exactly)' },
+        search: {
+          type: 'string',
+          description: 'The existing code block to replace (must match exactly)',
+        },
         replace: { type: 'string', description: 'The new code block that takes its place' },
       },
       required: ['path', 'search', 'replace'],
@@ -106,8 +116,21 @@ export const CORE_TOOLS: ToolDefinition[] = [
     },
   },
   {
+    name: 'create_snapshot',
+    description:
+      'Take a point-in-time snapshot of the whole project before risky edits (respects ignore/secret rules; does not modify source files).',
+    parameters: {
+      type: 'object',
+      properties: {
+        label: { type: 'string', description: 'Optional short label for the snapshot' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'exec',
-    description: 'Run a terminal command (allowlist + approval required).',
+    description:
+      'Run a terminal command inside the workspace. Every command requires explicit user approval; commands that are not on the allowlist are shown to the user with a warning and can still be approved.',
     parameters: {
       type: 'object',
       properties: {
@@ -158,8 +181,7 @@ export const CORE_TOOLS: ToolDefinition[] = [
   },
   {
     name: 'plan',
-    description:
-      'Announce a multi-step task as a list of steps (each step is tracked with todo).',
+    description: 'Announce a multi-step task as a list of steps (each step is tracked with todo).',
     parameters: {
       type: 'object',
       properties: {

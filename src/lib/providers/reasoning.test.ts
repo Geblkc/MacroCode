@@ -40,9 +40,12 @@ describe('Faz 4 — reasoning/thinking akışları', () => {
       onChunk: (c) => chunks.push(c),
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(chunks.filter((c) => c.reasoning).map((c) => c.reasoning).join('')).toBe(
-      'önce düşün sonra karar',
-    );
+    expect(
+      chunks
+        .filter((c) => c.reasoning)
+        .map((c) => c.reasoning)
+        .join(''),
+    ).toBe('önce düşün sonra karar');
     expect(chunks.map((c) => c.text).join('')).toBe('yanıt');
   });
 
@@ -69,10 +72,26 @@ describe('Faz 4 — reasoning/thinking akışları', () => {
     const chunks: StreamChunk[] = [];
     const fetchImpl = vi.fn(async (_url: string, _init?: RequestInit) =>
       sseResponse([
-        data({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'plan: ' } }),
-        data({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'oku' } }),
-        data({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig1' } }),
-        data({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'tamam' } }),
+        data({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'plan: ' },
+        }),
+        data({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'oku' },
+        }),
+        data({
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'signature_delta', signature: 'sig1' },
+        }),
+        data({
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'text_delta', text: 'tamam' },
+        }),
         'data: [DONE]',
       ]),
     );
@@ -83,7 +102,12 @@ describe('Faz 4 — reasoning/thinking akışları', () => {
       onChunk: (c) => chunks.push(c),
       fetchImpl: fetchImpl as unknown as typeof fetch,
     });
-    expect(chunks.filter((c) => c.reasoning).map((c) => c.reasoning).join('')).toBe('plan: oku');
+    expect(
+      chunks
+        .filter((c) => c.reasoning)
+        .map((c) => c.reasoning)
+        .join(''),
+    ).toBe('plan: oku');
     expect(chunks.find((c) => c.thinking)?.thinking).toEqual([
       { thinking: 'plan: oku', signature: 'sig1' },
     ]);

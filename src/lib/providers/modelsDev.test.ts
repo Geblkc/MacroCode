@@ -43,7 +43,7 @@ describe('models.dev kataloğu', () => {
       openai: { models: { 'gpt-x': devModel({ id: 'gpt-x' }) } },
       google: { models: { 'gemini-x': devModel({ id: 'gemini-x' }) } },
       // Listede olmayan sağlayıcılar yok sayılır.
-      nanoGpt: { models: { 'x': devModel() } },
+      nanoGpt: { models: { x: devModel() } },
     });
     // Anahtarlar MacroCode sağlayıcı adlarıdır (models.dev `google` → `gemini`).
     expect(Object.keys(cat.providers).sort()).toEqual(['anthropic', 'gemini', 'openai']);

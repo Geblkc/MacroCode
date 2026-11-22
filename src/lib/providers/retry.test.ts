@@ -11,7 +11,14 @@ describe('Faz 1 G6 — retry+backoff', () => {
         if (n < 3) throw new ProviderError('rate', 429);
         return 'ok';
       },
-      { retries: 2, baseMs: 1, maxMs: 5, sleepImpl: async (ms) => { sleeps.push(ms); } },
+      {
+        retries: 2,
+        baseMs: 1,
+        maxMs: 5,
+        sleepImpl: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
     );
     expect(out).toBe('ok');
     expect(n).toBe(3);

@@ -15,12 +15,28 @@ import { decideTool } from './policy';
 import { t } from '../i18n/core';
 import { redact } from '../logger';
 import { runFsTool } from './tools/fs';
-import { applyPendingPatch, listPending, toolEditFile, toolProposePatch, undoLastPatch } from './tools/patch';
+import {
+  applyPendingPatch,
+  listPending,
+  toolEditFile,
+  toolProposePatch,
+  undoLastPatch,
+} from './tools/patch';
 import { toolWriteFile } from './tools/write';
+import { toolCreateSnapshot } from './tools/snapshot';
 import { applyTodoAction, deriveTodoState, planStepIds } from './tools/todo';
 import { runMcpTool } from './mcp/pool';
 import { runSubagent } from './subagent';
 import { toolExec } from './tools/shell';
+import { prepareToolOutput, type ToolOutputStore } from './toolOutput';
+
+/**
+ * Adım bütçesi bir araç turuyla tükendiğinde modele verilen kapanış yönergesi.
+ * Model-önü metin olduğu için İngilizce (toolspec politikasıyla aynı kural).
+ */
+const FINAL_ANSWER_PROMPT =
+  '[SYSTEM] Step budget reached. Do not call any more tools. Using only the information ' +
+  'already gathered, write your final answer to the user now.';
 
 export interface AgentHistoryItem {
   role: string;
@@ -45,6 +61,7 @@ export interface AgentDeps {
   systemPrompt?: string;
   workspaceRoot: string;
   approvalMode?: ApprovalMode;
+  /** Adım üst sınırı. `0` (varsayılan) = sınırsız; pozitif değer = güvenlik sönümü. */
   maxSteps?: number;
   signal?: AbortSignal;
   params?: ModelParams;
@@ -72,6 +89,8 @@ export interface AgentDeps {
   extraAllow?: Record<string, string[][]>;
   /** P0.2: exec için ayarlardan gelen genel timeout üst sınırı (ms). */
   execTimeoutMs?: number;
+  /** Test/alternatif runtime için artifact yazıcısı; production'da Tauri backend kullanılır. */
+  outputStore?: ToolOutputStore;
   /** Retry başlamadan önce UI'a bildirilir (429/5xx geri sayımı). */
   /** Retry başladığında bilgi, yeniden bağlanıp veri gelince `null`. */
   onRetry?: (info: RetryInfo | null) => void;
@@ -196,7 +215,7 @@ export function toProviderMessages(history: AgentHistoryItem[]): ChatItem[] {
       ...(m.toolCalls && m.toolCalls.length > 0 ? { toolCalls: [...m.toolCalls] } : {}),
       ...(m.thinking && m.thinking.length > 0 ? { thinking: [...m.thinking] } : {}),
       ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
-      ...(m.toolName ? { toolName: m.toolName } : {}),
+      ...(m.toolName ? { toolName: boundedToolName(m.toolName) } : {}),
       ...(m.isError !== undefined ? { isError: m.isError } : {}),
     });
   }
@@ -236,12 +255,17 @@ async function defaultRunTool(
   if (call.name === 'write_file') {
     return toolWriteFile(root, call);
   }
+  if (call.name === 'create_snapshot') {
+    return toolCreateSnapshot(root, call);
+  }
   if (call.name === 'todo') {
     return applyTodoAction(deriveTodoState(history), call.args).output;
   }
   if (call.name === 'plan') {
     const steps = Array.isArray(call.args.steps)
-      ? (call.args.steps as unknown[]).filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+      ? (call.args.steps as unknown[]).filter(
+          (s): s is string => typeof s === 'string' && s.trim().length > 0,
+        )
       : [];
     if (steps.length === 0) throw new Error(t('tool.planSteps'));
     // Faz 8 L2: adımlar görev id'leriyle eşleşir (todo ile işaretlenebilir).
@@ -276,7 +300,7 @@ async function runSubagentTool(
   if (!task.trim()) throw new Error(t('tool.subagentTask'));
   const summarize = deps.summarize ?? (async (t: string) => t.slice(0, 800));
   const res = await runSubagent(task, msgs, { ...deps, summarize });
-  return res.text.trim() || t('tool.subagentEmpty');
+  return res.text.length > 0 ? res.text : t('tool.subagentEmpty');
 }
 
 /**
@@ -296,8 +320,7 @@ async function executeTool(
   return defaultRunTool(deps.workspaceRoot, mode, call, msgs, {
     extraAllow: deps.extraAllow,
     maxTimeoutMs: deps.execTimeoutMs,
-    onStream: (stream, data) =>
-      deps.onEvent({ k: 'tool_stream', id: call.id, stream, data }),
+    onStream: (stream, data) => deps.onEvent({ k: 'tool_stream', id: call.id, stream, data }),
   });
 }
 
@@ -318,12 +341,16 @@ interface PendingEntry {
   call: ToolCall;
   /** patch önizlemesi üretildiyse ilgili PendingPatch id'si (apply için). */
   patchId?: string;
+  /** Doom-loop koruması: araç çalıştırılmaz, onay yalnızca devam içindir. */
+  loopGuard?: boolean;
 }
 
 async function streamOneTurn(
   msgs: AgentHistoryItem[],
   deps: AgentDeps,
   state: { usage?: UsageLike; finalText: string },
+  /** `tools: false` → adım bütçesi dolunca araçsız kapanış turu. */
+  opts?: { tools?: boolean },
 ): Promise<{
   stepText: string;
   toolCalls: ToolCall[];
@@ -367,13 +394,16 @@ async function streamOneTurn(
     }
   };
   // G6: 429/5xx + ağ hatalarında retry (400/401/abort retry etmez).
-  const rawTools = deps.extraTools?.length ? [...CORE_TOOLS, ...deps.extraTools] : CORE_TOOLS;
-  const tools = filterToolsForMode(rawTools, deps.agentMode ?? 'build');
+  let tools: ToolDefinition[] | undefined;
+  if (opts?.tools !== false) {
+    const rawTools = deps.extraTools?.length ? [...CORE_TOOLS, ...deps.extraTools] : CORE_TOOLS;
+    tools = filterToolsForMode(rawTools, deps.agentMode ?? 'build');
+  }
   const runStream = () => {
     if (deps.streamImpl) {
       return deps.streamImpl({
         messages: toProviderMessages(msgs),
-        tools,
+        tools: tools ?? [],
         onChunk,
         signal: deps.signal,
       });
@@ -383,7 +413,7 @@ async function streamOneTurn(
       model: deps.model,
       systemPrompt: deps.systemPrompt,
       messages: toProviderMessages(msgs),
-      tools,
+      ...(tools ? { tools } : {}),
       onChunk,
       signal: deps.signal,
       params: deps.params,
@@ -394,6 +424,8 @@ async function streamOneTurn(
         : {}),
     });
   };
+  // UI'nin "düşünüyor" durumuna geçebilmesi için model turu başlangıcı bildirilir.
+  deps.onEvent({ k: 'turn_start' });
   await withRetry(() => runStream(), {
     retries: 2,
     ...(deps.onRetry
@@ -414,23 +446,128 @@ async function streamOneTurn(
   return { stepText, toolCalls, thinking };
 }
 
-function clipOutput(out: string): string {
-  return out.length > 4000 ? `${out.slice(0, 4000)}\n…[kesildi]` : out;
+/**
+ * Doom-loop koruması eşiği: aynı araç aynı girdilerle üst üste bu kadar kez
+ * çağrılırsa döngü duraklatılır ve kullanıcı onayı istenir.
+ */
+export const LOOP_GUARD_THRESHOLD = 4;
+
+/**
+ * Araç imzası: ad + argümanlar. Anahtar sırası farkı aynı çağrı sayılır
+ * (model JSON anahtarlarını her turda farklı sırayla üretebilir).
+ */
+function toolSignature(call: ToolCall): string {
+  const args = (call.args ?? {}) as Record<string, unknown>;
+  const stable = Object.keys(args)
+    .sort()
+    .map((k) => `${k}:${JSON.stringify(args[k])}`)
+    .join(',');
+  return `${call.name}(${stable})`;
+}
+
+/** Provider tarafından gelen dinamik alanları modele vermeden önce sınırlar. */
+const MAX_TOOL_NAME_CHARS = 128;
+const MAX_ERROR_DETAIL_CHARS = 1_000;
+
+function boundedChars(value: string, max: number): string {
+  if (max <= 0) return '';
+  let count = 0;
+  let total = 0;
+  let out = '';
+  for (const ch of value) {
+    total++;
+    if (count >= max) continue;
+    out += ch;
+    count++;
+  }
+  if (total <= count) return out;
+  // Ellipsis de sınırın içinde kalsın: son Unicode scalar yerine geçer.
+  return `${[...out].slice(0, -1).join('')}…`;
+}
+
+/** Tool adı provider protokolünde birebir korunur; metadata/loglarda sınırlanır. */
+function boundedToolName(name: unknown): string {
+  return boundedChars(String(name), MAX_TOOL_NAME_CHARS);
+}
+
+function boundedErrorDetail(value: unknown): string {
+  return boundedChars(String(value), MAX_ERROR_DETAIL_CHARS).replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Rust exec katmanı medium/hard çıktıyı önceden şekillendirebilir. Bu
+ * payload TS katmanında küçük görünür; yine de artifact bilgisini fark edip
+ * kullanıcıya doğru notice'i göstermeliyiz.
+ */
+function isPreShapedArtifact(raw: string): boolean {
+  return /^\[tool output (?:truncated; middle omitted|redirected to file|omitted; artifact unavailable)/m.test(
+    raw,
+  );
+}
+
+function hasArtifactError(raw: string): boolean {
+  return (
+    raw.includes('artifact_error=') ||
+    raw.includes('artifact unavailable') ||
+    raw.includes('full-output file could not be stored') ||
+    raw.includes('redirected to file could not be created')
+  );
+}
+
+/**
+ * Tüm tool sonuçları (başarılı, hata ve önizleme) aynı output politikasından
+ * geçer. Modele giden metin İngilizce/yapılandırılmıştır; kullanıcıya gösterilen
+ * notice ise i18n katmanından gelir.
+ */
+async function shapeToolOutput(deps: AgentDeps, raw: string): Promise<string> {
+  const preShaped = isPreShapedArtifact(raw);
+  const prepared = await prepareToolOutput(deps.workspaceRoot, raw, deps.outputStore);
+  if (prepared.mode !== 'small' || preShaped) {
+    const failed = !prepared.artifact && (prepared.mode !== 'small' || hasArtifactError(raw));
+    deps.onEvent({
+      k: 'notice',
+      text: failed ? t('agent.outputArtifactFailed') : t('agent.outputClipped'),
+    });
+  }
+  return prepared.text;
+}
+
+/**
+ * İçe aktarılan/eski bir geçmişteki tool sonuçları da provider'a giderken
+ * ortak output policy'den geçmelidir. Yeni sonuçlar `emitToolResult` ile
+ * şekillendirilir; bu geçmiş normalizasyonu aynı kapıyı eski/ithal edilmiş
+ * sonuçlara da uygular. Böylece restore veya import yolu raw bir tool
+ * sonucunu policy dışına çıkaramaz.
+ */
+async function normalizeHistoricalToolResults(
+  deps: AgentDeps,
+  msgs: AgentHistoryItem[],
+  count: number,
+): Promise<void> {
+  for (let index = 0; index < Math.min(count, msgs.length); index++) {
+    const message = msgs[index];
+    if (message.role !== 'tool' && !(message.role === 'system' && message.toolCallId)) {
+      continue;
+    }
+    if (typeof message.content !== 'string') continue;
+    // Rust tarafından önceden şekillendirilmiş sonuç tekrar artifact'a
+    // yazılmamalı; aynı payload'ı olduğu gibi koruruz.
+    if (isPreShapedArtifact(message.content)) continue;
+    const shaped = await shapeToolOutput(deps, message.content);
+    if (shaped !== message.content) {
+      msgs[index] = { ...message, content: shaped };
+    }
+  }
 }
 
 type AuditDecision = 'allowed-auto' | 'allowed-approval' | 'denied' | 'approved' | 'rejected';
 
-function audit(
-  deps: AgentDeps,
-  call: ToolCall,
-  decision: AuditDecision,
-  result: string,
-): void {
+function audit(deps: AgentDeps, call: ToolCall, decision: AuditDecision, result: string): void {
   const sessionId = deps.auditSessionId;
   if (!sessionId) return;
   void appendAudit({
     sessionId,
-    tool: String(call.name),
+    tool: boundedToolName(call.name),
     // L6/L7: alan-adı redaksiyonu (apiKey/token/secret…) yapısal olarak
     // uygulanır; appendAudit ayrıca değer kalıplarını maskeler.
     argsPreview: JSON.stringify(redact(call.args ?? {})).slice(0, 200),
@@ -456,7 +593,7 @@ export interface AgentRunState {
   /** Biriken kullanım (token). */
   usage: UsageLike | null;
   /** Onay bekleyen araç çağrıları. */
-  pending: Array<{ call: ToolCall; patchId?: string }>;
+  pending: Array<{ call: ToolCall; patchId?: string; loopGuard?: boolean }>;
 }
 
 export function createAgentRun(
@@ -465,30 +602,83 @@ export function createAgentRun(
   resume?: Partial<AgentRunState>,
 ): AgentRun {
   const mode: ApprovalMode = deps.approvalMode ?? 'manual';
-  const maxSteps = deps.maxSteps ?? 8;
+  // Varsayılan sınırsız: büyük dosyaları parça parça yazan ajan 8. adımda
+  // kesilip yarım bırakmasın. Pozitif değer yalnızca isteğe bağlı güvenlik sönümü.
+  const maxSteps = Math.max(0, deps.maxSteps ?? 0);
   // Resume: kayıtlı durum varsa geçmiş ondan gelir (yoksa verilen history).
   const msgs: AgentHistoryItem[] = resume?.msgs ? [...resume.msgs] : [...history];
+  // Yalnızca run başlangıcındaki geçmiş normalize edilir. Bu turda üretilen
+  // tool sonuçları zaten `emitToolResult` sınırından geçti.
+  const initialMessageCount = msgs.length;
+  let historicalResultsNormalized = false;
+  /**
+   * Provider'a giden tek tool-result sınırı. Buradan geçen sonuç hem UI'ye
+   * gönderilir hem de konuşma geçmişine yazılır; böylece denied/loop-guard
+   * gibi dallar policy dışında kalmaz.
+   */
+  const emitToolResult = async (
+    call: ToolCall,
+    ok: boolean,
+    raw: string,
+    persist = true,
+  ): Promise<string> => {
+    const output = await shapeToolOutput(deps, raw);
+    deps.onEvent({ k: 'tool_result', id: call.id, ok, output });
+    if (persist) {
+      msgs.push({
+        role: 'tool',
+        toolCallId: call.id,
+        toolName: boundedToolName(call.name),
+        content: output,
+        ...(ok ? {} : { isError: true }),
+      });
+    }
+    return output;
+  };
   let steps = resume?.steps ?? 0;
   let finalText = resume?.finalText ?? '';
   let usage: UsageLike | undefined = resume?.usage ?? undefined;
   let pending: PendingEntry[] = (resume?.pending ?? []).map((p) => ({
     call: p.call,
     ...(p.patchId ? { patchId: p.patchId } : {}),
+    ...(p.loopGuard ? { loopGuard: true } : {}),
   }));
+  // Doom-loop sayacı: restore sonrası sıfırdan başlar (bekleyen guard onayı
+  // zaten kayıtlıdır; onaylanırsa resolveInner sayacı sıfırlar).
+  let lastToolSig = '';
+  let repeatCount = 0;
   let aborted = false;
   const state = {
-    get usage() { return usage; },
-    set usage(u) { usage = u; },
-    get finalText() { return finalText; },
-    set finalText(t) { finalText = t; },
+    get usage() {
+      return usage;
+    },
+    set usage(u) {
+      usage = u;
+    },
+    get finalText() {
+      return finalText;
+    },
+    set finalText(t) {
+      finalText = t;
+    },
   };
 
   async function runLoop(): Promise<AgentStepResult> {
-    for (; steps < maxSteps; ) {
+    if (!historicalResultsNormalized) {
+      await normalizeHistoricalToolResults(deps, msgs, initialMessageCount);
+      historicalResultsNormalized = true;
+    }
+    let lastTurnHadTools = false;
+    // `maxSteps === 0` sınırsız mod: model araçsız bir final cevap üretene
+    // (veya kullanıcı iptal edene) kadar döner. Pozitif sınırda döngü burada
+    // kırılır ve aşağıdaki kapanış turu devreye girer.
+    for (;;) {
       if (aborted || deps.signal?.aborted) break;
+      if (maxSteps > 0 && steps >= maxSteps) break;
       const turn = await streamOneTurn(msgs, deps, state);
       steps += 1;
       const { stepText, toolCalls, thinking } = turn;
+      lastTurnHadTools = toolCalls.length > 0;
       if (thinking.length > 0) {
         deps.onEvent({ k: 'thinking', blocks: thinking });
       }
@@ -504,29 +694,47 @@ export function createAgentRun(
         ...(deps.disallowTools ?? []),
         ...getDisallowedToolsForMode(deps.agentMode ?? 'build'),
       ];
-      for (const call of toolCalls) {
+      for (let i = 0; i < toolCalls.length; i++) {
+        const call = toolCalls[i];
         if (aborted || deps.signal?.aborted) break;
         deps.onEvent({ k: 'tool_call', call });
+
+        // Doom-loop koruması: aynı araç aynı girdilerle üst üste N kez
+        // gelirse çalıştırmadan duraklat, kullanıcı onayını iste.
+        const sig = toolSignature(call);
+        if (sig === lastToolSig) repeatCount += 1;
+        else {
+          lastToolSig = sig;
+          repeatCount = 1;
+        }
+        if (repeatCount >= LOOP_GUARD_THRESHOLD) {
+          deps.onEvent({
+            k: 'notice',
+            text: t('agent.loopGuardNotice', { count: LOOP_GUARD_THRESHOLD }),
+          });
+          nextPending.push({ call, loopGuard: true });
+          // Aynı turdaki kalan çağrılar çalıştırılmaz; yine de her tool_use
+          // için bir tool_result yazılır (provider protokolü bozulmasın).
+          for (const skipped of toolCalls.slice(i + 1)) {
+            await emitToolResult(skipped, false, t('agent.loopGuardSkipped'));
+          }
+          break;
+        }
+
         const decision = decideTool(call.name, call.args, mode, deps.extraAllow ?? {});
         // M2: `mcp:*` gibi önek desenleri `includes` ile eşleşmez — helper
         // joker desteğiyle kontrol eder (plan/ask'ta MCP çağrısı çalışamaz).
         if (isToolDisallowed(String(call.name), effectiveDisallow)) {
-          const out = `hata: ${deps.agentMode ?? 'bu'} mod bu aracı kullanamaz: ${String(call.name)}`;
-          deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
-          msgs.push({
-            role: 'tool', toolCallId: call.id, toolName: call.name, content: out, isError: true,
-          });
+          const out = `[tool error]\ncode=tool_disallowed\nmode=${boundedErrorDetail(deps.agentMode ?? 'this')}\nmessage=hata: ${boundedErrorDetail(deps.agentMode ?? 'bu')} mod bu aracı kullanamaz: ${boundedToolName(call.name)}`;
+          await emitToolResult(call, false, out);
           // L5: mod/alt-agent yasağı da denetim kaydına düşer — `decideTool`
           // reddiyle simetrik (eskiden yalnız tool_result üretiliyordu).
           audit(deps, call, 'denied', out);
           continue;
         }
         if (!decision.allowed) {
-          const out = `hata: ${decision.reason ?? 'yasaklı'}`;
-          deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
-          msgs.push({
-            role: 'tool', toolCallId: call.id, toolName: call.name, content: out, isError: true,
-          });
+          const out = `[tool error]\ncode=policy_denied\nreason=hata: ${boundedErrorDetail(decision.reason ?? 'yasaklı')}`;
+          await emitToolResult(call, false, out);
           audit(deps, call, 'denied', out);
           continue;
         }
@@ -539,15 +747,26 @@ export function createAgentRun(
               const before = new Set(listPending().map((p) => p.id));
               const preview = await (deps.runToolImpl
                 ? deps.runToolImpl(call)
-                : defaultRunTool(deps.workspaceRoot, mode, call, msgs, { extraAllow: deps.extraAllow }));
+                : defaultRunTool(deps.workspaceRoot, mode, call, msgs, {
+                    extraAllow: deps.extraAllow,
+                  }));
               const after = listPending();
               const created = after.find((p) => !before.has(p.id));
-              deps.onEvent({ k: 'tool_preview', id: call.id, output: clipOutput(preview) });
+              const shapedPreview = await shapeToolOutput(deps, preview);
+              deps.onEvent({
+                k: 'tool_preview',
+                id: call.id,
+                output: shapedPreview,
+              });
               nextPending.push({ call, patchId: created?.id });
-              audit(deps, call, 'allowed-approval', preview);
+              audit(deps, call, 'allowed-approval', shapedPreview);
             } catch (e) {
-              const out = e instanceof Error ? e.message : String(e);
-              deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
+              const out = await emitToolResult(
+                call,
+                false,
+                e instanceof Error ? e.message : String(e),
+                false,
+              );
               nextPending.push({ call });
               audit(deps, call, 'allowed-approval', out);
             }
@@ -572,24 +791,41 @@ export function createAgentRun(
               result = `${out}\n${applied}`;
             }
           }
-          const clipped = clipOutput(result);
-          deps.onEvent({ k: 'tool_result', id: call.id, ok: true, output: clipped });
-          msgs.push({
-            role: 'tool', toolCallId: call.id, toolName: call.name, content: clipped,
-          });
+          const clipped = await emitToolResult(call, true, result);
           audit(deps, call, 'allowed-auto', clipped);
         } catch (e) {
-          const out = e instanceof Error ? e.message : String(e);
-          deps.onEvent({ k: 'tool_result', id: call.id, ok: false, output: out });
-          msgs.push({
-            role: 'tool', toolCallId: call.id, toolName: call.name, content: out, isError: true,
-          });
+          const out = await emitToolResult(call, false, e instanceof Error ? e.message : String(e));
           audit(deps, call, 'allowed-auto', out);
         }
       }
       if (nextPending.length > 0) {
         pending = nextPending;
         return { kind: 'needs-approval', pending: pending.map((p) => p.call) };
+      }
+    }
+    /**
+     * Yalnızca sınırlı modda (`maxSteps > 0`): adım bütçesi bir araç turuyla
+     * tükendiğinde döngüden çıkılır, transkriptin sonu araç çıktısı kalır ve
+     * kullanıcı "cevap gelmedi" sanır. Modele araçsız bir kapanış turu verip
+     * topladığı bulgularla cevabı yazmasını iste.
+     * (İptal edilen run'larda ek istek atılmaz.)
+     */
+    if (
+      maxSteps > 0 &&
+      lastTurnHadTools &&
+      steps >= maxSteps &&
+      !aborted &&
+      !deps.signal?.aborted
+    ) {
+      deps.onEvent({ k: 'notice', text: t('agent.stepLimitNotice', { count: maxSteps }) });
+      const closing = await streamOneTurn(
+        [...msgs, { role: 'user', content: FINAL_ANSWER_PROMPT }],
+        deps,
+        state,
+        { tools: false },
+      );
+      if (closing.stepText.trim().length === 0) {
+        deps.onEvent({ k: 'notice', text: t('agent.stepLimitNoAnswer') });
       }
     }
     deps.onEvent({ k: 'done', usage });
@@ -613,6 +849,7 @@ export function createAgentRun(
     // cevaplandıktan sonra çağrılır → tool_use/tool_result eşleşmesi tam.
     const stillPending: PendingEntry[] = [];
     let matched = 0;
+    let loopGuardStopped = false;
     for (const entry of pending) {
       const approved = byId.get(entry.call.id);
       if (approved === undefined) {
@@ -622,14 +859,23 @@ export function createAgentRun(
       matched += 1;
       if (approved) {
         try {
+          if (entry.loopGuard) {
+            // Kullanıcı tekrar eden döngüye devam demiş: aracı ÇALIŞTIRMA.
+            // Sadece sayacı sıfırla ve modele farklı bir yol izlemesini söyle.
+            repeatCount = 0;
+            lastToolSig = '';
+            const msg = t('agent.loopGuardApproved');
+            await emitToolResult(entry.call, true, msg);
+            audit(deps, entry.call, 'approved', msg);
+            continue;
+          }
           // Patch + preview varsa apply et, yoksa (mock/exec) tool'u çalıştır.
-          if ((entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') && entry.patchId) {
+          if (
+            (entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') &&
+            entry.patchId
+          ) {
             const msg = await applyPendingPatch(deps.workspaceRoot, entry.patchId);
-            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: msg });
-            msgs.push({
-              role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-              content: msg,
-            });
+            await emitToolResult(entry.call, true, msg);
             audit(deps, entry.call, 'approved', msg);
           } else if (entry.call.name === 'propose_patch' || entry.call.name === 'edit_file') {
             // O7: patchId YOK — preview üretilememişti (catch) ya da restart
@@ -649,12 +895,7 @@ export function createAgentRun(
             if (created) {
               result = `${out0}\n${await applyPendingPatch(deps.workspaceRoot, created.id)}`;
             }
-            const clipped0 = clipOutput(result);
-            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped0 });
-            msgs.push({
-              role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-              content: clipped0,
-            });
+            const clipped0 = await emitToolResult(entry.call, true, result);
             audit(deps, entry.call, 'approved', clipped0);
           } else {
             // Y2 (Faz 3): exec yalnızca buradan (resolve) çalışır — `approved: true`
@@ -668,38 +909,41 @@ export function createAgentRun(
                   onStream: (stream, data) =>
                     deps.onEvent({ k: 'tool_stream', id: entry.call.id, stream, data }),
                 }));
-            const clipped = clipOutput(out);
-            deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: true, output: clipped });
-            msgs.push({
-              role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-              content: clipped,
-            });
+            const clipped = await emitToolResult(entry.call, true, out);
             audit(deps, entry.call, 'approved', clipped);
           }
         } catch (e) {
-          const out = e instanceof Error ? e.message : String(e);
-          deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
-          msgs.push({
-            role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-            content: out, isError: true,
-          });
+          const out = await emitToolResult(
+            entry.call,
+            false,
+            e instanceof Error ? e.message : String(e),
+          );
           audit(deps, entry.call, 'approved', out);
         }
+      } else if (entry.loopGuard) {
+        // Döngü koruması reddedildi: işlemleri TAMAMEN durdur, model yeni
+        // bir tur daha atmaz (K2'nin aksine burada zincir kırılır).
+        const out = t('agent.loopGuardRejected');
+        await emitToolResult(entry.call, false, out);
+        audit(deps, entry.call, 'rejected', out);
+        loopGuardStopped = true;
       } else {
         // K2: reddet + devam et — döngü kırılmaz.
         const out = 'kullanıcı reddetti — alternatif bir yol öner';
-        deps.onEvent({ k: 'tool_result', id: entry.call.id, ok: false, output: out });
-        msgs.push({
-          role: 'tool', toolCallId: entry.call.id, toolName: entry.call.name,
-          content: out, isError: true,
-        });
+        await emitToolResult(entry.call, false, out);
         audit(deps, entry.call, 'rejected', out);
       }
     }
+    // Döngü koruması reddedildiyse bekleyenlerin geri kalanı da iptal edilir.
+    const remaining = loopGuardStopped ? [] : stillPending;
     // M1: kararı gelmeyen bekleyenler kuyrukta kaldı → tur runLoop'e
     // gitmez (protokol/tool_result eşleşmesi tam kalır). Tüm bekleyenler
     // cevaplandığında aşağıda normal akışla döngü devam eder.
-    pending = stillPending;
+    pending = remaining;
+    if (loopGuardStopped) {
+      deps.onEvent({ k: 'done', usage });
+      return { kind: 'done', text: finalText, steps, usage };
+    }
     if (pending.length > 0) {
       return { kind: 'needs-approval', pending: pending.map((p) => p.call) };
     }
@@ -733,6 +977,7 @@ export function createAgentRun(
         pending: pending.map((p) => ({
           call: p.call,
           ...(p.patchId ? { patchId: p.patchId } : {}),
+          ...(p.loopGuard ? { loopGuard: true } : {}),
         })),
       };
       return JSON.stringify(state);
@@ -744,3 +989,4 @@ export function createAgentRun(
 }
 
 export { applyPendingPatch, undoLastPatch };
+export { createSnapshot, listSnapshots, restoreSnapshot, deleteSnapshot } from './tools/snapshot';

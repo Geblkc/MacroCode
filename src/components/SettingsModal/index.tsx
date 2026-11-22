@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { ALL_MODELS, PROVIDER_IDS } from '../../lib/providers';
 import { listOllamaModels, DEFAULT_OLLAMA_URL } from '../../lib/providers/ollama';
@@ -12,7 +18,13 @@ import {
 } from '../../lib/providers/discovery';
 import { makeEndpointId, parseEndpointModels } from '../../lib/providers/custom';
 import { catalogPriceOf } from '../../lib/providers/catalog';
-import type { CustomEndpoint, CustomModel, DiscoveredModel, McpServerConfig, Provider } from '../../types';
+import type {
+  CustomEndpoint,
+  CustomModel,
+  DiscoveredModel,
+  McpServerConfig,
+  Provider,
+} from '../../types';
 import { fieldOf, isTauri, useSettingsStore } from '../../store/settings';
 import { useT } from '../../lib/i18n';
 import ProvidersTab from './ProvidersTab';
@@ -23,8 +35,24 @@ import McpTab from './McpTab';
 import AppearanceTab from './AppearanceTab';
 import AboutTab from './AboutTab';
 import { Icon } from '../icons';
-import type { CustomDraft, Draft, McpDiscovery, McpDraft, SecretDraft, TabId, TestConn } from './types';
-import { TABS, emptySecret, maskLast4, mergeVisited, nextTabIndex, parseEnvText, serializeEnv } from './types';
+import type {
+  CustomDraft,
+  Draft,
+  McpDiscovery,
+  McpDraft,
+  SecretDraft,
+  TabId,
+  TestConn,
+} from './types';
+import {
+  TABS,
+  emptySecret,
+  maskLast4,
+  mergeVisited,
+  nextTabIndex,
+  parseEnvText,
+  serializeEnv,
+} from './types';
 import ConfirmDialog from '../ConfirmDialog';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { McpClient } from '../../lib/engine/mcp/client';
@@ -44,15 +72,7 @@ interface Props {
  * Ziyaret edilen sekmeler mount'ta kalır ve `hidden` ile gizlenir —
  * böylece arama metni, süzgeç ve keşif sonuçları sekme değiştirince kaybolmaz.
  */
-function TabPanel({
-  id,
-  active,
-  children,
-}: {
-  id: TabId;
-  active: boolean;
-  children: ReactNode;
-}) {
+function TabPanel({ id, active, children }: { id: TabId; active: boolean; children: ReactNode }) {
   return (
     <div
       className="tab-panel"
@@ -93,9 +113,11 @@ function blankDraft(): Draft {
     mcps: [],
     customAllowList: [],
     execTimeoutMs: 300_000,
+    agentMaxSteps: 0,
     auditEnabled: true,
-    contrast: 'normal',
-    uiFont: 'mono',
+    // Store varsayılanlarıyla aynı: yüksek kontrast + Inter arayüz fontu açık.
+    contrast: 'high',
+    uiFont: 'inter',
     clockFormat: '24h',
     showTimestamps: true,
     language: 'auto',
@@ -130,6 +152,8 @@ export default function SettingsModal({ open, onClose }: Props) {
   const onTrapKeyDown = useFocusTrap(modalRef, open);
   // models.dev kataloğu yüklü mü (fiyat/metadata zenginleşmesi).
   const catalog = useSettingsStore((s) => s.modelsDevCatalog);
+  // Canlı API listeleri değişince model görünümü yeniden hesaplansın.
+  useSettingsStore((s) => s.liveCatalog);
 
   const patch = (p: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...p }));
@@ -170,6 +194,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     next.cachePrompts = s.cachePrompts;
     next.customAllowList = [...s.customAllowList];
     next.execTimeoutMs = s.execTimeoutMs;
+    next.agentMaxSteps = s.agentMaxSteps;
     next.auditEnabled = s.auditEnabled;
     next.contrast = s.contrast;
     next.uiFont = s.uiFont;
@@ -226,7 +251,10 @@ export default function SettingsModal({ open, onClose }: Props) {
     void (async () => {
       // Tauri'de ipucu keystore'dan (`key_hint` tam değeri dönmez);
       // tarayıcı-dev'de bellekten maskelenir.
-      const ids = [...PROVIDER_IDS.filter((p) => p !== 'ollama'), ...s.customEndpoints.map((e) => e.id)];
+      const ids = [
+        ...PROVIDER_IDS.filter((p) => p !== 'ollama'),
+        ...s.customEndpoints.map((e) => e.id),
+      ];
       const hints: Record<string, string> = {};
       await Promise.all(
         ids.map(async (id) => {
@@ -260,8 +288,7 @@ export default function SettingsModal({ open, onClose }: Props) {
         return { ...prev, secrets, customs };
       });
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open ]);
+  }, [open]);
 
   // Sekme değişince içerik kaydırması başa döner (panel başlığı görünür kalsın).
   useEffect(() => {
@@ -335,6 +362,12 @@ export default function SettingsModal({ open, onClose }: Props) {
         }
         const r = await validateDetailed(p, value, {
           baseUrl: draft.baseUrlOverride[p]?.trim() || undefined,
+          onNetworkError: (e) =>
+            setFormError(
+              `${t('settings.providers.state.network')}: ${
+                e instanceof Error ? e.message : String(e)
+              }`,
+            ),
         });
         setTests((prev) => ({ ...prev, [id]: r }));
         return;
@@ -349,7 +382,10 @@ export default function SettingsModal({ open, onClose }: Props) {
       }
       const r = await validateDetailed('openai', value, { baseUrl: card.baseUrl.trim() });
       setTests((prev) => ({ ...prev, [id]: r }));
-    } catch {
+    } catch (e) {
+      setFormError(
+        `${t('settings.providers.state.network')}: ${e instanceof Error ? e.message : String(e)}`,
+      );
       setTests((prev) => ({ ...prev, [id]: 'network' }));
     }
   };
@@ -440,12 +476,16 @@ export default function SettingsModal({ open, onClose }: Props) {
                 return createStdioTransport({
                   serverId: card.id || 'kesif',
                   command: card.command.trim(),
-                  args: card.argsText.split('\n').map((s) => s.trim()).filter(Boolean),
+                  args: card.argsText
+                    .split('\n')
+                    .map((s) => s.trim())
+                    .filter(Boolean),
                   env: values,
                 });
               })()
             : (() => {
-                if (!/^https?:\/\/.+/.test(card.url.trim())) throw new Error(t('settings.mcp.error.urlFirst'));
+                if (!/^https?:\/\/.+/.test(card.url.trim()))
+                  throw new Error(t('settings.mcp.error.urlFirst'));
                 return createHttpTransport({ url: card.url.trim() });
               })();
         const client = new McpClient(transport);
@@ -503,10 +543,12 @@ export default function SettingsModal({ open, onClose }: Props) {
         } else if (source === 'ollama') {
           models = await discoverOllamaModels(draft.ollamaUrl);
         } else if (source === 'openai') {
-          if (!st.apiKeys.openai.trim()) throw new Error(t('settings.models.error.keyFirst', { provider: 'openai' }));
+          if (!st.apiKeys.openai.trim())
+            throw new Error(t('settings.models.error.keyFirst', { provider: 'openai' }));
           models = await discoverOpenAI(st.apiKeys.openai, draft.baseUrlOverride.openai ?? '');
         } else {
-          if (!st.apiKeys.gemini.trim()) throw new Error(t('settings.models.error.keyFirst', { provider: 'gemini' }));
+          if (!st.apiKeys.gemini.trim())
+            throw new Error(t('settings.models.error.keyFirst', { provider: 'gemini' }));
           models = await discoverGemini(st.apiKeys.gemini);
         }
         setFound(models);
@@ -590,7 +632,10 @@ export default function SettingsModal({ open, onClose }: Props) {
       let n = 2;
       while (usedMcpIds.has(id)) id = `${c.isNew ? makeMcpServerId(name) : c.id}-${n++}`;
       usedMcpIds.add(id);
-      const allowed = c.allowedText.split(',').map((s) => s.trim()).filter(Boolean);
+      const allowed = c.allowedText
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean);
       if (c.transport === 'http') {
         if (!/^https?:\/\/.+/.test(c.url.trim())) {
           setFormError(t('settings.mcp.error.urlScheme', { name }));
@@ -623,7 +668,10 @@ export default function SettingsModal({ open, onClose }: Props) {
             name,
             transport: 'stdio',
             command: c.command.trim(),
-            args: c.argsText.split('\n').map((s) => s.trim()).filter(Boolean),
+            args: c.argsText
+              .split('\n')
+              .map((s) => s.trim())
+              .filter(Boolean),
             envKeys: keys,
             enabled: c.enabled,
             allowedTools: allowed.length > 0 ? allowed : null,
@@ -660,6 +708,8 @@ export default function SettingsModal({ open, onClose }: Props) {
     }
 
     const st = useSettingsStore.getState();
+    const prevKeys = { ...st.apiKeys };
+    const prevBaseUrls = { ...st.baseUrlOverride };
     const apiKeys = { ...st.apiKeys };
     for (const p of PROVIDER_IDS) {
       if (p === 'ollama') continue;
@@ -706,6 +756,7 @@ export default function SettingsModal({ open, onClose }: Props) {
     s.setCachePrompts(draft.cachePrompts);
     s.setCustomAllowList(draft.customAllowList);
     s.setExecTimeoutMs(draft.execTimeoutMs);
+    s.setAgentMaxSteps(draft.agentMaxSteps);
     s.setAuditEnabled(draft.auditEnabled);
     s.setContrast(draft.contrast);
     s.setUiFont(draft.uiFont);
@@ -835,6 +886,13 @@ export default function SettingsModal({ open, onClose }: Props) {
         }),
       ) as Record<Provider, boolean>,
     });
+    // Anahtarı/URL'si değişen sağlayıcılar için canlı model listesini yenile.
+    const liveChanged = PROVIDER_IDS.filter(
+      (p) =>
+        prevKeys[fieldOf(p)] !== apiKeys[fieldOf(p)] ||
+        (prevBaseUrls[p] ?? '') !== (baseUrlOverride[p] ?? ''),
+    );
+    for (const p of liveChanged) void s.refreshLiveCatalog(p, true);
     toast.ok(t('settings.save.ok'));
     onClose();
   };
@@ -921,7 +979,7 @@ export default function SettingsModal({ open, onClose }: Props) {
                   toggleShow={(id) => setShow((m) => ({ ...m, [id]: !m[id] }))}
                   tests={tests}
                   onTest={(id) => void testKey(id)}
-                onTestAll={() => void testAll()}
+                  onTestAll={() => void testAll()}
                   onClearSecret={clearSecret}
                   ollamaFound={ollamaFound}
                   ollamaErr={ollamaErr}

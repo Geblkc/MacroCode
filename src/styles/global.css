@@ -7,61 +7,71 @@
 
 :root {
   /* ── Yüzey rampası (karanlık → açık) ── */
-  --bg-sunken:   #07090b;   /* kod gövdesi, içe gömülü kuyu */
-  --bg-base:     #0b0d10;   /* uygulama zemini */
-  --bg-panel:    #111419;   /* sidebar, titlebar, inputbar */
-  --bg-raised:   #171b21;   /* kart, dropdown, modal */
-  --bg-overlay:  #1c2128;   /* raised üzerinde hover/active */
-  --bg-inset:    #0e1116;   /* input alanları */
+  --bg-sunken: #07090b; /* kod gövdesi, içe gömülü kuyu */
+  --bg-base: #0b0d10; /* uygulama zemini */
+  --bg-panel: #111419; /* sidebar, titlebar, inputbar */
+  --bg-raised: #171b21; /* kart, dropdown, modal */
+  --bg-overlay: #1c2128; /* raised üzerinde hover/active */
+  --bg-inset: #0e1116; /* input alanları */
 
   /* Geriye uyumlu alias (eski CSS çalışmaya devam eder) */
-  --bg:  var(--bg-base);
+  --bg: var(--bg-base);
   --bg2: var(--bg-panel);
   --bg3: var(--bg-raised);
+  --bg-hover: var(--bg-overlay);
 
   /* ── Kenarlar ── */
-  --border-subtle:  #1c2128;
+  --border-subtle: #1c2128;
   --border-default: #262c35;
-  --border-strong:  #38404c;
+  --border-strong: #38404c;
+  --border-hover: var(--border-strong);
 
   /* ── Metin (WCAG AA, --bg-base üzerinde ölçülmüş) ── */
-  --text-primary:   #e6eaf0;   /* 16.1:1 */
-  --text-secondary: #a8b2c1;   /*  9.1:1 */
-  --text-tertiary:  #77808e;   /*  4.9:1 */
-  --text-disabled:  #4a525e;
+  --text-primary: #e6eaf0; /* 16.1:1 */
+  --text-secondary: #a8b2c1; /*  9.1:1 */
+  --text-tertiary: #77808e; /*  4.9:1 */
+  --text-disabled: #4a525e;
 
   /* ── Vurgu (logo ile birebir aynı: #00E676) ── */
-  --accent:        #00e676;
-  --accent-hover:  #2beb8e;
+  --accent: #00e676;
+  --accent-hover: #2beb8e;
   --accent-active: #00c563;
-  --accent-text:   #00e676;
-  --accent-subtle: rgba(0, 230, 118, 0.10);
-  --accent-line:   rgba(0, 230, 118, 0.30);
-  --accent-ink:    #04150c;
+  --accent-text: #00e676;
+  --accent-subtle: rgba(0, 230, 118, 0.1);
+  --accent-line: rgba(0, 230, 118, 0.3);
+  --accent-ink: #04150c;
 
   /* ── Anlamsal renkler (rol/kanal) ── */
   --col-user: #6fb1ff;
-  --col-ai:   #00e676;
-  --col-sys:  #b79cff;
-  --col-err:  #ff8a8a;
+  --col-ai: #00e676;
+  --col-sys: #b79cff;
+  --col-err: #ff8a8a;
   --col-warn: #ffc861;
   --col-tool: #7fd4ff;
 
+  /* Mod/efor rozetleri — rgb üçlüsü olarak tutulur; böylece aynı renk hem
+     düz hem alpha'lı (tint/border) varyantta kullanılabilir. Yüksek kontrast
+     varyantı yalnızca bu üçlüleri geçersiz kılar (bkz. high-contrast.css). */
+  --col-build-rgb: 56 189 248; /* #38bdf8 */
+  --col-plan-rgb: 251 191 36; /* #fbbf24 */
+  --col-ask-rgb: 167 139 250; /* #a78bfa */
+  --col-effort-rgb: 244 114 182; /* #f472b6 */
+
   /* ── Gölge ── */
-  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.40);
-  --sh-2: 0 4px 12px -2px rgba(0, 0, 0, 0.50), 0 2px 4px -1px rgba(0, 0, 0, 0.30);
-  --sh-3: 0 24px 56px -12px rgba(0, 0, 0, 0.70), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --sh-2: 0 4px 12px -2px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+  --sh-3: 0 24px 56px -12px rgba(0, 0, 0, 0.7), 0 6px 16px -6px rgba(0, 0, 0, 0.45);
   --sh-glow: 0 0 0 1px var(--accent-line), 0 0 20px -6px var(--accent);
 
   /* ── Tipografi ── */
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', ui-monospace, monospace;
-  --font-ui:   'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --fs-2xs: 10px;
-  --fs-xs:  11px;
-  --fs-sm:  12px;
-  --fs-md:  13px;
-  --fs-lg:  15px;
-  --fs-xl:  18px;
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-md: 13px;
+  --fs-lg: 15px;
+  --fs-xl: 18px;
   --fs-2xl: 24px;
   --font-size: var(--fs-md);
   --line-height: 1.65;
@@ -84,17 +94,21 @@
   --r-pill: 999px;
 
   /* ── Hareket ── */
-  --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --dur-1: 90ms;
   --dur-2: 160ms;
   --dur-3: 240ms;
   --dur-4: 420ms;
+  /* Hızlı etkileşimler (rozetler, menü seçenekleri, :active geri bildirimi). */
+  --t-fast: var(--dur-1);
 
   /* ── Ölçü ── */
   --h-titlebar: 40px;
   --h-statusbar: 24px;
-  --w-sidebar: 240px;
+  /* Sidebar.tsx bu değişkeni kök elemana yazar; varsayılan burada. */
+  --sidebar-w: 240px;
+  --git-min: 280px;
   --measure: 78ch;
 
   /* ── Odak ── */
@@ -104,14 +118,16 @@
 /* Arayüz kabuğu için sans fontu (JetBrains Mono yerine) */
 [data-uifont='inter'] {
   --font-mono: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-ui:   'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
 /* ══════════════════════════════════════════════════════════════════
    Reset & Temel
    ══════════════════════════════════════════════════════════════════ */
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 :focus-visible {
   outline: 2px solid var(--focus);
@@ -119,13 +135,20 @@
   border-radius: var(--r-xs);
 }
 
-::selection { background: rgba(0, 230, 118, 0.25); }
+::selection {
+  background: rgba(0, 230, 118, 0.25);
+}
 
-button { font-family: inherit; color: inherit; }
+button {
+  font-family: inherit;
+  color: inherit;
+}
 
 /* `hidden` özniteliği her zaman gizlemeli — CSS `display` kuralları
    onu ezebilir (gizli sekme panelleri). */
-[hidden] { display: none !important; }
+[hidden] {
+  display: none !important;
+}
 
 /* Native form kontrolleri temayla eşleşsin (varsayılan mavi kutu kalmasın). */
 input[type='checkbox'],
@@ -136,7 +159,9 @@ input[type='radio'] {
   cursor: pointer;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   margin: 0;
   padding: 0;
   height: 100%;
@@ -145,11 +170,15 @@ html, body, #root {
   font-family: var(--font-mono);
   font-size: var(--font-size);
   line-height: var(--line-height);
-  font-feature-settings: 'liga' 1, 'calt' 1;
+  font-feature-settings:
+    'liga' 1,
+    'calt' 1;
   -webkit-font-smoothing: antialiased;
 }
 
-body { overflow: hidden; }
+body {
+  overflow: hidden;
+}
 
 /* Yalnızca ekran okuyucular için */
 .sr-only {
@@ -196,8 +225,82 @@ body { overflow: hidden; }
   stroke-linejoin: round;
 }
 
-.icon-sm { width: 13px; height: 13px; }
-.icon-lg { width: 20px; height: 20px; }
+.icon-sm {
+  width: 13px;
+  height: 13px;
+}
+.icon-lg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Hata sınırı (ErrorBoundary) — render hatasında kurtarma ekranı
+   ══════════════════════════════════════════════════════════════════ */
+
+.error-boundary {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6);
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  z-index: 1000;
+}
+
+.error-boundary-card {
+  width: min(640px, 100%);
+  padding: var(--sp-6);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-3);
+}
+
+.error-boundary-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  color: var(--col-err);
+  margin-bottom: var(--sp-4);
+}
+
+.error-boundary-title h1 {
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-boundary-msg {
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  margin-bottom: var(--sp-4);
+}
+
+.error-boundary-detail {
+  max-height: 140px;
+  overflow: auto;
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-5);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.error-boundary-actions {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
 
 /* ══════════════════════════════════════════════════════════════════
    Erişilebilirlik
@@ -208,8 +311,24 @@ body { overflow: hidden; }
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Çalışma durumu azaltılmış harekette de statik olarak anlaşılır kalmalı. */
+  .agent-activity-visual::after,
+  .sb-run-spinner,
+  .tool-status.run .icon,
+  .thinking-dots i,
+  .stream-dot {
+    animation: none !important;
+  }
+
+  .agent-activity-visual::after,
+  .sb-run-spinner {
+    border-color: currentColor;
+    opacity: 0.8;
   }
 }

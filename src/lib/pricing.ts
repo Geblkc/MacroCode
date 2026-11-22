@@ -41,9 +41,7 @@ export function setPriceVersion(
 ): PriceRegistry {
   const from = options?.from ?? Date.now();
   const prev = registry[modelId];
-  const versions: PriceVersion[] = prev
-    ? [...prev.versions]
-    : [];
+  const versions: PriceVersion[] = prev ? [...prev.versions] : [];
 
   // Mevcut son versiyonu kapatma süresi olarak şimdiyi koy (bir sonraki versiyon var ise)
   if (versions.length > 0) {
@@ -140,7 +138,9 @@ export function formatCost(usd: number): string {
 
 /** Tek mesajın USD maliyeti (1M token başına fiyatla). Fiyat/tokens yoksa 0. */
 export function costForMessage(
-  tokens: { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number } | undefined,
+  tokens:
+    | { input: number; output: number; reasoning?: number; cacheRead?: number; cacheWrite?: number }
+    | undefined,
   price: ModelPrice | undefined,
 ): number {
   if (!tokens) return 0;
@@ -148,10 +148,7 @@ export function costForMessage(
 }
 
 /** Oturumun toplam maliyeti (fiyatı bilinmeyen mesajlar atlanır). */
-export function sessionCost(
-  messages: Message[],
-  prices: Record<string, ModelPrice>,
-): PricedUsage {
+export function sessionCost(messages: Message[], prices: Record<string, ModelPrice>): PricedUsage {
   let cost = 0;
   let priced = 0;
   for (const m of messages) {

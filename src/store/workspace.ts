@@ -24,10 +24,7 @@ export type WorkspaceRecentEntry = { root: string; label: string };
 export const RECENT_MAX = 5;
 
 /** Recents saf güncelleme: aynı root başa taşınır, tavan kırpılır. */
-export function pushRecent(
-  list: WorkspaceRecentEntry[],
-  root: string,
-): WorkspaceRecentEntry[] {
+export function pushRecent(list: WorkspaceRecentEntry[], root: string): WorkspaceRecentEntry[] {
   const rest = list.filter((e) => e.root !== root);
   return [{ root, label: labelOfRoot(root) }, ...rest].slice(0, RECENT_MAX);
 }

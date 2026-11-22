@@ -26,7 +26,10 @@ export function makePreview(path: string, oldText: string, newText: string): str
   }
   const rem = a.slice(pre, a.length - suf);
   const add = b.slice(pre, b.length - suf);
-  const head = [`--- ${path} (önizleme)`, `@@ -${pre + 1},${rem.length} +${pre + 1},${add.length} @@`];
+  const head = [
+    `--- ${path} (önizleme)`,
+    `@@ -${pre + 1},${rem.length} +${pre + 1},${add.length} @@`,
+  ];
   const show = (lines: string[], sign: string) =>
     lines.slice(0, 40).map((l) => `${sign} ${l.slice(0, 240)}`);
   const out = [...head, ...show(rem, '-'), ...show(add, '+')];
@@ -297,9 +300,7 @@ export async function applyPendingPatch(root: string, id: string): Promise<strin
   // Faz 10 (D2a): yama başka bir workspace'te üretilmişse uygulanmaz.
   // (Aynı göreli yol yeni kökte farklı bir dosyayı ezebilirdi.)
   if (p.root && root && p.root !== root) {
-    throw new Error(
-      `yama farklı workspace için: ${p.root} ≠ ${root} · /root değişti, yama iptal`,
-    );
+    throw new Error(`yama farklı workspace için: ${p.root} ≠ ${root} · /root değişti, yama iptal`);
   }
   await invokeRust('apply_patch', { root, path: p.path, content: p.content });
   return `/// uygulandı: ${p.path}`;

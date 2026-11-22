@@ -126,8 +126,11 @@ export const fr: Record<TranslationKey, Message> = {
   'input.attachTitle': 'ajouter une image ({count} maximum)',
   'input.stopTitle': 'arrêter',
   'input.sendTitle': 'envoyer (Entrée)',
-  'input.pendingHint':
-    { one: '{count} approbation en attente · Entrée pour approuver · Échap pour refuser', other: '{count} approbations en attente · Échap refuse toutes · approuvez chacune sur sa carte ou « Approuver toutes »' },
+  'input.pendingHint': {
+    one: '{count} approbation en attente · Entrée pour approuver · Échap pour refuser',
+    other:
+      '{count} approbations en attente · Échap refuse toutes · approuvez chacune sur sa carte ou « Approuver toutes »',
+  },
   'input.hint.send': 'envoyer',
   'input.hint.newline': 'nouvelle ligne',
   'input.hint.history': 'historique',
@@ -136,14 +139,18 @@ export const fr: Record<TranslationKey, Message> = {
   'input.hint.commands': 'suggestions de commandes',
   'input.slashMenuAria': 'suggestions de commandes slash',
   'input.cmdHint': '↑↓ naviguer · Tab complète · Enter envoie · Esc ferme',
-  'input.meta': { one: '{count} caractère · ~{tokens} tokens', other: '{count} caractères · ~{tokens} tokens' },
+  'input.meta': {
+    one: '{count} caractère · ~{tokens} tokens',
+    other: '{count} caractères · ~{tokens} tokens',
+  },
   'input.metaImages': { one: ' · {count} image', other: ' · {count} images' },
 
   /* ── Barre d’état ── */
   'status.ariaLabel': 'État de la session',
   'status.connected': 'connecté',
   'status.disconnected': 'non connecté',
-  'status.contextUsage': 'dernière requête : {used} / {total} ({percent} %) · compactage auto à {compactAt} %',
+  'status.contextUsage':
+    'dernière requête : {used} / {total} ({percent} %) · compactage auto à {compactAt} %',
   'status.contextCompact': 'Compacter maintenant (/compact)',
   'status.tokenCounter': 'Compteur de tokens de la session (entrée / sortie)',
   'status.sessionTotals': 'total de la session : ↑{input} ↓{output}',
@@ -159,6 +166,17 @@ export const fr: Record<TranslationKey, Message> = {
   'status.mcpActive': { one: '{count} serveur MCP actif', other: '{count} serveurs MCP actifs' },
   'status.workspaceTitle': 'Changer le dossier du projet (dialogue de sélection)',
 
+  /* ── Activité de l’agent ── */
+  'agentActivity.preparing': 'L’agent se prépare',
+  'agentActivity.thinking': 'L’agent réfléchit',
+  'agentActivity.writing': 'L’agent rédige une réponse',
+  'agentActivity.tool': 'L’outil est en cours d’exécution',
+  'agentActivity.awaitingApproval': 'Votre approbation est requise',
+  'agentActivity.retrying': 'Reconnexion en cours',
+  'agentActivity.finalizing': 'L’agent finalise le résultat',
+  'agentActivity.ariaLabel': 'État d’activité de l’agent',
+  'agentActivity.retryDetail': 'Tentative {attempt}/{total}',
+
   /* ── Accueil ── */
   'welcome.subtitle': 'Assistant IA en terminal',
   'welcome.agentHint': 'Choisissez un dossier de projet pour activer le mode agent · /root',
@@ -168,12 +186,27 @@ export const fr: Record<TranslationKey, Message> = {
   'tool.failed': 'échec',
   'tool.done': 'terminé',
   'tool.output': 'Sortie de l’outil',
+  'tool.name.readFile': 'Lire le fichier',
+  'tool.name.writeFile': 'Écrire le fichier',
+  'tool.name.editFile': 'Modifier le fichier',
+  'tool.name.proposePatch': 'Proposer un patch',
+  'tool.name.exec': 'Exécuter la commande',
+  'tool.name.grep': 'Rechercher',
+  'tool.name.glob': 'Trouver des fichiers',
+  'tool.name.listDir': 'Lister le dossier',
+  'tool.name.todo': 'Mettre à jour la liste des tâches',
+  'tool.name.plan': 'Créer un plan',
+  'tool.name.subagent': 'Exécuter un sous-agent',
+  'tool.name.snapshot': 'Créer un instantané',
+  'tool.lineCount': { one: '{count} ligne', other: '{count} lignes' },
 
   /* ── Carte d’approbation ── */
   'approval.pending': 'Approbation en attente',
   'approval.approve': 'Approuver',
   'approval.reject': 'Refuser',
   'approval.alwaysRun': 'Toujours exécuter cette commande',
+  'approval.unlistedCommand':
+    "Cette commande n'est pas dans la liste autorisée — elle ne s'exécutera qu'avec votre approbation.",
   'approval.warning': 'Cette commande exécute du code — soyez prudent',
   'approval.rejectNote': 'Refusé par l’utilisateur',
   'approval.approveAll': 'Tout approuver',
@@ -242,7 +275,10 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.providers.discovering': 'détection…',
   'settings.providers.searching': 'recherche…',
   'settings.providers.findModels': 'Trouver les modèles',
-  'settings.providers.discovered': { one: '{count} modèle trouvé', other: '{count} modèles trouvés' },
+  'settings.providers.discovered': {
+    one: '{count} modèle trouvé',
+    other: '{count} modèles trouvés',
+  },
   'settings.providers.noModels': 'aucun modèle trouvé',
   'settings.providers.found': 'trouvés :',
   'settings.providers.useModel': 'Utiliser ce modèle',
@@ -254,10 +290,8 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.providers.showHide': 'afficher / masquer',
   'settings.providers.showHideAria': 'Afficher / masquer la clé',
   'settings.providers.willDelete': 'sera supprimée du keystore à l’enregistrement',
-  'settings.providers.clearTitle':
-    'vider le champ (supprimé du keystore à l’enregistrement)',
-  'settings.providers.clearKeyTitle':
-    'vider la clé (supprimée du keystore à l’enregistrement)',
+  'settings.providers.clearTitle': 'vider le champ (supprimé du keystore à l’enregistrement)',
+  'settings.providers.clearKeyTitle': 'vider la clé (supprimée du keystore à l’enregistrement)',
   'settings.providers.state.connected': 'connecté',
   'settings.providers.state.invalid': 'clé invalide',
   'settings.providers.state.rejected': 'refusé',
@@ -274,20 +308,26 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.providers.storageNote':
     'Les clés restent sur cet appareil (keys.json) et ne le quittent jamais. Une clé enregistrée n’est plus jamais affichée en entier — seulement les 4 derniers caractères (••••a1b2).',
   'settings.providers.localSection': 'Fournisseur local',
-  'settings.providers.localNote': 'Un serveur de modèles qui tourne sur ta machine — aucune clé API, l’adresse suffit.',
+  'settings.providers.localNote':
+    'Un serveur de modèles qui tourne sur ta machine — aucune clé API, l’adresse suffit.',
   'settings.providers.testAll': 'Tout tester',
   'settings.providers.getKey': 'Obtenir une clé',
   'settings.providers.resetUrl': 'réinitialiser',
   'settings.providers.resetUrlTitle': 'revenir à l’adresse par défaut',
   'settings.providers.state.connectedHint': 'Connexion réussie — la clé est valide.',
-  'settings.providers.state.invalidHint': 'Le fournisseur a refusé la clé. Vérifie-la (pas d’espace parasite à la copie).',
+  'settings.providers.state.invalidHint':
+    'Le fournisseur a refusé la clé. Vérifie-la (pas d’espace parasite à la copie).',
   'settings.providers.state.networkHint': 'Serveur injoignable — vérifie ta connexion internet.',
+  'settings.providers.state.terms': 'conditions en attente',
+  'settings.providers.state.termsHint':
+    'Les conditions d’utilisation EVREN ne sont pas acceptées — accepte-les sur {url}, puis réessaie.',
   'settings.providers.error.keyFirst':
     'saisissez d’abord une clé (une clé enregistrée ne peut pas être testée)',
   'settings.providers.error.urlFirst': 'saisissez d’abord l’URL de base et la clé',
   'settings.providers.error.nameEmpty': 'Le nom du point de terminaison ne peut pas être vide',
   'settings.providers.error.baseUrlScheme': '« {name} » : l’URL de base doit commencer par http(s)',
-  'settings.providers.error.modelsEmpty': '« {name} » : saisissez au moins un identifiant de modèle',
+  'settings.providers.error.modelsEmpty':
+    '« {name} » : saisissez au moins un identifiant de modèle',
 
   /* ── Paramètres · Modèles ── */
   'settings.models.section': 'Modèles',
@@ -314,15 +354,21 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.models.refreshSection': 'Actualiser la liste',
   'settings.models.sourceNote':
     '{source} — les modèles trouvés ne sont pas ajoutés automatiquement',
-  'settings.models.catalogNote':
-    { one: 'catalogue models.dev ({count} modèle) — cherchez, filtrez et ajoutez à la liste :', other: 'catalogue models.dev ({count} modèles) — cherchez, filtrez et ajoutez à la liste :' },
-  'settings.models.catalogSearchPlaceholder': 'chercher un id, un nom, une description ou une famille…',
+  'settings.models.catalogNote': {
+    one: 'catalogue models.dev ({count} modèle) — cherchez, filtrez et ajoutez à la liste :',
+    other: 'catalogue models.dev ({count} modèles) — cherchez, filtrez et ajoutez à la liste :',
+  },
+  'settings.models.catalogSearchPlaceholder':
+    'chercher un id, un nom, une description ou une famille…',
   'settings.models.resultsCount': { one: '{count} résultat', other: '{count} résultats' },
   'settings.models.firstSixty': ' (les 60 premiers sont affichés)',
   'settings.models.catalogCtxOut': '{ctx} ctx · {out} sortie',
   'settings.models.catalogCost': '{input} entrée · {output} sortie',
   'settings.models.catalogCostCache': ' · {cache} cache',
-  'settings.models.foundNote': { one: 'trouvé ({count}) — ajoutez-le à la liste :', other: 'trouvés ({count}) — ajoutez-les à la liste :' },
+  'settings.models.foundNote': {
+    one: 'trouvé ({count}) — ajoutez-le à la liste :',
+    other: 'trouvés ({count}) — ajoutez-les à la liste :',
+  },
   'settings.models.addToList': 'ajouter',
   'settings.models.addCustom': 'Ajouter un modèle manuellement',
   'settings.models.addCustomId': 'Identifiant du modèle',
@@ -337,8 +383,10 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.models.showMore': 'Afficher plus',
   'settings.models.shownOf': '{shown} sur {total} modèles affichés',
   'settings.models.toggleLabel': 'activer / désactiver {model}',
-  'settings.models.refreshNote': 'Les résultats ne sont pas ajoutés automatiquement — utilise « ajouter » pour les inclure.',
-  'settings.models.addCustomNote': 'Définis un modèle absent de la liste. Les prix ne sont pas chargés automatiquement par fournisseur.',
+  'settings.models.refreshNote':
+    'Les résultats ne sont pas ajoutés automatiquement — utilise « ajouter » pour les inclure.',
+  'settings.models.addCustomNote':
+    'Définis un modèle absent de la liste. Les prix ne sont pas chargés automatiquement par fournisseur.',
   'settings.models.addCustomNamePlaceholder': 'ex. : Modèle interne',
   'settings.models.addCustomContextPlaceholder': 'ex. : 200000',
   'settings.models.addCustomMaxOutputPlaceholder': 'ex. : 8192',
@@ -353,15 +401,15 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.params.sub.model': 'Paramètres du modèle',
   'settings.params.sub.prices': 'Prix',
   'settings.params.modelSection': 'Paramètres du modèle',
-  'settings.params.paramsNote': 'Pour le modèle par défaut sélectionné ({model}). Vide = valeur par défaut du fournisseur.',
+  'settings.params.paramsNote':
+    'Pour le modèle par défaut sélectionné ({model}). Vide = valeur par défaut du fournisseur.',
   'settings.params.resetNote': 'Vide = valeur par défaut du fournisseur.',
   'settings.params.temperature': 'temperature (0–2)',
   'settings.params.topP': 'top_p (0–1)',
   'settings.params.maxTokens': 'tokens de sortie max',
   'settings.params.thinkingBudget': 'budget de raisonnement',
   'settings.params.reset': 'Par défaut',
-  'settings.params.topPDisabled':
-    'top_p n’est pas envoyé tant que le raisonnement est activé',
+  'settings.params.topPDisabled': 'top_p n’est pas envoyé tant que le raisonnement est activé',
   'settings.params.thinkingSupported':
     'le raisonnement est activé sur les modèles compatibles (temperature passe à 1)',
   'settings.params.thinkingOnly': 'uniquement sur les modèles avec le badge reasoning',
@@ -398,6 +446,17 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.models.source.openai': 'liste OpenAI',
   'settings.models.source.gemini': 'liste Gemini',
   'settings.models.source.modelsDev': 'catalogue models.dev',
+  'settings.models.liveSection': 'Catalogue API en direct',
+  'settings.models.liveNote':
+    'La liste des modèles provient de l’API du fournisseur ; en cas d’échec, le catalogue existant est utilisé. Si une liste API est disponible, seuls ses modèles sont affichés.',
+  'settings.models.liveRefreshAll': 'Tout actualiser',
+  'settings.models.liveApi': 'API',
+  'settings.models.liveFallback': 'catalogue existant',
+  'settings.models.liveCount': { one: '{count} modèle', other: '{count} modèles' },
+  'settings.models.liveUpdated': 'mis à jour : {time}',
+  'settings.models.liveBusy': 'actualisation…',
+  'settings.models.liveError': 'API indisponible — {message}',
+  'settings.models.liveNone': 'aucun fournisseur avec clé',
 
   /* ── Paramètres · Discussion ── */
   'settings.appearance.fontSize': 'Taille de police — {size}px',
@@ -433,12 +492,18 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.chat.allowList': 'Commandes shell supplémentaires (une par ligne, ex. docker ps)',
   'settings.chat.allowListNote':
     'Ces commandes sont ajoutées automatiquement via la case « toujours exécuter » de l’écran d’approbation.',
-  'settings.chat.allowListInvalid': { one: '{count} ligne non valide sera ignorée : {lines}', other: '{count} lignes non valides seront ignorées : {lines}' },
+  'settings.chat.allowListInvalid': {
+    one: '{count} ligne non valide sera ignorée : {lines}',
+    other: '{count} lignes non valides seront ignorées : {lines}',
+  },
   'settings.chat.audit': 'Journal d’audit',
   'settings.chat.auditNote': 'Conserver un journal d’audit',
   'settings.chat.execTimeout': 'Limite supérieure du délai des commandes (secondes)',
   'settings.chat.execTimeoutNote':
     'Limite globale pour les longues commandes de build/test (1–600 s). Par défaut : 300 s.',
+  'settings.chat.agentMaxSteps': 'Limite d’étapes de l’agent (0 = illimité)',
+  'settings.chat.agentMaxStepsNote':
+    '0 = illimité (par défaut) : les gros fichiers ne sont pas interrompus en cours d’écriture. Une valeur entre 1 et 200 ajoute une limite de sécurité facultative.',
 
   /* ── Paramètres · MCP ── */
   'settings.mcp.section': 'Serveurs MCP',
@@ -467,7 +532,8 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.mcp.allowedToolsPlaceholder': 'lire, écrire',
   'settings.mcp.envShow': 'Afficher',
   'settings.mcp.envHide': 'Masquer',
-  'settings.mcp.envNote': 'Les valeurs d’environnement sont masquées — stockées sur cet appareil, jamais envoyées.',
+  'settings.mcp.envNote':
+    'Les valeurs d’environnement sont masquées — stockées sur cet appareil, jamais envoyées.',
   'settings.mcp.allowedToolsNote': 'Les outils non sélectionnés sont autorisés.',
   'settings.mcp.allowedToolsHint': 'Noms d’outils séparés par des virgules (vide = tous).',
   'settings.mcp.error.nameEmpty': 'Le nom du serveur MCP ne peut pas être vide',
@@ -488,14 +554,20 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.appearance.numberFormatNote': 'Le format des nombres suit la langue choisie.',
   'settings.about.subtitle': 'licence GPL-2.0-only · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Paramètres enregistrés.',
-  'settings.save.failed': { one: '{count} paramètre n’a pas pu être enregistré ({label}) : {message}', other: '{count} paramètres n’ont pas pu être enregistrés ({label}) : {message}' },
+  'settings.save.failed': {
+    one: '{count} paramètre n’a pas pu être enregistré ({label}) : {message}',
+    other: '{count} paramètres n’ont pas pu être enregistrés ({label}) : {message}',
+  },
   'settings.about.version': 'Version',
   'settings.about.copyVersion': 'Copier les informations de version',
   'settings.about.license': 'Licence',
   'settings.about.privacy':
     'Les clés API sont conservées sur votre appareil (keys.json) et ne sont jamais envoyées ailleurs. Les sessions sont stockées dans une base SQLite locale. Le trafic réseau ne va qu’au fournisseur que vous choisissez.',
   'settings.about.source': 'Code source',
-  'settings.about.modelCount': { one: '{count} modèle · {providers} fournisseurs', other: '{count} modèles · {providers} fournisseurs' },
+  'settings.about.modelCount': {
+    one: '{count} modèle · {providers} fournisseurs',
+    other: '{count} modèles · {providers} fournisseurs',
+  },
   'settings.about.copied': 'Copié.',
   'settings.about.copyFailed': 'Copie impossible — presse-papiers indisponible.',
   'settings.about.platform': 'Plateforme',
@@ -527,8 +599,13 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.help.root':
     '  /root [chemin|off]  choisir/retirer l’espace de travail (sans argument = dialogue de dossier)',
   'commands.help.files': '  /files         résumé des fichiers de l’espace de travail',
-  'commands.help.apply': '  /apply <id>    approuver et appliquer un patch en attente (/apply all = tous)',
+  'commands.help.apply':
+    '  /apply <id>    approuver et appliquer un patch en attente (/apply all = tous)',
   'commands.help.undo': '  /undo [id]     annuler le dernier patch ou celui indiqué',
+  'commands.help.snapshot': '  /snapshot [label] créer un instantané du projet',
+  'commands.help.snapshots': '  /snapshots     lister les instantanés enregistrés',
+  'commands.help.restore': '  /restore <id>  restaurer un instantané (confirmé)',
+  'commands.help.snapshot-del': '  /snapshot-del <id> supprimer un instantané',
   'commands.help.skill': '  /skill         lister les skills enregistrées',
   'commands.help.approval': '  /approval [m]  mode d’approbation (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
@@ -560,6 +637,10 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.desc.files': 'résumé des fichiers de l’espace de travail',
   'commands.desc.apply': 'appliquer un patch en attente',
   'commands.desc.undo': 'annuler le dernier patch',
+  'commands.desc.snapshot': 'créer un instantané du projet',
+  'commands.desc.snapshots': 'lister les instantanés',
+  'commands.desc.restore': 'restaurer un instantané',
+  'commands.desc.snapshotDel': 'supprimer un instantané',
   'commands.desc.skill': 'lister les skills enregistrées',
   'commands.desc.approval': 'mode d’approbation',
   'commands.desc.mode': 'mode de l’agent (build/plan/ask)',
@@ -573,7 +654,8 @@ export const fr: Record<TranslationKey, Message> = {
   'effort.on': 'activé',
   'effort.off': 'désactivé',
   'effort.fixedOn': 'toujours actif',
-  'effort.fixedOnHint': 'la réflexion est toujours active pour ce modèle et ne peut pas être désactivée',
+  'effort.fixedOnHint':
+    'la réflexion est toujours active pour ce modèle et ne peut pas être désactivée',
   'effort.value.minimal': 'minimal',
   'effort.value.low': 'faible',
   'effort.value.medium': 'moyen',
@@ -590,7 +672,8 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.desc.note': 'note de projet persistante',
   'commands.desc.log': 'derniers journaux d’événements',
   'commands.desc.audit': 'afficher le journal d’audit',
-  'commands.help.copy': '  /copy [md|json] copier la session dans le presse-papiers (md par défaut)',
+  'commands.help.copy':
+    '  /copy [md|json] copier la session dans le presse-papiers (md par défaut)',
   'commands.desc.copy': 'copier la session dans le presse-papiers',
   'commands.copyEmpty': 'rien à copier',
   'commands.copyDone': '/// session copiée dans le presse-papiers',
@@ -599,9 +682,14 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.resetDone': '/// conversation réinitialisée',
   'commands.sessionStarted': '/// nouvelle session démarrée',
   'commands.activeModel': '/// modèle actif : {model}',
-  'commands.providerModels': { one: '/// {provider} : {count} modèle', other: '/// {provider} : {count} modèles' },
-  'commands.providerModelsLocked':
-    { one: '/// {provider} : {count} modèle · pas de clé — masqués dans la liste', other: '/// {provider} : {count} modèles · pas de clé — masqués dans la liste' },
+  'commands.providerModels': {
+    one: '/// {provider} : {count} modèle',
+    other: '/// {provider} : {count} modèles',
+  },
+  'commands.providerModelsLocked': {
+    one: '/// {provider} : {count} modèle · pas de clé — masqués dans la liste',
+    other: '/// {provider} : {count} modèles · pas de clé — masqués dans la liste',
+  },
   'commands.modelSet': '/// modèle : {model}',
   'commands.modelUnknown': '! identifiant de modèle inconnu — défini quand même',
   'commands.capabilities': '/// capacités : {tags}',
@@ -629,15 +717,21 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.compactFailed': '✗ échec de compact : {message}',
   'commands.logEmpty': '/// log : aucun enregistrement',
   'commands.workspaceMissing': '✗ aucun espace de travail sélectionné · /root <chemin>',
-  'commands.workspaceMissingRoot': '✗ aucun espace de travail sélectionné · choisissez un dossier avec /root',
+  'commands.workspaceMissingRoot':
+    '✗ aucun espace de travail sélectionné · choisissez un dossier avec /root',
   'commands.noteUsage':
     '/// usage : /note <note>  ·  les notes sont transmises à l’agent lors des sessions suivantes',
   'commands.noteSaved': '/// note enregistrée : {note}',
   'commands.noteFailed': '✗ note non enregistrée : {message}',
-  'commands.contextSummary':
-    { one: '/// contexte du dépôt : {count} fichier · fichiers clés : {files}', other: '/// contexte du dépôt : {count} fichiers · fichiers clés : {files}' },
+  'commands.contextSummary': {
+    one: '/// contexte du dépôt : {count} fichier · fichiers clés : {files}',
+    other: '/// contexte du dépôt : {count} fichiers · fichiers clés : {files}',
+  },
   'commands.contextMap': '/// carte (les 25 premiers) :',
-  'commands.contextNotes': { one: '/// note persistante ({count}) :', other: '/// notes persistantes ({count}) :' },
+  'commands.contextNotes': {
+    one: '/// note persistante ({count}) :',
+    other: '/// notes persistantes ({count}) :',
+  },
   'commands.contextFailed': '✗ contexte illisible : {message}',
   'commands.approval.manual': 'manuel (écriture approuvée)',
   'commands.approval.autoRead': 'lecture seule (écriture et commandes désactivées)',
@@ -677,14 +771,18 @@ export const fr: Record<TranslationKey, Message> = {
   'workspace.removeRecent': '{name} — retirer de la liste',
   'workspace.forbid.empty': '✗ chemin vide',
   'workspace.forbid.relative': '✗ chemin absolu requis (ex. /home/utilisateur/projet)',
-  'workspace.forbid.root': '✗ racine du système de fichiers non sélectionnable — choisissez un dossier de projet',
-  'workspace.forbid.home': '✗ répertoire personnel non sélectionnable en entier — choisissez un dossier de projet',
-  'workspace.forbid.sensitive': '✗ répertoire de configuration sensible (.ssh etc.) non sélectionnable',
+  'workspace.forbid.root':
+    '✗ racine du système de fichiers non sélectionnable — choisissez un dossier de projet',
+  'workspace.forbid.home':
+    '✗ répertoire personnel non sélectionnable en entier — choisissez un dossier de projet',
+  'workspace.forbid.sensitive':
+    '✗ répertoire de configuration sensible (.ssh etc.) non sélectionnable',
   'commands.filesTauriOnly': '✗ /files ne fonctionne que sous Tauri',
   'commands.filesFailed': '✗ échec de /files : {message}',
   'commands.applyNotFound': '✗ approbation en attente introuvable : {id}',
   'commands.applyNone': '/// aucun patch en attente',
-  'commands.applyNeedId': '✗ plusieurs approbations en attente — chacune avec /apply <id> ou toutes avec /apply all · {list}',
+  'commands.applyNeedId':
+    '✗ plusieurs approbations en attente — chacune avec /apply <id> ou toutes avec /apply all · {list}',
   'commands.applyPending': '/// en attente : {list}',
   'commands.applyFailed': '✗ échec de /apply : {message}',
   'commands.undoFailed': '✗ échec de /undo : {message}',
@@ -692,7 +790,10 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.skillList': '/// skills : {list}',
   'commands.imagesIgnored': '! les images ne sont pas utilisées dans les commandes · ignorées',
   'commands.importFailed': '✗ import impossible : {message}',
-  'commands.imported': { one: '/// importé : {count} session', other: '/// importé : {count} sessions' },
+  'commands.imported': {
+    one: '/// importé : {count} session',
+    other: '/// importé : {count} sessions',
+  },
   'commands.fileUnreadable': '✗ fichier illisible',
 
   /* ── Résumé des tokens ── */
@@ -713,7 +814,10 @@ export const fr: Record<TranslationKey, Message> = {
   'export.authorUser': 'Vous',
   'export.authorSystem': 'Système',
   'export.reasoning': 'notes de raisonnement',
-  'export.images': { one: '*[{count} image jointe — non incluse dans l’export]*', other: '*[{count} images jointes — non incluses dans l’export]*' },
+  'export.images': {
+    one: '*[{count} image jointe — non incluse dans l’export]*',
+    other: '*[{count} images jointes — non incluses dans l’export]*',
+  },
   'export.footer': '*Exporté par MacroCode*',
 
   /* ── Erreurs de session / sauvegarde ── */
@@ -725,6 +829,8 @@ export const fr: Record<TranslationKey, Message> = {
   'errors.importSessionName': 'session importée',
   'errors.dbUnavailable':
     '! la base de données des sessions n’a pas pu être ouverte : {message} · les sessions ne sont stockées que dans localStorage',
+  'errors.dbLocked':
+    '! la base de données des sessions est temporairement verrouillée : {message} · nouvelle tentative effectuée ; l’opération est conservée dans localStorage',
 
   /* ── Messages d’erreur ── */
   'errors.apiKeyInvalid': '✗ erreur api (401) : clé API invalide · mettez-la à jour avec /key',
@@ -733,7 +839,8 @@ export const fr: Record<TranslationKey, Message> = {
   'errors.rateLimit': '✗ limite de débit : trop de requêtes · attendez quelques secondes',
   'errors.contextLimit':
     '✗ limite de contexte : la conversation est trop longue · réinitialisez avec /reset',
-  'errors.requestFailed': '✗ erreur de requête ({status}) : {message} · voir les commandes avec /help',
+  'errors.requestFailed':
+    '✗ erreur de requête ({status}) : {message} · voir les commandes avec /help',
   'errors.serverFailed':
     '✗ erreur serveur ({status}) : le fournisseur ne répond pas · réessayez plus tard',
   'errors.apiFailed': '✗ erreur api ({status}) : {message}',
@@ -749,7 +856,10 @@ export const fr: Record<TranslationKey, Message> = {
   'agent.noWorkspace': '✗ aucun espace de travail sélectionné · choisissez un dossier avec /root',
   'agent.toolFailed': '✗ échec de l’outil : {tool}',
   'agent.approvalNeeded': 'Approbation en attente',
-  'agent.pendingRestored': { one: '{count} approbation en attente restaurée', other: '{count} approbations en attente restaurées' },
+  'agent.pendingRestored': {
+    one: '{count} approbation en attente restaurée',
+    other: '{count} approbations en attente restaurées',
+  },
   'agent.approvalModeSet': '/// mode d’approbation : {mode}',
   'agent.approvalModeNote': '! en mode auto-edit l’écriture se fait sans approbation',
   'agent.workspaceSet': '/// espace de travail : {root}',
@@ -765,8 +875,11 @@ export const fr: Record<TranslationKey, Message> = {
   'agent.undoNothing': '/// aucun patch à annuler',
   'agent.applyPending': '/// patch en attente appliqué',
   'agent.applyNone': '/// aucun patch en attente',
-  'agent.runsRestored':
-    { one: '/// tâche d’agent en attente restaurée pour {count} session (elle peut reprendre)', other: '/// tâches d’agent en attente restaurées pour {count} sessions (elles peuvent reprendre)' },
+  'agent.runsRestored': {
+    one: '/// tâche d’agent en attente restaurée pour {count} session (elle peut reprendre)',
+    other:
+      '/// tâches d’agent en attente restaurées pour {count} sessions (elles peuvent reprendre)',
+  },
   'agent.summaryPrefix': '[résumé · {date}]',
   /* ── Messages de politique ── */
   'policy.forbiddenFile': 'fichier interdit : {path}',
@@ -794,8 +907,7 @@ export const fr: Record<TranslationKey, Message> = {
   'policy.warnCargoTest': 'une exécution de cargo test exécute du code',
   'policy.warnTestRunner': 'une exécution de test/lint peut exécuter du code de plugin',
   'policy.warnGitChange': 'modifie le dépôt git (commit/push peut être définitif)',
-  'policy.warnGitNoIndex':
-    'git diff --no-index peut aussi lire des fichiers hors du workspace',
+  'policy.warnGitNoIndex': 'git diff --no-index peut aussi lire des fichiers hors du workspace',
   'policy.warnGitOutput': 'git peut écrire sa sortie hors du workspace',
   'policy.warnLinter': 'les plugins des fichiers de configuration peuvent s’exécuter',
 
@@ -824,23 +936,47 @@ export const fr: Record<TranslationKey, Message> = {
   'agent.mcpUnreachable':
     '! mcp : les serveurs actifs sont injoignables · poursuite avec les outils intégrés',
   'agent.repoContextFailed': '! le contexte du dépôt n’a pas pu être lu : {message}',
-  'agent.cannotRestart':
-    '/// la tâche en attente n’a pas pu être relancée · demandez à nouveau',
+  'agent.cannotRestart': '/// la tâche en attente n’a pas pu être relancée · demandez à nouveau',
   'agent.approved': '[✓] approuvé : {id}',
   'agent.rejected': '[✗] refusé : {id}',
   'agent.previewEmpty': '(vide)',
-  'agent.errCustomEndpoint': '✗ les points de terminaison personnalisés ne gèrent pas le mode agent · revenez au flux intégré dans les réglages',
-  'agent.errNoTools': '✗ {provider}/{model} ne gère pas le mode agent · essayez /provider {providers} ou passez à un modèle compatible tools',
+  'agent.errCustomEndpoint':
+    '✗ les points de terminaison personnalisés ne gèrent pas le mode agent · revenez au flux intégré dans les réglages',
+  'agent.errNoTools':
+    '✗ {provider}/{model} ne gère pas le mode agent · essayez /provider {providers} ou passez à un modèle compatible tools',
   'agent.errNoApiKey': '✗ clé API manquante · ajoutez-en une avec /key',
   'agent.errEmptyReply': '✗ l’agent n’a rien renvoyé · reformulez',
+  'agent.stepLimitNotice': {
+    one: '/// limite d’étapes atteinte ({count} étape) · réponse finale demandée',
+    other: '/// limite d’étapes atteinte ({count} étapes) · réponse finale demandée',
+  },
+  'agent.stepLimitNoAnswer': '/// le modèle n’a pas fourni de réponse finale à la limite d’étapes',
+  'agent.outputClipped':
+    '/// sortie d’outil mise en forme selon la politique · la sortie complète est dans le fichier artifact',
+  'agent.outputArtifactFailed':
+    '/// sortie d’outil mise en forme selon la politique · le fichier artifact n’a pas pu être créé',
+  'agent.loopGuardNotice': {
+    one: '/// protection contre les boucles : le même outil a été appelé {count} fois de suite avec les mêmes arguments · autorisation requise pour continuer',
+    other:
+      '/// protection contre les boucles : le même outil a été appelé {count} fois de suite avec les mêmes arguments · autorisation requise pour continuer',
+  },
+  'agent.loopGuardApproved':
+    '/// protection contre les boucles : continuation autorisée · essayez une autre approche',
+  'agent.loopGuardRejected':
+    '/// protection contre les boucles : opération arrêtée par l’utilisateur',
+  'agent.loopGuardSkipped': '/// protection contre les boucles : cet appel a été ignoré',
   'agent.pendingLine': {
     one: '⏸ approbation en attente : {names} [Enter approuver / Esc refuser]',
-    other: '⏸ approbations en attente : {names} [approuvez chacune sur sa carte · Échap refuse toutes]',
+    other:
+      '⏸ approbations en attente : {names} [approuvez chacune sur sa carte · Échap refuse toutes]',
   },
-  'extrasCapped': '/// anciennes lignes retirées de la vue · sauvegardez avec /export',
+  extrasCapped: '/// anciennes lignes retirées de la vue · sauvegardez avec /export',
   'errors.listFailed': 'impossible de charger la liste {source} (http {status})',
+  'errors.evrenTerms':
+    'Les conditions d’utilisation EVREN ne sont pas acceptées — accepte-les sur {url}, puis réessaie.',
   'errors.catalogFailed': 'impossible de charger le catalogue models.dev (http {status})',
   'errors.catalogInvalid': 'impossible d’analyser la réponse models.dev (JSON invalide)',
+  'errors.liveEmpty': 'l’API {provider} a renvoyé une liste de modèles vide',
   'errors.proxyNoResponse': 'proxy : la réponse n’a jamais commencé',
 
   /* ── Mises à jour ── */
@@ -852,8 +988,7 @@ export const fr: Record<TranslationKey, Message> = {
   'update.checkingShort': 'Vérification…',
   'update.upToDate': '/// MacroCode v{current} est à jour · aucune nouvelle version',
   'update.available': '↑ nouvelle version : v{version} (actuelle v{current})',
-  'update.availableShort':
-    '↑ MacroCode v{version} est disponible · lancez /update pour installer',
+  'update.availableShort': '↑ MacroCode v{version} est disponible · lancez /update pour installer',
   'update.releasedAt': '/// publiée : {date}',
   'update.releaseNotes': '/// notes de version : {notes}',
   'update.installHint':
@@ -879,12 +1014,10 @@ export const fr: Record<TranslationKey, Message> = {
   'update.noRepo': 'aucun dépôt de mise à jour configuré',
   'update.fetchFailed': 'impossible de récupérer les informations de mise à jour (http {status})',
   'update.invalidResponse': 'impossible d’analyser la réponse de mise à jour',
-  'update.tauriOnly':
-    'l’installation automatique ne fonctionne que dans l’application de bureau',
+  'update.tauriOnly': 'l’installation automatique ne fonctionne que dans l’application de bureau',
   'update.notFound': 'aucune nouvelle version trouvée · réessayez /update check',
   'update.ignored': '/// notification de démarrage désactivée pour v{version}',
-  'update.ignoreNone':
-    '/// aucune version à ignorer · lancez d’abord /update check',
+  'update.ignoreNone': '/// aucune version à ignorer · lancez d’abord /update check',
   'update.usage': '/// utilisation : /update [check|install|open|ignore]',
   'update.lastChecked': 'Dernière vérification : {date}',
   'update.neverChecked': 'Pas encore vérifié',
@@ -913,8 +1046,7 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.desc.git': 'panneau et opérations git',
   'commands.help.git':
     '  /git [status|diff|log|branch|switch|add|commit|push|pull|fetch|init]  opérations git',
-  'commands.help.gitSubcommands':
-    '  sous-commandes git : /git <commande> · détails : /git help',
+  'commands.help.gitSubcommands': '  sous-commandes git : /git <commande> · détails : /git help',
   'git.help.status': 'statut',
   'git.help.diff': 'diff',
   'git.help.log': 'historique',
@@ -934,8 +1066,7 @@ export const fr: Record<TranslationKey, Message> = {
   'git.noWorkspace': 'Aucun workspace sélectionné',
   'git.noWorkspaceHint': 'Choisis d’abord un dossier de projet avec /root.',
   'git.notRepo': 'Ce dossier n’est pas un dépôt git',
-  'git.notRepoHint':
-    'Tu peux initialiser un dépôt ou ouvrir la racine du dépôt comme workspace.',
+  'git.notRepoHint': 'Tu peux initialiser un dépôt ou ouvrir la racine du dépôt comme workspace.',
   'git.outsideRepo': 'Le workspace est dans un dépôt parent',
   'git.outsideRepoHint':
     'Racine du dépôt : {path} · les mutations sont désactivées. Ouvre la racine du dépôt comme workspace.',
@@ -1026,8 +1157,7 @@ export const fr: Record<TranslationKey, Message> = {
   'git.tab.branches': 'Branches',
   'git.error.gitMissing': 'Git n’est pas installé',
   'git.error.notRepo': 'Ce dossier n’est pas un dépôt git',
-  'git.error.outsideRepo':
-    'Le workspace est dans un dépôt parent · mutations désactivées',
+  'git.error.outsideRepo': 'Le workspace est dans un dépôt parent · mutations désactivées',
   'git.error.bareRepo': 'Les dépôts bare ne sont pas pris en charge',
   'git.error.invalidRoot': 'Chemin de workspace invalide',
   'git.error.invalidPath': 'Chemin de fichier invalide',
@@ -1043,8 +1173,7 @@ export const fr: Record<TranslationKey, Message> = {
   'git.error.noUpstream': 'La branche n’a pas d’upstream',
   'git.error.notFastForward': 'Fast-forward impossible',
   'git.error.detached': 'HEAD détachée',
-  'git.error.untrackedDiscard':
-    'Les fichiers non suivis ne sont pas supprimés par l’application',
+  'git.error.untrackedDiscard': 'Les fichiers non suivis ne sont pas supprimés par l’application',
   'git.error.timeout': 'Délai git dépassé',
   'git.error.outputTooLarge': 'Sortie git trop volumineuse',
   'git.error.tauriOnly': 'Git ne fonctionne que dans l’application de bureau',
@@ -1075,4 +1204,39 @@ export const fr: Record<TranslationKey, Message> = {
   'stats.breakdown.model': 'Par modèle',
   'stats.empty': 'Aucune utilisation enregistrée sur la période sélectionnée.',
   'stats.loading': 'Chargement…',
+
+  /* ── Limite d’erreur ── */
+  'errorBoundary.title': 'Une erreur inattendue est survenue',
+  'errorBoundary.message':
+    'L’interface a rencontré une erreur lors de l’affichage de cet écran. Vos sessions sont enregistrées sur le disque — vous pouvez réessayer ou recharger l’application.',
+  'errorBoundary.retry': 'Réessayer',
+  'errorBoundary.reload': 'Recharger',
+  'errorBoundary.copy': 'Copier les détails de l’erreur',
+
+  // Instantanés du projet
+  'commands.snapshotCreated': '/// instantané créé : {id} · {n} fichiers · {size} Mo',
+  'commands.snapshotListEmpty': '/// aucun instantané · créez-en un avec /snapshot [label]',
+  'commands.snapshotFailed': '✗ erreur d’instantané : {message}',
+  'commands.restoreNeedId': '! usage : /restore <id> · listez avec /snapshots',
+  'commands.restoreFailed': '✗ erreur de restauration : {message}',
+  'tool.snapshotCreated': '/// instantané créé : {id} · {n} fichiers · {label}',
+  'snapshot.title': 'Instantanés du projet',
+  'snapshot.untitled': 'sans titre',
+  'snapshot.needsRoot': 'Choisissez d’abord un espace de travail avec /root.',
+  'snapshot.empty': 'Aucun instantané. Saisissez un libellé ci-dessus pour en créer un.',
+  'snapshot.labelPlaceholder': 'Libellé (facultatif)',
+  'snapshot.create': 'Créer',
+  'snapshot.files': 'fichiers',
+  'snapshot.restore': 'Restaurer',
+  'snapshot.restoreTitle': 'Restaurer l’instantané',
+  'snapshot.restoreMessage':
+    'Le projet sera restauré à "{name}" ({id}). Les fichiers ajoutés ensuite seront supprimés ; l’état actuel est d’abord enregistré comme copie de sécurité.',
+  'snapshot.restoredToast': 'Instantané restauré',
+  'snapshot.restoreFailed': '✗ erreur de restauration : {message}',
+  'snapshot.delete': 'Supprimer',
+  'snapshot.deleteTitle': 'Supprimer l’instantané',
+  'snapshot.deleteMessage':
+    'L’instantané "{name}" ({id}) sera supprimé. Cette action est irréversible.',
+  'snapshot.deleteFailed': '✗ erreur de suppression : {message}',
+  'snapshot.restoreHint': 'Ramener le projet à ce point',
 };

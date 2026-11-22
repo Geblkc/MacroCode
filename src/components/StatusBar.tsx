@@ -6,6 +6,8 @@ import { sessionCost } from '../lib/pricing';
 import { contextUsage } from '../lib/engine/contextUsage';
 import { useT } from '../lib/i18n';
 import { useGitStore } from '../store/git';
+import { useActiveAgentActivity } from '../hooks/useAgentActivity';
+import { agentActivityLabelKey } from '../lib/agentActivity';
 import { Icon } from './icons';
 
 interface Props {
@@ -38,6 +40,7 @@ export default function StatusBar({
   onGitClick,
 }: Props) {
   const t = useT();
+  const agentActivity = useActiveAgentActivity();
   const sessions = useSessionStore((s) => s.sessions);
   const activeId = useSessionStore((s) => s.activeSessionId);
   const keyStatus = useSettingsStore((s) => s.keyStatus);
@@ -113,7 +116,18 @@ export default function StatusBar({
         : t('status.approval.autoEdit');
 
   const agentMode = session?.agentMode ?? 'build';
-  const modeLabel = t(`mode.${agentMode}` as any);
+  const modeKey =
+    agentMode === 'build' ? 'mode.build' : agentMode === 'plan' ? 'mode.plan' : 'mode.ask';
+  const modeDescKey =
+    agentMode === 'build'
+      ? 'mode.buildDesc'
+      : agentMode === 'plan'
+        ? 'mode.planDesc'
+        : 'mode.askDesc';
+  const modeLabel = t(modeKey);
+  const activityLabel = agentActivity
+    ? t(agentActivityLabelKey(agentActivity.phase))
+    : t('status.streaming');
 
   return (
     <div className="statusbar" role="status" aria-label={t('status.ariaLabel')}>
@@ -134,8 +148,11 @@ export default function StatusBar({
 
       <span className="sb-sep" aria-hidden="true" />
 
-      <span className="sb-item sb-mode-tag" title={t(`mode.${agentMode}Desc` as any)}>
-        <Icon name={agentMode === 'build' ? 'wrench' : agentMode === 'plan' ? 'list-checks' : 'message'} size="sm" />
+      <span className="sb-item sb-mode-tag" title={t(modeDescKey)}>
+        <Icon
+          name={agentMode === 'build' ? 'wrench' : agentMode === 'plan' ? 'list-checks' : 'message'}
+          size="sm"
+        />
         {modeLabel}
       </span>
 
@@ -204,12 +221,23 @@ export default function StatusBar({
         </>
       ) : null}
 
-      {isStreaming ? (
+      {isStreaming || agentActivity ? (
         <>
           <span className="sb-sep" aria-hidden="true" />
-          <span className="sb-item" title={t('status.streaming')}>
-            <span className="stream-dot" aria-hidden="true" />
-            {t('status.streaming')}
+          <span
+            className={`sb-item sb-run-status${agentActivity ? ` phase-${agentActivity.phase}` : ''}`}
+            title={
+              agentActivity
+                ? `${t('agentActivity.ariaLabel')}: ${activityLabel}`
+                : t('status.streaming')
+            }
+          >
+            {agentActivity ? (
+              <span className="sb-run-spinner" aria-hidden="true" />
+            ) : (
+              <span className="stream-dot" aria-hidden="true" />
+            )}
+            {activityLabel}
           </span>
         </>
       ) : null}
@@ -235,9 +263,7 @@ export default function StatusBar({
               </span>
               {gitStatus.ahead > 0 ? <span>↑{gitStatus.ahead}</span> : null}
               {gitStatus.behind > 0 ? <span>↓{gitStatus.behind}</span> : null}
-              <span
-                className={`sb-git-dirty${gitStatus.files.length > 0 ? ' dirty' : ''}`}
-              >
+              <span className={`sb-git-dirty${gitStatus.files.length > 0 ? ' dirty' : ''}`}>
                 {gitStatus.files.length > 0
                   ? t('status.gitDirty', { count: gitStatus.files.length })
                   : t('status.gitClean')}

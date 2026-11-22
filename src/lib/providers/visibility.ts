@@ -19,10 +19,7 @@ export function hasProviderKey(provider: Provider, apiKeys: ApiKeys | undefined)
 }
 
 /** Model listesi → anahtarı olmayan sağlayıcıların modellerini gizler. */
-export function visibleModels(
-  models: Model[],
-  apiKeys: ApiKeys | undefined,
-): Model[] {
+export function visibleModels(models: Model[], apiKeys: ApiKeys | undefined): Model[] {
   return models.filter((m) => hasProviderKey(m.provider, apiKeys));
 }
 
@@ -30,10 +27,7 @@ export function visibleModels(
  * Anahtarı olmayan ama modeli bulunan sağlayıcılar (sıralı).
  * Arayüzde "anahtar ekle" satırı üretmek için kullanılır.
  */
-export function hiddenProviders(
-  models: Model[],
-  apiKeys: ApiKeys | undefined,
-): Provider[] {
+export function hiddenProviders(models: Model[], apiKeys: ApiKeys | undefined): Provider[] {
   const seen = new Set<Provider>();
   for (const m of models) {
     if (hasProviderKey(m.provider, apiKeys)) continue;

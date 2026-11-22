@@ -13,6 +13,8 @@ const KEYS: ApiKeys = {
   minimax: '',
   moonshotai: '',
   zhipuai: '',
+  nvidia: '',
+  evren: '',
 };
 
 describe('Faz 2 D.3 — özetleyici yapılandırma', () => {

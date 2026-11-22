@@ -42,7 +42,10 @@ const HUNK_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
 function pathFromHeader(line: string, prefix: string): string | null {
   const idx = line.indexOf(prefix);
   if (idx < 0) return null;
-  let raw = line.slice(idx + prefix.length).split('\t')[0].trim();
+  let raw = line
+    .slice(idx + prefix.length)
+    .split('\t')[0]
+    .trim();
   if (!raw) return null;
   if (raw === '/dev/null') return null;
   // Git, özel karakterli adları C-tarzı tırnaklar; görüntü için tırnağı at.

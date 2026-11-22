@@ -67,11 +67,7 @@ export function resolveLocale(setting: LanguageSetting): Locale {
  * Anahtarı çevirir.
  * Fallback zinciri: aktif dil → İngilizce → Türkçe → anahtarın kendisi.
  */
-export function translate(
-  key: TranslationKey,
-  locale: Locale,
-  params?: TranslateParams,
-): string {
+export function translate(key: TranslationKey, locale: Locale, params?: TranslateParams): string {
   const dict = DICTIONARIES[locale] ?? DICTIONARIES.tr;
   let message = dict[key] as Message | undefined;
   if (message === undefined) message = DICTIONARIES.en[key] as Message | undefined;

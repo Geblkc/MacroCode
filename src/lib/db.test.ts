@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { appendAudit, readAuditLog, type SqlDatabase } from './db';
+import { appendAudit, readAuditLog, saveSessionsToDb, type SqlDatabase } from './db';
+import type { Session } from '../types';
 
 function fakeDb(): SqlDatabase & { rows: Array<Record<string, unknown>> } {
   const rows: Array<Record<string, unknown>> = [];
@@ -10,7 +11,13 @@ function fakeDb(): SqlDatabase & { rows: Array<Record<string, unknown>> } {
       if (q.startsWith('CREATE TABLE')) return null;
       if (q.startsWith('INSERT INTO AUDIT_LOG')) {
         const [id, ts, session_id, tool, args_preview, decision, result] = (bind ?? []) as [
-          string, number, string, string, string, string, string,
+          string,
+          number,
+          string,
+          string,
+          string,
+          string,
+          string,
         ];
         rows.push({ id, ts, session_id, tool, args_preview, decision, result });
         return null;
@@ -65,5 +72,31 @@ describe('Faz 6 — audit_log', () => {
 
   it('DB yoksa sessizce boş döner', async () => {
     await expect(readAuditLog('s1', 20, undefined)).resolves.toEqual([]);
+  });
+
+  it('session snapshot transaction komutlarını plugin havuzuna dağıtmaz', async () => {
+    const queries: string[] = [];
+    const db: SqlDatabase = {
+      async execute(query: string) {
+        queries.push(query);
+        return null;
+      },
+      async select<T>() {
+        return [] as unknown as T;
+      },
+    };
+    const session: Session = {
+      id: 's1',
+      name: 'Test',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [],
+      provider: 'anthropic',
+      model: 'claude-test',
+      systemPrompt: '',
+    };
+
+    await expect(saveSessionsToDb([session], 's1', db)).resolves.toBe(true);
+    expect(queries.some((query) => /^(BEGIN|COMMIT|ROLLBACK)\b/i.test(query.trim()))).toBe(false);
   });
 });

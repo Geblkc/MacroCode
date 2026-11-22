@@ -6,17 +6,10 @@ import { parseCustomLine } from '../../lib/engine/policy';
 
 export { nextTabIndex } from '../../lib/tabNav';
 
-export type TabId =
-  | 'providers'
-  | 'models'
-  | 'params'
-  | 'chat'
-  | 'appearance'
-  | 'mcp'
-  | 'about';
+export type TabId = 'providers' | 'models' | 'params' | 'chat' | 'appearance' | 'mcp' | 'about';
 
 /** Bağlantı testi durumu: beklemede / testte / bağlı / geçersiz / ağ hatası. */
-export type TestConn = 'idle' | 'testing' | 'ok' | 'invalid' | 'network';
+export type TestConn = 'idle' | 'testing' | 'ok' | 'invalid' | 'terms' | 'network';
 
 export const TABS: { id: TabId; labelKey: TranslationKey; icon: IconName }[] = [
   { id: 'providers', labelKey: 'settings.tab.providers', icon: 'key' },
@@ -94,6 +87,8 @@ export interface Draft {
   customAllowList: string[];
   /** P0.2: exec genel timeout üst sınırı (ms). */
   execTimeoutMs: number;
+  /** Agent adım sınırı: 0 = sınırsız, 1–200 = güvenlik sönümü. */
+  agentMaxSteps: number;
   auditEnabled: boolean;
   /** Görünüm: yüksek kontrast paleti. */
   contrast: 'normal' | 'high';

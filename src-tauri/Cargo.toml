@@ -1,6 +1,6 @@
 [package]
 name = "macrocode"
-version = "0.2.3"
+version = "1.0.0"
 description = "MacroCode — AI terminal desktop app"
 authors = ["Gökhan Efe Balıkçı"]
 license = "GPL-2.0-only"
@@ -17,6 +17,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri = { version = "2", features = [] }
 tauri-plugin-store = "2"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
+# tauri-plugin-sql'in kullandığı SQLite havuzunda atomik transaction yazmak için.
+sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runtime-tokio"] }
 tauri-plugin-dialog = "2"  # klasör seçme diyaloğu (tauri-apps/api/plugin-dialog JS tarafı)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

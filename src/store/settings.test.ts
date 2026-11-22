@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { useSettingsStore } from './settings';
 import { setActiveCatalog } from '../lib/providers/catalog';
+import { setActiveLiveCatalog } from '../lib/providers/liveCatalog';
 import { resolveModels } from '../lib/providers';
 import { parseModelsDev } from '../lib/providers/modelsDev';
 import type { ModelsDevCatalog } from '../types';
@@ -96,5 +97,114 @@ describe('settings — models.dev kataloğu', () => {
     const p = useSettingsStore.getState().prices['gpt-6.1-sol'];
     expect(p?.cacheRead).toBe(0.5);
     expect(p?.cacheWrite).toBe(1.5);
+  });
+});
+
+describe('settings — canlı API kataloğu', () => {
+  const baseKeys = { ...useSettingsStore.getState().apiKeys };
+
+  afterEach(() => {
+    useSettingsStore.setState({
+      apiKeys: baseKeys,
+      liveCatalog: null,
+      liveErrors: {},
+      liveBusy: {},
+    });
+    setActiveLiveCatalog(null);
+    vi.unstubAllGlobals();
+  });
+
+  it('API listesini çeker ve global kataloğa yayınlar', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ data: [{ id: 'live-1' }, { id: 'text-embedding-3-small' }] }),
+            { status: 200 },
+          ),
+      ),
+    );
+    useSettingsStore.setState({
+      apiKeys: { ...baseKeys, openai: 'sk-test' },
+      liveCatalog: null,
+      liveErrors: {},
+    });
+
+    await useSettingsStore.getState().refreshLiveCatalog('openai', true);
+
+    const state = useSettingsStore.getState();
+    expect(state.liveCatalog?.openai?.models.map((m) => m.id)).toEqual(['live-1']);
+    expect(state.liveErrors.openai).toBeUndefined();
+    expect(state.liveBusy.openai).toBe(false);
+  });
+
+  it('API hatasında önceki başarılı listeyi korur', async () => {
+    const seeded = {
+      openai: { fetchedAt: 123, models: [{ id: 'eski-model' }] },
+    };
+    useSettingsStore.setState({
+      apiKeys: { ...baseKeys, openai: 'sk-test' },
+      liveCatalog: seeded,
+      liveErrors: {},
+    });
+    setActiveLiveCatalog(seeded);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('hata', { status: 500 })),
+    );
+
+    await useSettingsStore.getState().refreshLiveCatalog('openai', true);
+
+    const state = useSettingsStore.getState();
+    expect(state.liveCatalog?.openai?.models.map((m) => m.id)).toEqual(['eski-model']);
+    expect(state.liveErrors.openai).toBeTruthy();
+  });
+
+  it('boş API listesini hata sayar ve eski listeyi korur', async () => {
+    const seeded = {
+      openai: { fetchedAt: 123, models: [{ id: 'eski-model' }] },
+    };
+    useSettingsStore.setState({
+      apiKeys: { ...baseKeys, openai: 'sk-test' },
+      liveCatalog: seeded,
+      liveErrors: {},
+    });
+    setActiveLiveCatalog(seeded);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+    );
+
+    await useSettingsStore.getState().refreshLiveCatalog('openai', true);
+
+    expect(useSettingsStore.getState().liveCatalog?.openai?.models[0].id).toBe('eski-model');
+    expect(useSettingsStore.getState().liveErrors.openai).toBeTruthy();
+  });
+
+  it('anahtar silinince canlı liste temizlenir', async () => {
+    const seeded = {
+      openai: { fetchedAt: 123, models: [{ id: 'eski-model' }] },
+    };
+    useSettingsStore.setState({
+      apiKeys: { ...baseKeys, openai: '' },
+      liveCatalog: seeded,
+      liveErrors: {},
+    });
+    setActiveLiveCatalog(seeded);
+
+    await useSettingsStore.getState().refreshLiveCatalog('openai', true);
+
+    expect(useSettingsStore.getState().liveCatalog?.openai).toBeUndefined();
+  });
+
+  it('clearLiveCatalog kaydı ve hatayı siler', () => {
+    useSettingsStore.setState({
+      liveCatalog: { openai: { fetchedAt: 1, models: [{ id: 'm1' }] } },
+      liveErrors: { openai: 'hata' },
+    });
+    useSettingsStore.getState().clearLiveCatalog('openai');
+    expect(useSettingsStore.getState().liveCatalog?.openai).toBeUndefined();
+    expect(useSettingsStore.getState().liveErrors.openai).toBeUndefined();
   });
 });

@@ -70,11 +70,7 @@ interface SessionStore {
   removeMessage: (sessionId: string, messageId: string) => void;
   updateSessionModel: (sessionId: string, patch: { provider?: Provider; model?: string }) => void;
   setAgentMode: (sessionId: string, mode: AgentMode) => void;
-  setMessageUsage: (
-    sessionId: string,
-    messageId: string,
-    usage: UsageLike,
-  ) => void;
+  setMessageUsage: (sessionId: string, messageId: string, usage: UsageLike) => void;
   /** Son isteğin bağlam boyutu (agent'ta `tokens` kümülatif olduğundan ayrı). */
   setMessageLastRequest: (
     sessionId: string,
@@ -130,9 +126,7 @@ export const useSessionStore = create<SessionStore>()(
         set((s) => {
           const sessions = s.sessions.filter((sess) => sess.id !== id);
           const activeSessionId =
-            s.activeSessionId === id
-              ? (sessions[0]?.id ?? null)
-              : s.activeSessionId;
+            s.activeSessionId === id ? (sessions[0]?.id ?? null) : s.activeSessionId;
           return { sessions, activeSessionId };
         }),
 

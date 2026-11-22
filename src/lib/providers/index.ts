@@ -10,11 +10,15 @@ import { xaiProvider } from './xai';
 import { minimaxProvider } from './minimax';
 import { moonshotaiProvider } from './moonshotai';
 import { zhipuaiProvider } from './zhipuai';
+import { nvidiaProvider } from './nvidia';
+import { EVREN_BASE_URL, evrenProvider } from './evren';
 import type { AIProvider } from './common';
 import { enrichModels, getActiveCatalog, getActiveCatalogIndex, catalogModels } from './catalog';
+import { buildKnownModelMap, getActiveLiveCatalog, liveEntryToModel } from './liveCatalog';
 
 export * from './common';
 export * from './catalog';
+export * from './liveCatalog';
 export * from './visibility';
 
 export const PROVIDER_DEFS: Record<Provider, ProviderDefinition> = {
@@ -138,6 +142,30 @@ export const PROVIDER_DEFS: Record<Provider, ProviderDefinition> = {
     keyUrl: 'https://z.ai/manage-apikey/apikey-list',
     keyUrlLabel: 'z.ai',
   },
+  nvidia: {
+    id: 'nvidia',
+    label: 'NVIDIA',
+    auth: 'api-key',
+    placeholder: 'nvapi-…',
+    defaultModel: 'nvidia/llama-3.3-nemotron-super-49b-v1',
+    defaultBaseUrl: 'https://integrate.api.nvidia.com/v1',
+    needsKey: true,
+    openAICompatible: true,
+    keyUrl: 'https://build.nvidia.com/',
+    keyUrlLabel: 'build.nvidia.com',
+  },
+  evren: {
+    id: 'evren',
+    label: 'EVREN LLM',
+    auth: 'api-key',
+    placeholder: 'evren_llm_…',
+    defaultModel: 'evren/glm-5.3',
+    defaultBaseUrl: EVREN_BASE_URL,
+    needsKey: true,
+    openAICompatible: true,
+    keyUrl: 'https://evren.ssyz.org.tr/api-keys',
+    keyUrlLabel: 'evren.ssyz.org.tr',
+  },
 };
 
 export const PROVIDER_IDS: Provider[] = Object.keys(PROVIDER_DEFS) as Provider[];
@@ -153,6 +181,8 @@ export const PROVIDERS: Record<Provider, AIProvider> = {
   minimax: minimaxProvider,
   moonshotai: moonshotaiProvider,
   zhipuai: zhipuaiProvider,
+  nvidia: nvidiaProvider,
+  evren: evrenProvider,
 };
 
 export function getProvider(name: Provider): AIProvider {
@@ -216,12 +246,13 @@ export function toRegistryModel(c: CustomModel): Model {
  * Görünür model listesi: registry + elle eklenenler.
  * Id çakışırsa custom kazanır (kullanıcı geçersiz kılar).
  *
- * models.dev kataloğu yüklüyse:
- *   1. elle yazılmış **çekirdek** modeller katalog metadata'sıyla zenginleşir,
- *   2. katalogdaki **diğer** modeller (9 sağlayıcı) otomatik listeye girer,
- *   3. elle eklenen (custom) modeller en son eklenir.
+ * Kaynak sırası:
+ *   1. **Sağlayıcı API'si** (`activeLiveCatalog`) — anahtarı olan sağlayıcı
+ *      için başarılı bir listeyse o sağlayıcının modelleri API listesidir.
+ *   2. **Mevcut katalog** — API listesi yoksa çekirdek + models.dev.
+ *   3. Elle eklenen (custom) modeller her durumda en sonda kazanır.
  *
- * Katalog yoksa/bozuksa yalnızca çekirdek + custom görünür (offline çalışır).
+ * API kayıtları models.dev/çekirdek metadata'sıyla zenginleştirilir.
  */
 export function resolveModels(customs: CustomModel[] = []): Model[] {
   const index = getActiveCatalogIndex();
@@ -239,6 +270,31 @@ export function resolveModels(customs: CustomModel[] = []): Model[] {
       base.push(m);
     }
   }
+
+  // Canlı API listesi olan sağlayıcılarda o sağlayıcının modelleri değiştirilir.
+  const live = getActiveLiveCatalog();
+  const liveProviders = PROVIDER_IDS.filter((p) => (live[p]?.models.length ?? 0) > 0);
+  if (liveProviders.length > 0) {
+    const known = buildKnownModelMap(base);
+    const byProvider = new Map<Provider, Model[]>();
+    for (const m of base) {
+      const list = byProvider.get(m.provider) ?? [];
+      list.push(m);
+      byProvider.set(m.provider, list);
+    }
+    for (const p of liveProviders) {
+      byProvider.set(
+        p,
+        (live[p]?.models ?? []).map((e) => liveEntryToModel(e, p, known)),
+      );
+    }
+    base = [];
+    for (const p of PROVIDER_IDS) {
+      const list = byProvider.get(p);
+      if (list) base.push(...list);
+    }
+  }
+
   if (customs.length === 0) return base;
   const over = new Map(customs.map((c) => [c.id, toRegistryModel(c)]));
   const out = base.map((m) => over.get(m.id) ?? m);
@@ -258,17 +314,37 @@ export function isKnownModel(id: string, customs: CustomModel[] = []): boolean {
 }
 
 export function getModel(id: string, customs: CustomModel[] = []): Model | undefined {
-  return resolveModels(customs).find((m) => m.id === id);
+  const visible = resolveModels(customs).find((m) => m.id === id);
+  if (visible) return visible;
+  // Canlı API listesi bu modeli döndürmediyse (ya da liste yoksa) bilinen
+  // statik kayıttan çöz — açık oturumun yetenek/limit bilgisi kaybolmasın.
+  const index = getActiveCatalogIndex();
+  return (
+    enrichModels(ALL_MODELS, index).find((m) => m.id === id) ??
+    catalogModels(getActiveCatalog()).find((m) => m.id === id)
+  );
 }
 
 /** Model → sağlayıcı çözümleme (Titlebar / /model için). */
-export function getProviderForModel(modelId: string, customs: CustomModel[] = []): Provider | undefined {
+export function getProviderForModel(
+  modelId: string,
+  customs: CustomModel[] = [],
+): Provider | undefined {
   return getModel(modelId, customs)?.provider;
 }
 
 export function getModelsForProvider(provider: Provider): Model[] {
+  const index = getActiveCatalogIndex();
+  const live = getActiveLiveCatalog()[provider];
+  if (live && live.models.length > 0) {
+    const known = buildKnownModelMap([
+      ...enrichModels(ALL_MODELS, index),
+      ...catalogModels(getActiveCatalog()),
+    ]);
+    return live.models.map((e) => liveEntryToModel(e, provider, known));
+  }
   const models = PROVIDERS[provider]?.models ?? [];
-  const core = enrichModels(models, getActiveCatalogIndex());
+  const core = enrichModels(models, index);
   const extra = catalogModels(getActiveCatalog()).filter((m) => m.provider === provider);
   const seen = new Set(core.map((m) => m.id));
   const merged = [...core];
@@ -292,7 +368,10 @@ export function supportsToolsForModel(modelId: string, customs: CustomModel[] = 
   return getCapabilitiesForModel(modelId, customs)?.tools ?? false;
 }
 
-export function getMaxOutputForModel(modelId: string, customs: CustomModel[] = []): number | undefined {
+export function getMaxOutputForModel(
+  modelId: string,
+  customs: CustomModel[] = [],
+): number | undefined {
   return getModel(modelId, customs)?.maxOutput;
 }
 
@@ -303,7 +382,7 @@ export function getMaxOutputForModel(modelId: string, customs: CustomModel[] = [
 export const REMOVED_MODEL_MAP: Record<string, string> = {
   'gpt-4o': 'gpt-6.1-sol',
   'gpt-4o-mini': 'gpt-6-luna',
-  'o3': 'gpt-6.1-sol',
+  o3: 'gpt-6.1-sol',
   'o4-mini': 'gpt-6-luna',
   'claude-sonnet-4-6': 'claude-sonnet-5-5',
   'claude-opus-5': 'claude-opus-5-5',

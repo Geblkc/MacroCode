@@ -104,9 +104,7 @@ export default function GitChanges({ confirm, onSelect }: Props) {
   const allStageable = status.files
     .filter(
       (f) =>
-        (f.unstaged || f.kind === 'untracked') &&
-        f.kind !== 'conflicted' &&
-        !isSecretPath(f.path),
+        (f.unstaged || f.kind === 'untracked') && f.kind !== 'conflicted' && !isSecretPath(f.path),
     )
     .map((f) => f.path);
   const allUnstageable = status.files
@@ -158,8 +156,7 @@ export default function GitChanges({ confirm, onSelect }: Props) {
           </div>
           {g.files.map((f) => {
             const active = selected?.path === f.path && selected.staged === g.staged;
-            const blocked =
-              isSecretPath(f.path) || (f.origPath ? isSecretPath(f.origPath) : false);
+            const blocked = isSecretPath(f.path) || (f.origPath ? isSecretPath(f.origPath) : false);
             return (
               <div
                 key={`${g.key}-${f.path}`}
@@ -188,9 +185,7 @@ export default function GitChanges({ confirm, onSelect }: Props) {
                 <span className="git-file-path">
                   <span className="git-file-name">{f.path.split('/').pop()}</span>
                   <span className="git-file-dir">
-                    {f.path.includes('/')
-                      ? f.path.slice(0, f.path.lastIndexOf('/') + 1)
-                      : ''}
+                    {f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/') + 1) : ''}
                   </span>
                 </span>
                 <span className="git-row-actions">

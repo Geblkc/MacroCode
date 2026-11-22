@@ -61,17 +61,11 @@ export default function GitHistory() {
             </span>
           </button>
           <div className="git-commit-actions">
-            <button
-              className="icon-btn"
-              title={t('git.copySha')}
-              onClick={() => void copy(c.sha)}
-            >
+            <button className="icon-btn" title={t('git.copySha')} onClick={() => void copy(c.sha)}>
               <Icon name="copy" size="sm" />
             </button>
           </div>
-          {busy === c.sha ? (
-            <div className="git-diff-empty">{t('common.loading')}</div>
-          ) : null}
+          {busy === c.sha ? <div className="git-diff-empty">{t('common.loading')}</div> : null}
           {detail?.sha === c.sha ? (
             <div className="git-commit-detail">
               {c.body ? <p className="git-commit-body">{c.body}</p> : null}

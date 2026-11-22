@@ -98,20 +98,26 @@ export default function AboutTab() {
     });
   }, []);
 
-  const openPage = useCallback(async (url?: string) => {
-    try {
-      await openReleasePage(url);
-    } catch {
-      // Durum satırını bozmadan yalnızca toast göster.
-      toast.err(t('update.openFailed', { url: url || releasePageUrl() }));
-    }
-  }, [t]);
+  const openPage = useCallback(
+    async (url?: string) => {
+      try {
+        await openReleasePage(url);
+      } catch {
+        // Durum satırını bozmadan yalnızca toast göster.
+        toast.err(t('update.openFailed', { url: url || releasePageUrl() }));
+      }
+    },
+    [t],
+  );
 
-  const copyLink = useCallback(async (url: string) => {
-    const ok = await copyText(url);
-    if (ok) toast.ok(t('settings.about.copied'));
-    else toast.err(t('settings.about.copyFailed'));
-  }, [t]);
+  const copyLink = useCallback(
+    async (url: string) => {
+      const ok = await copyText(url);
+      if (ok) toast.ok(t('settings.about.copied'));
+      else toast.err(t('settings.about.copyFailed'));
+    },
+    [t],
+  );
 
   // Veri konumları yalnızca Tauri'de anlamlı (tarayıcı-dev'de localStorage).
   useEffect(() => {
@@ -138,8 +144,7 @@ export default function AboutTab() {
     }
   };
 
-  const copyVersion = () =>
-    void copy(`${APP_NAME} v${APP_VERSION} · ${LICENSE} · BYOK`);
+  const copyVersion = () => void copy(`${APP_NAME} v${APP_VERSION} · ${LICENSE} · BYOK`);
 
   return (
     <div>
@@ -160,12 +165,7 @@ export default function AboutTab() {
             {t('settings.about.copyVersion')}
           </button>
           {REPO_URL ? (
-            <a
-              className="btn btn-sm"
-              href={REPO_URL}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
+            <a className="btn btn-sm" href={REPO_URL} target="_blank" rel="noreferrer noopener">
               <Icon name="branch" size="sm" />
               {t('settings.about.source')}
             </a>
@@ -254,9 +254,7 @@ export default function AboutTab() {
               })}
             </div>
             {status.info.date ? (
-              <div className="field-note">
-                {t('update.releasedAt', { date: status.info.date })}
-              </div>
+              <div className="field-note">{t('update.releasedAt', { date: status.info.date })}</div>
             ) : null}
             {support && !support.supported ? (
               <div className="field-note mb-2">
@@ -270,17 +268,11 @@ export default function AboutTab() {
                   {t('update.installNow')}
                 </button>
               ) : null}
-              <button
-                className="btn btn-sm"
-                onClick={() => void openPage(status.info.url)}
-              >
+              <button className="btn btn-sm" onClick={() => void openPage(status.info.url)}>
                 <Icon name="branch" size="sm" />
                 {t('update.manualInstall')}
               </button>
-              <button
-                className="btn btn-sm"
-                onClick={() => void copyLink(status.info.url)}
-              >
+              <button className="btn btn-sm" onClick={() => void copyLink(status.info.url)}>
                 <Icon name="copy" size="sm" />
                 {t('update.copyLink')}
               </button>

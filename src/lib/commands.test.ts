@@ -167,8 +167,20 @@ describe('B — slash komutları', () => {
     expect(tokenSummaryLine(s1)).toContain('yaklaşık');
     const s2 = sampleSession({
       messages: [
-        { id: 'm1', role: 'user', content: 'abcd', timestamp: 1, tokens: { input: 1500, output: 0 } },
-        { id: 'm2', role: 'assistant', content: 'efgh', timestamp: 2, tokens: { input: 0, output: 2500 } },
+        {
+          id: 'm1',
+          role: 'user',
+          content: 'abcd',
+          timestamp: 1,
+          tokens: { input: 1500, output: 0 },
+        },
+        {
+          id: 'm2',
+          role: 'assistant',
+          content: 'efgh',
+          timestamp: 2,
+          tokens: { input: 0, output: 2500 },
+        },
       ],
     });
     const line = tokenSummaryLine(s2);
@@ -280,7 +292,8 @@ describe('B — slash komutları', () => {
     expect(setProvider).toHaveBeenCalledWith('gemini');
   });
 
-  it('P0-3 migration: eski model ID yedekten güncel modele taşınır', () => {    const old = sampleSession({ provider: 'openai', model: 'gpt-4o' });
+  it('P0-3 migration: eski model ID yedekten güncel modele taşınır', () => {
+    const old = sampleSession({ provider: 'openai', model: 'gpt-4o' });
     const out = parseSessionBackup(buildSessionBackup(old));
     expect(out[0].model).toBe('gpt-6.1-sol');
     expect(out[0].provider).toBe('openai');

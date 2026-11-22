@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apiKeyFor, resolveFallbackTarget } from './useStream';
+import { apiKeyFor, chatSystemPromptFor, resolveFallbackTarget } from './useStream';
 import type { ApiKeys } from '../types';
 
 const KEYS: ApiKeys = {
@@ -13,6 +13,8 @@ const KEYS: ApiKeys = {
   minimax: '',
   moonshotai: '',
   zhipuai: '',
+  nvidia: '',
+  evren: '',
 };
 
 const base = {
@@ -27,14 +29,19 @@ describe('resolveFallbackTarget — yedek modelin SAHİBİ çözülür (İş 1)'
   it('fallback farklı sağlayıcıdan → o sağlayıcı döner', () => {
     // Eski davranış: istek hâlâ Anthropic'e `model: "gpt-6.1-sol"` ile gidiyordu.
     expect(
-      resolveFallbackTarget({ ...base, fallbackModel: 'gpt-6.1-sol', apiKeys: { ...KEYS, openai: 'sk-test' } }),
+      resolveFallbackTarget({
+        ...base,
+        fallbackModel: 'gpt-6.1-sol',
+        apiKeys: { ...KEYS, openai: 'sk-test' },
+      }),
     ).toEqual({ provider: 'openai', model: 'gpt-6.1-sol' });
   });
 
   it('fallback aynı sağlayıcıdan → aynı sağlayıcı döner', () => {
-    expect(
-      resolveFallbackTarget({ ...base, fallbackModel: 'claude-haiku-5-5' }),
-    ).toEqual({ provider: 'anthropic', model: 'claude-haiku-5-5' });
+    expect(resolveFallbackTarget({ ...base, fallbackModel: 'claude-haiku-5-5' })).toEqual({
+      provider: 'anthropic',
+      model: 'claude-haiku-5-5',
+    });
   });
 
   it('fallback yedek modelin anahtarı yoksa null (yanlış API isteği gitmez)', () => {
@@ -53,9 +60,10 @@ describe('resolveFallbackTarget — yedek modelin SAHİBİ çözülür (İş 1)'
   });
 
   it('ollama anahtar istemez → her zaman uygun', () => {
-    expect(
-      resolveFallbackTarget({ ...base, fallbackModel: 'llama3.3' }),
-    ).toEqual({ provider: 'ollama', model: 'llama3.3' });
+    expect(resolveFallbackTarget({ ...base, fallbackModel: 'llama3.3' })).toEqual({
+      provider: 'ollama',
+      model: 'llama3.3',
+    });
   });
 
   it('fallback kapalı → null', () => {
@@ -63,9 +71,7 @@ describe('resolveFallbackTarget — yedek modelin SAHİBİ çözülür (İş 1)'
   });
 
   it('fallback = aktif model → null (kendine fallback olmaz)', () => {
-    expect(
-      resolveFallbackTarget({ ...base, fallbackModel: 'claude-opus-5-5' }),
-    ).toBeNull();
+    expect(resolveFallbackTarget({ ...base, fallbackModel: 'claude-opus-5-5' })).toBeNull();
   });
 
   it('özel uç aktifken yedek yok sayılır', () => {
@@ -79,9 +85,7 @@ describe('resolveFallbackTarget — yedek modelin SAHİBİ çözülür (İş 1)'
   });
 
   it('registry’de karşılığı olmayan model → null (bilinmeyen sağlayıcı)', () => {
-    expect(
-      resolveFallbackTarget({ ...base, fallbackModel: 'var-olmayan-model-9' }),
-    ).toBeNull();
+    expect(resolveFallbackTarget({ ...base, fallbackModel: 'var-olmayan-model-9' })).toBeNull();
   });
 
   it('custom model üzerinden çözüm yapılır (anahtar şartı korunur)', () => {
@@ -126,5 +130,20 @@ describe('apiKeyFor — ollama anahtar alanı URL taşır', () => {
 
   it('ollamaUrl boşsa fabrika URL’sine düşer', () => {
     expect(apiKeyFor('ollama', { ...KEYS, ollamaUrl: '' })).toBe('http://localhost:11434');
+  });
+});
+
+describe('chatSystemPromptFor — mod yönergesi sohbette de geçerli', () => {
+  it('ask modu yönergesi eklenir', () => {
+    expect(chatSystemPromptFor('taban', 'ask')).toContain('[AGENT MODE: ASK]');
+  });
+
+  it('plan modu yönergesi eklenir', () => {
+    expect(chatSystemPromptFor('taban', 'plan')).toContain('[AGENT MODE: PLAN]');
+  });
+
+  it('build varsayılan olduğundan mevcut prompt korunur', () => {
+    expect(chatSystemPromptFor('taban', 'build')).toBe('taban');
+    expect(chatSystemPromptFor(undefined, 'build')).toBeUndefined();
   });
 });

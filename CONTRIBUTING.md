@@ -1,53 +1,62 @@
 # CONTRIBUTING — MacroCode
 
-## Kurulum
+Thanks for helping improve MacroCode. This document describes the local
+workflow, test commands and coding conventions. Türkçe sürüm:
+[`CONTRIBUTINGtr.md`](CONTRIBUTINGtr.md).
+
+## Setup
 
 ```bash
 npm install
-npm run build     # tsc + vite sorunsuz mu?
-npm test          # testler yeşil mi?
+npm run build     # tsc + vite
+npm test          # unit tests
 ```
 
-`tauri dev/build` için Rust stable + sistem bağımlılıkları gerekir (bkz. `README.md`).
-Ortamda Node yoksa `README.md`'deki taşınabilir Node v22 kurulumunu kullan.
+`tauri dev` / `tauri build` additionally needs Rust stable and the platform
+system dependencies listed in [`README.md`](README.md).
 
-## Test komutları
+## Test commands
 
 ```bash
-npm test                  # vitest, tek sefer (TS barı)
-npx tsc --noEmit          # tip kontrolü
-npm run build             # üretim derlemesi (smoke)
-cargo test --lib          # Rust birim testleri (src-tauri altında)
-cargo fmt && cargo fmt --check
+npm test                  # vitest, single run
+npx tsc --noEmit          # type-check
+npm run build             # production build (smoke)
+npm run lint              # eslint
+npm run format:check      # prettier
+cargo test --lib          # Rust unit tests (from src-tauri/)
+cargo fmt --check
+cargo clippy --lib -- -D warnings
 ```
 
-## Faz kapanış kuralı
+## Definition of done
 
-Bir faz yalnızca şunlar tamamsa kapanır:
+A change is complete only when:
 
-1. Tüm testler yeşil (`npm test` + `cargo test --lib`).
-2. Yol haritasındaki kabul kriterleri karşılanmış.
-3. `docs/ARCHITECTURE.md` güncel (mimari sonucu) + `docs/DEVLOG.md`
-   tarihli giriş eklenmiş. Sürüm politikası ayrıca belirtilmedikçe numara oynatılmaz.
+1. All checks are green (`npm test`, `npm run lint`, `npm run format:check`,
+   `cargo fmt --check`, `cargo clippy --lib -- -D warnings`, `cargo test --lib`).
+2. The acceptance criteria for the change are met.
+3. `docs/ARCHITECTURE.md` reflects architectural changes and `docs/DEVLOG.md`
+   has a dated entry. Do not bump the version unless the release is intentional.
 
-## Allowlist değiştirme prosedürü (TS + Rust)
+## Changing the exec allowlist
 
-`exec` allowlist'in tek kaynağı `src/lib/engine/allowlist.json`'dur:
+`src/lib/engine/allowlist.json` is the single source of truth:
 
-1. Değişikliği **yalnızca** `allowlist.json`'da yap (`rm` satırı eklenemez — `isRmSafe` kuralı sabittir).
-2. `src/lib/engine/policy.test.ts` drift testini güncelle/koş (TS↔JSON birebirlik).
-3. `src-tauri/src/commands/exec.rs` testlerini güncelle/koş (`cargo test --lib`).
-4. `exec` her zaman manuel onaylıdır (O6) — `autoApproved` asla `true` yapılmaz.
+1. Change **only** `allowlist.json` (the `rm` rule is fixed and cannot be extended).
+2. Update/run the drift test in `src/lib/engine/policy.test.ts`.
+3. Update/run the Rust tests in `src-tauri/src/commands/exec.rs`.
+4. `exec` always requires manual approval (O6) — `autoApproved` must never be `true`.
 
-## Kod uzlaşımları
+## Conventions
 
-- **UI metinleri `src/lib/i18n/locales/` altındadır** — bileşende doğrudan Türkçe
-  metin yazma. `tr.ts` **kaynak gerçektir**; yeni anahtar eklendiğinde diğer 4
-  sözlüğe (`en/de/fr/es`) de karşılığı eklenir (TS `Record` + bütünlük testi
-  eksik anahtarı yakalar). React'te `useT()`, React dışı modüllerde
-  `lib/i18n/core` → `t()` kullan.
-- **Modele giden metinler** (`toolspec.ts` tool açıklamaları) İngilizce ve
-  sabittir — dil değişiminden etkilenmez.
-- Kod yorumları kısa; yeni renk eklenmez (`styles/global.css` token'ları kullanılır).
-- `Message`/`Session` şema değişikliği = `normalizeSession` roundtrip testi zorunlu.
-- Yeni invoke komutu = `mod.rs` + `lib.rs` kaydı + Rust testi.
+- **UI strings live in `src/lib/i18n/locales/`** — do not hard-code Turkish text
+  in components. `tr.ts` is the source of truth; every new key must be added to
+  all five dictionaries (`tr/en/de/fr/es`). Use `useT()` in React and `t()` from
+  `lib/i18n/core` elsewhere.
+- **Model-facing text** (`toolspec.ts` tool descriptions) is English and fixed.
+- Keep comments short; use the CSS tokens in `styles/global.css` instead of
+  adding new colors.
+- A `Message`/`Session` schema change requires a `normalizeSession` round-trip test.
+- A new invoke command requires `mod.rs` + `lib.rs` registration and a Rust test.
+- Never write agent artifacts into tracked source paths. `.macrocode/` is
+  ignored by git, ESLint, Prettier and Vitest.

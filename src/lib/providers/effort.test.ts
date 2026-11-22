@@ -63,7 +63,9 @@ describe('efor yardımcıları', () => {
 
   it('reasoning kapalı ve Ollama desteklemez', () => {
     expect(
-      effortValuesForModel(model({ capabilities: { tools: true, vision: false, reasoning: false } })),
+      effortValuesForModel(
+        model({ capabilities: { tools: true, vision: false, reasoning: false } }),
+      ),
     ).toEqual([]);
     expect(effortValuesForModel(model({ provider: 'ollama' }))).toEqual([]);
   });

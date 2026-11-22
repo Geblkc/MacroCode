@@ -153,12 +153,7 @@ export default function GitPanel({ confirm }: Props) {
   const files = status?.files.length ?? 0;
 
   return (
-    <aside
-      className="git-panel"
-      style={{ width }}
-      aria-label={t('git.title')}
-      ref={panelRef}
-    >
+    <aside className="git-panel" style={{ width }} aria-label={t('git.title')} ref={panelRef}>
       <div
         className="git-resize"
         onPointerDown={startResize}

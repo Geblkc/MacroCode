@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { buildAgentHistory, toProviderMessages } from './agent';
 import type { Message } from '../../types';
 
-function m(over: Partial<Message> & { id: string; role: Message['role']; content: string }): Message {
+function m(
+  over: Partial<Message> & { id: string; role: Message['role']; content: string },
+): Message {
   return { timestamp: 1, ...over } as Message;
 }
 
@@ -14,11 +16,15 @@ describe('Faz 7 denetimi — agent geçmişi (buildAgentHistory)', () => {
       m({ id: 'a1', role: 'assistant', content: '' }),
     ];
     const history = buildAgentHistory(messages, 'a1');
-    const userCount = history.filter((h) => h.role === 'user' && h.content === 'dosyayı oku').length;
+    const userCount = history.filter(
+      (h) => h.role === 'user' && h.content === 'dosyayı oku',
+    ).length;
     expect(userCount).toBe(1);
     // Provider isteğinde de tek kopya olmalı (eski hata: iki kopya).
     const providerMsgs = toProviderMessages(history);
-    expect(providerMsgs.filter((p) => p.role === 'user' && p.content === 'dosyayı oku')).toHaveLength(1);
+    expect(
+      providerMsgs.filter((p) => p.role === 'user' && p.content === 'dosyayı oku'),
+    ).toHaveLength(1);
   });
 
   it('boş assistant placeholder geçmişe girmez', () => {
@@ -32,7 +38,12 @@ describe('Faz 7 denetimi — agent geçmişi (buildAgentHistory)', () => {
 
   it('tool sonucu (system+toolCallId) tool rolüne dönüşür', () => {
     const messages: Message[] = [
-      m({ id: 'a1', role: 'assistant', content: 'okuyorum', toolCalls: [{ id: 'c1', name: 'read_file', args: { path: 'a.ts' } }] }),
+      m({
+        id: 'a1',
+        role: 'assistant',
+        content: 'okuyorum',
+        toolCalls: [{ id: 'c1', name: 'read_file', args: { path: 'a.ts' } }],
+      }),
       m({ id: 's1', role: 'system', content: 'içerik', toolCallId: 'c1', toolName: 'read_file' }),
     ];
     const history = buildAgentHistory(messages, 'zzz');
@@ -42,7 +53,12 @@ describe('Faz 7 denetimi — agent geçmişi (buildAgentHistory)', () => {
 
   it('kesmede kopan tool çifti geriye taranarak tamamlanır', () => {
     const messages: Message[] = [
-      m({ id: 'a0', role: 'assistant', content: 'okuyorum', toolCalls: [{ id: 'c0', name: 'read_file', args: {} }] }),
+      m({
+        id: 'a0',
+        role: 'assistant',
+        content: 'okuyorum',
+        toolCalls: [{ id: 'c0', name: 'read_file', args: {} }],
+      }),
       m({ id: 's0', role: 'system', content: 'sonuç', toolCallId: 'c0', toolName: 'read_file' }),
       ...Array.from({ length: 250 }, (_, i) =>
         m({ id: `x${i}`, role: 'user', content: `mesaj ${i}` }),
@@ -52,7 +68,9 @@ describe('Faz 7 denetimi — agent geçmişi (buildAgentHistory)', () => {
     // Kesme 200 mesajla sınırlı; ilk öğe tool sonucu ise eşleşen assistant da alınır.
     const first = history[0];
     if (first.role === 'tool') {
-      const prev = history.find((h) => h.role === 'assistant' && h.toolCalls?.some((c) => c.id === first.toolCallId));
+      const prev = history.find(
+        (h) => h.role === 'assistant' && h.toolCalls?.some((c) => c.id === first.toolCallId),
+      );
       expect(prev).toBeDefined();
     }
     expect(history.length).toBeLessThanOrEqual(201);

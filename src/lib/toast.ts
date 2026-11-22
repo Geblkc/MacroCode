@@ -54,11 +54,7 @@ export function dismissToast(id: number): void {
 }
 
 /** Yeni toast gösterir; `id` döner. */
-export function showToast(
-  message: string,
-  kind: ToastKind = 'info',
-  durationMs?: number,
-): number {
+export function showToast(message: string, kind: ToastKind = 'info', durationMs?: number): number {
   const id = ++seq;
   const duration = durationMs ?? (kind === 'err' ? 6000 : 3000);
   items.push({ id, kind, message, duration });

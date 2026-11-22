@@ -23,8 +23,11 @@ interface Props {
   extra?: { id: string; label: string; onSelect: () => void };
   /** "anahtar ekle" satırı → ayarları aç (yoksa satır gösterilmez). */
   onOpenSettings?: () => void;
-  /** Konum: `viewport` titlebar sabiti (varsayılan), `field` alan içi mutlak. */
-  anchor?: 'viewport' | 'field';
+  /**
+   * Konum: `viewport` titlebar sabiti (varsayılan), `field` alan içi aşağı,
+   * `composer` ekran altındaki giriş kutusundan yukarı açılır.
+   */
+  anchor?: 'viewport' | 'field' | 'composer';
 }
 
 const CAP_ICONS: {
@@ -143,7 +146,9 @@ export default function ModelDropdown({
     <>
       <div className="dropdown-backdrop" onClick={onClose} />
       <div
-        className={`model-dropdown${anchor === 'field' ? ' anchor-field' : ''}`}
+        className={`model-dropdown${anchor === 'field' ? ' anchor-field' : ''}${
+          anchor === 'composer' ? ' anchor-composer' : ''
+        }`}
         role="listbox"
         aria-label={t('titlebar.modelSelect')}
         onKeyDown={onPanelKeyDown}
@@ -195,9 +200,7 @@ export default function ModelDropdown({
           ) : (
             groups.map(([p, ms]) => (
               <div key={p} className="model-group">
-                <div className="model-group-title">
-                  {PROVIDER_DEFS[p as Provider]?.label ?? p}
-                </div>
+                <div className="model-group-title">{PROVIDER_DEFS[p as Provider]?.label ?? p}</div>
                 {ms.map((m) => {
                   const caps = m.capabilities;
                   const idx = flat.indexOf(m);
@@ -244,7 +247,9 @@ export default function ModelDropdown({
                 <button
                   key={p}
                   className="model-item model-item-lock"
-                  title={t('titlebar.needKey', { provider: PROVIDER_DEFS[p as Provider]?.label ?? p })}
+                  title={t('titlebar.needKey', {
+                    provider: PROVIDER_DEFS[p as Provider]?.label ?? p,
+                  })}
                   onClick={() => {
                     onClose();
                     onOpenSettings();

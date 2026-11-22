@@ -42,17 +42,14 @@ export function parseArgs(input: string): string[] {
 }
 
 function branchLine(st: GitStatus): string {
-  const ab =
-    st.ahead > 0 || st.behind > 0 ? ` ↑${st.ahead} ↓${st.behind}` : '';
+  const ab = st.ahead > 0 || st.behind > 0 ? ` ↑${st.ahead} ↓${st.behind}` : '';
   const up = st.upstream ? ` → ${st.upstream}` : '';
   const det = st.detached ? ` (${t('git.detached')})` : '';
   return `${st.branch || 'HEAD'}${det}${up}${ab}`;
 }
 
 function summaryLines(st: GitStatus): CommandLine[] {
-  const lines: CommandLine[] = [
-    { type: 'sys', content: `/// git: ${branchLine(st)}` },
-  ];
+  const lines: CommandLine[] = [{ type: 'sys', content: `/// git: ${branchLine(st)}` }];
   if (st.files.length === 0) {
     lines.push({ type: 'sys', content: t('git.clean') });
     return lines;
@@ -101,10 +98,7 @@ async function detect(ctx: GitCommandContext): Promise<GitRepoInfo | null> {
   }
 }
 
-async function withError(
-  ctx: GitCommandContext,
-  fn: () => Promise<void>,
-): Promise<void> {
+async function withError(ctx: GitCommandContext, fn: () => Promise<void>): Promise<void> {
   try {
     await fn();
   } catch (e) {
@@ -117,10 +111,7 @@ async function withError(
  * `/git ...` komutunu işler. `/git` ile başlamıyorsa `false` döner (App
  * generic `handleSlashCommand`'a düşer).
  */
-export async function runGitCommand(
-  raw: string,
-  ctx: GitCommandContext,
-): Promise<boolean> {
+export async function runGitCommand(raw: string, ctx: GitCommandContext): Promise<boolean> {
   const trimmed = raw.trim();
   if (trimmed !== '/git' && !trimmed.startsWith('/git ')) return false;
 
@@ -375,9 +366,7 @@ export function gitHelpLines(): CommandLine[] {
     ['/git push|pull|fetch', 'git.help.remote'],
     ['/git init', 'git.help.init'],
   ];
-  const lines: CommandLine[] = [
-    { type: 'sys', content: t('commands.help.gitSubcommands') },
-  ];
+  const lines: CommandLine[] = [{ type: 'sys', content: t('commands.help.gitSubcommands') }];
   for (const [cmd, key] of items) {
     lines.push({ type: 'sys', content: `  ${cmd.padEnd(26)} · ${t(key)}` });
   }

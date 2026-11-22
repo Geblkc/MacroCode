@@ -1,16 +1,24 @@
 use super::proc_tree::{self, ProcTree};
+use super::tool_output::{
+    artifact_metadata, clamp_summary, create_artifact_file, new_artifact_name, output_policy,
+    shape_hard, shape_medium, ToolArtifact,
+};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Mutex, OnceLock};
+use std::fs::{File, OpenOptions};
+use std::io::{self, Read, Write};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::ipc::Channel;
-use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::sync::watch;
 
 const TIMEOUT_SECS: u64 = 15;
 const MAX_TIMEOUT_MS: u64 = 600_000;
-const MAX_OUTPUT_BYTES: usize = 8192;
+/// Aynı süreçte eşzamanlı capture dosyalarının ad çakışmasını engeller.
+static CAPTURE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// Süreç öldükten sonra boru okuyucularının boşalması için üst sınır.
 /// Torun süreçler stdout/stderr'i açık tutarsa exec sonsuza kadar asılı
 /// kalmasın (iptal/timeout sonucu yine UI'a döner).
@@ -325,8 +333,21 @@ fn err(msg: impl Into<String>) -> String {
 
 #[derive(Debug, Serialize)]
 pub struct ExecOut {
+    /// Geriye uyumluluk: küçük çıktılarda ham stdout. Orta/hard çıktıda boştur.
     pub stdout: String,
+    /// Geriye uyumluluk: küçük çıktılarda ham stderr. Orta/hard çıktıda boştur.
     pub stderr: String,
+    /// Provider'a gönderilecek hazır çıktı payload'ı.
+    pub output: String,
+    /// Tam çıktı artifact'i (soft limit aşıldıysa).
+    #[serde(default)]
+    pub artifact: Option<ToolArtifact>,
+    /// Çıktı hard sınırı aştı ve modele hiç içerik verilmedi.
+    #[serde(default)]
+    pub hard: bool,
+    /// Boru drain zaman aşımı nedeniyle çıktının yalnızca bir kısmı yakalandı.
+    #[serde(default)]
+    pub capture_incomplete: bool,
     pub code: i32,
     pub truncated: bool,
     /// Kullanıcı `exec_cancel` ile süreci durdurdu.
@@ -406,99 +427,324 @@ fn resolve_timeout(timeout_ms: Option<u64>) -> Duration {
     )
 }
 
-/// Çıktı tavanı: bellekte yalnızca son `limit` bayt tutulur. Canlı akış
-/// tüm parçaları gönderir; nihai `ExecOut` ise kuyruk odaklı kırpılır
-/// (hata mesajları genellikle çıktının sonundadır).
-struct CappedBuf {
-    text: String,
-    truncated: bool,
-    limit: usize,
+/// Capture dosyasından çıkarılan özet satırı için karakter sınırı.
+const CAPTURE_SUMMARY_MAX_CHARS: usize = 512;
+
+/// Exec stdout/stderr yakalama istatistikleri. Ham çıktı bir dosyaya yazılır;
+/// bellekte yalnızca özet için gerekli ilk/son satırlar tutulur.
+#[derive(Debug, Default, Clone)]
+struct CaptureStats {
+    bytes: u64,
+    newlines: u64,
+    ends_with_newline: bool,
+    first: String,
+    last: String,
 }
 
-impl CappedBuf {
-    fn new(limit: usize) -> Self {
+impl CaptureStats {
+    fn push(&mut self, bytes: &[u8], text: &str) {
+        self.bytes += bytes.len() as u64;
+        self.newlines += bytes.iter().filter(|b| **b == b'\n').count() as u64;
+        self.ends_with_newline = bytes.last() == Some(&b'\n');
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            let bounded = if trimmed.chars().count() > CAPTURE_SUMMARY_MAX_CHARS {
+                trimmed
+                    .chars()
+                    .take(CAPTURE_SUMMARY_MAX_CHARS)
+                    .collect::<String>()
+            } else {
+                trimmed.to_string()
+            };
+            if self.first.is_empty() {
+                self.first = bounded.clone();
+            }
+            self.last = bounded;
+        }
+    }
+}
+
+/// Pump görevi zaman aşımında iptal edilse bile istatistikler sıfırlanmaz.
+/// Görev, her yazılan parçadan sonra paylaşılan durumu günceller.
+type SharedCaptureStats = Arc<Mutex<CaptureStats>>;
+
+fn new_shared_capture_stats() -> SharedCaptureStats {
+    Arc::new(Mutex::new(CaptureStats::default()))
+}
+
+fn snapshot_capture_stats(shared: &SharedCaptureStats) -> CaptureStats {
+    shared
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+}
+
+/// Canlı UI akışını hard sınırdan sonra durdurur. Dosya yakalamaya devam eder.
+///
+/// Eşik, modele giden `[exit ...]` başlığı ve stderr ayırıcısı da hesaba
+/// katılarak uygulanır. Böylece canlı akışta geçen sınır, final payload'ının
+/// sınırdan farklı bir ölçümde hard sayılmasına yol açmaz.
+#[derive(Default)]
+struct GateStream {
+    bytes: u64,
+    newlines: u64,
+    ends_with_newline: bool,
+}
+
+#[derive(Default)]
+struct StreamGateState {
+    stdout: GateStream,
+    stderr: GateStream,
+}
+
+impl StreamGateState {
+    fn projected_bytes(&self) -> u64 {
+        // Exit code'un uzunluğu sonucu bilinmeden değişebilir. Gerçek
+        // başlık bu üst sınırın altında kaldığı için canlı akış sonradan hard
+        // sınıra geçmez.
+        const EXIT_HEADER_RESERVE_BYTES: u64 = 32;
+        let stderr_marker = if self.stderr.bytes > 0 {
+            exec_stderr_marker().len() as u64
+        } else {
+            0
+        };
+        EXIT_HEADER_RESERVE_BYTES + self.stdout.bytes + stderr_marker + self.stderr.bytes
+    }
+
+    fn projected_lines(&self) -> u64 {
+        let has_stderr = self.stderr.bytes > 0;
+        let newlines = 1
+            + self.stdout.newlines
+            + if has_stderr {
+                2 + self.stderr.newlines
+            } else {
+                0
+            };
+        let ends_with_newline = if has_stderr {
+            self.stderr.ends_with_newline
+        } else if self.stdout.bytes > 0 {
+            self.stdout.ends_with_newline
+        } else {
+            true
+        };
+        if ends_with_newline {
+            newlines
+        } else {
+            newlines + 1
+        }
+    }
+}
+
+struct StreamGate {
+    state: Mutex<StreamGateState>,
+    hard_bytes: u64,
+    hard_lines: u64,
+}
+
+impl StreamGate {
+    fn new() -> Self {
+        let policy = output_policy();
         Self {
-            text: String::new(),
-            truncated: false,
-            limit,
+            state: Mutex::new(StreamGateState::default()),
+            hard_bytes: policy.hard_max_bytes,
+            hard_lines: policy.hard_max_lines,
         }
     }
 
-    fn push(&mut self, chunk: &str) {
-        if self.limit == 0 {
-            self.truncated = true;
-            return;
-        }
-        if chunk.len() >= self.limit {
-            let mut start = chunk.len() - self.limit;
-            while start < chunk.len() && !chunk.is_char_boundary(start) {
-                start += 1;
+    fn allow(&self, is_stderr: bool, bytes: u64, newlines: u64, ends_with_newline: bool) -> bool {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stream = if is_stderr {
+            &mut state.stderr
+        } else {
+            &mut state.stdout
+        };
+        stream.bytes += bytes;
+        stream.newlines += newlines;
+        stream.ends_with_newline = ends_with_newline;
+        !(state.projected_bytes() > self.hard_bytes || state.projected_lines() >= self.hard_lines)
+    }
+}
+
+fn next_capture_id() -> String {
+    let counter = CAPTURE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    format!("{}-{nanos:x}-{counter:x}", std::process::id())
+}
+
+/// Süreç çıktısı geçici dosyaya yazılır. Dosya adı process/counter ile
+/// çakışmaz; `create_new` yine de mevcut dosyayı ezmeyi engeller.
+fn create_capture_file(name: &str, stream: &str) -> Result<(PathBuf, File), String> {
+    let path = std::env::temp_dir().join(format!("macrocode-{name}.{stream}.tmp"));
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options
+        .open(&path)
+        .map_err(|e| err(format!("exec capture dosyası oluşturulamadı: {e}")))?;
+    Ok((path, file))
+}
+
+/// İki geçici capture dosyasını birlikte yönetir. Drop, dosya tanıtıcılarını
+/// kapattıktan sonra yolları siler; böylece `exec_cmd` içindeki her erken hata
+/// yolunda temp dosya kalmaz.
+struct CaptureFiles {
+    stdout_path: PathBuf,
+    stderr_path: Option<PathBuf>,
+    stdout_file: Option<File>,
+    stderr_file: Option<File>,
+}
+
+impl CaptureFiles {
+    fn create(capture_id: &str) -> Result<(Self, File, File), String> {
+        let (stdout_path, stdout_file) = create_capture_file(capture_id, "stdout")?;
+        let mut captures = Self {
+            stdout_path,
+            stderr_path: None,
+            stdout_file: Some(stdout_file),
+            stderr_file: None,
+        };
+
+        match create_capture_file(capture_id, "stderr") {
+            Ok((stderr_path, stderr_file)) => {
+                captures.stderr_path = Some(stderr_path);
+                captures.stderr_file = Some(stderr_file);
             }
-            self.text.clear();
-            self.text.push_str(&chunk[start..]);
-            self.truncated = true;
-            return;
+            Err(e) => return Err(e),
         }
-        if self.text.len() + chunk.len() > self.limit {
-            let drop = self.text.len() + chunk.len() - self.limit;
-            let mut start = drop;
-            while start < self.text.len() && !self.text.is_char_boundary(start) {
-                start += 1;
-            }
-            self.text.drain(..start);
-            self.truncated = true;
+
+        let stdout_file = captures.stdout_file.take().expect("stdout capture missing");
+        let stderr_file = captures.stderr_file.take().expect("stderr capture missing");
+        Ok((captures, stdout_file, stderr_file))
+    }
+
+    fn stdout_path(&self) -> &Path {
+        &self.stdout_path
+    }
+
+    fn stderr_path(&self) -> &Path {
+        self.stderr_path.as_deref().expect("stderr capture missing")
+    }
+}
+
+impl Drop for CaptureFiles {
+    fn drop(&mut self) {
+        // Windows'ta açık dosya silinemediği için handle'ları önce kapat.
+        drop(self.stdout_file.take());
+        drop(self.stderr_file.take());
+        let _ = std::fs::remove_file(&self.stdout_path);
+        if let Some(path) = self.stderr_path.as_deref() {
+            let _ = std::fs::remove_file(path);
         }
-        self.text.push_str(chunk);
     }
 }
 
 /// Boru okuyucusunu sınırlı süre bekler. Süreç ölmüş olsa bile torun bir
 /// süreç boruyu açık tutabilir; bu durumda görev iptal edilir ve exec sonucu
-/// yine döner.
+/// yine döner. Zaman aşımında payload sıfırlanmaz: pump'ın paylaşılan
+/// istatistikleri okuma sırasında güncellenmeye devam eder. `timed_out` ile
+/// eksik yakalama modele açıkça bildirilir.
+#[derive(Debug, Clone)]
+struct PumpResult {
+    stats: CaptureStats,
+    timed_out: bool,
+}
+
 async fn collect_pump(
-    mut task: tokio::task::JoinHandle<CappedBuf>,
+    task: tokio::task::JoinHandle<Result<(), String>>,
+    shared: &SharedCaptureStats,
     stream: &str,
-) -> Result<CappedBuf, String> {
-    match tokio::time::timeout(DRAIN_TIMEOUT, &mut task).await {
-        Ok(Ok(buf)) => Ok(buf),
+) -> Result<PumpResult, String> {
+    collect_pump_with_timeout(task, shared, stream, DRAIN_TIMEOUT).await
+}
+
+async fn collect_pump_with_timeout(
+    mut task: tokio::task::JoinHandle<Result<(), String>>,
+    shared: &SharedCaptureStats,
+    stream: &str,
+    drain_timeout: Duration,
+) -> Result<PumpResult, String> {
+    match tokio::time::timeout(drain_timeout, &mut task).await {
+        Ok(Ok(Ok(()))) => Ok(PumpResult {
+            stats: snapshot_capture_stats(shared),
+            timed_out: false,
+        }),
+        Ok(Ok(Err(e))) => Err(e),
         Ok(Err(e)) => Err(err(format!("{stream} okunamadı: {e}"))),
         Err(_) => {
             task.abort();
             let _ = task.await;
-            Ok(CappedBuf::new(MAX_OUTPUT_BYTES))
+            Ok(PumpResult {
+                stats: snapshot_capture_stats(shared),
+                timed_out: true,
+            })
         }
     }
 }
 
-async fn pump_exec<R>(reader: R, is_stderr: bool, channel: Channel<ExecEvent>) -> CappedBuf
+async fn pump_exec<R>(
+    mut reader: R,
+    is_stderr: bool,
+    channel: Option<Channel<ExecEvent>>,
+    mut file: File,
+    gate: Arc<StreamGate>,
+    shared: SharedCaptureStats,
+) -> Result<(), String>
 where
     R: AsyncRead + Unpin,
 {
-    let mut buf = CappedBuf::new(MAX_OUTPUT_BYTES);
-    let mut reader = BufReader::new(reader);
-    let mut line = Vec::new();
+    // `read_until` newline beklerken devasa tek satırları bellekte büyütürdü.
+    // Sabit chunk'lar hem ham baytları güvenle dosyaya yazar hem de hard
+    // eşikten sonra canlı içerik akışını sınırlar.
+    let mut buffer = [0u8; 64 * 1024];
+    let mut decoder = LossyUtf8Decoder::default();
     loop {
-        line.clear();
-        match reader.read_until(b'\n', &mut line).await {
+        let read = match reader.read(&mut buffer).await {
             Ok(0) => break,
-            Ok(_) => {
-                // Satır sınırında okunduğu için UTF-8 bölünmesi olmaz denebilir;
-                // yine de geçersiz baytlar kaybı önlemek için lossy çevrilir.
-                let text = String::from_utf8_lossy(&line).into_owned();
-                buf.push(&text);
+            Ok(read) => read,
+            Err(e) => return Err(err(format!("exec çıktısı okunamadı: {e}"))),
+        };
+        let chunk = &buffer[..read];
+        file.write_all(chunk)
+            .map_err(|e| err(format!("exec çıktısı yazılamadı: {e}")))?;
+
+        // UI metni Unicode-safe olmalı; chunk sınırında çok baytlı karakter
+        // bölünse bile sonraki chunk ile doğru birleştirilir.
+        let mut text = String::new();
+        decoder.decode(chunk, &mut |ch| text.push(ch));
+        let newlines = chunk.iter().filter(|b| **b == b'\n').count() as u64;
+        let ends_with_newline = chunk.last() == Some(&b'\n');
+        {
+            let mut stats = shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            stats.push(chunk, &text);
+        }
+        if gate.allow(is_stderr, read as u64, newlines, ends_with_newline) {
+            if let Some(channel) = channel.as_ref() {
                 let ev = if is_stderr {
                     ExecEvent::Stderr { data: text }
                 } else {
                     ExecEvent::Stdout { data: text }
                 };
                 // WebView kapandıysa gönderim başarısız olur; süreç yine
-                // tamamlanana kadar arka planda çalışır (çıktı birikmez).
+                // tamamlanana kadar arka planda çalışır.
                 let _ = channel.send(ev);
             }
-            Err(_) => break,
         }
     }
-    buf
+    file.flush()
+        .map_err(|e| err(format!("exec çıktısı flush edilemedi: {e}")))?;
+    Ok(())
 }
 
 fn allow_table() -> Result<serde_json::Map<String, serde_json::Value>, String> {
@@ -674,7 +920,12 @@ fn guard_file_args(
     Ok(())
 }
 
-fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), String> {
+fn check_cmd(
+    cmd: &str,
+    args: &[String],
+    extra: &ExtraAllow,
+    allow_unlisted: bool,
+) -> Result<(), String> {
     let c = cmd.trim();
     if c.is_empty() {
         return Err(err("komut boş olamaz"));
@@ -726,6 +977,13 @@ fn check_cmd(cmd: &str, args: &[String], extra: &ExtraAllow) -> Result<(), Strin
         }
     }
     let table = allow_table()?;
+    // Kullanıcı açıkça onayladıysa allowlist kontrolü ATLANIR (yalnızca bu
+    // çağrı için): izin listesinde olmayan komutlar da onay kartından
+    // geçerek çalıştırılabilir. Yukarıdaki sert kontroller (rm kuralları,
+    // komut-çalıştıran flag'ler, dosya argümanı jail'i) yine de geçerlidir.
+    if allow_unlisted {
+        return Ok(());
+    }
     // Faz 8 L3: kullanıcının ek allowlist'i de geçerli (yerleşik tablo ile birleşik).
     if extra_allows(extra, c, args) {
         return Ok(());
@@ -812,8 +1070,9 @@ fn prepare_exec(
     cwd: &str,
     root: &str,
     extra: &ExtraAllow,
+    allow_unlisted: bool,
 ) -> Result<PathBuf, String> {
-    check_cmd(cmd, args, extra)?;
+    check_cmd(cmd, args, extra, allow_unlisted)?;
     let (base, dir) = resolve_jailed_cwd(root, cwd)?;
 
     // O7 (Y2) — exec dosya argümanlarında **symlink çözümü**:
@@ -823,6 +1082,523 @@ fn prepare_exec(
     // canonicalize edilip workspace altında kalmak zorundadır.
     guard_file_args(&dir, &base, cmd.trim(), args)?;
     Ok(dir)
+}
+
+fn exec_header(code: i32) -> String {
+    format!("[exit {code}]\n")
+}
+
+fn exec_stderr_marker() -> &'static str {
+    "\n[stderr]\n"
+}
+
+/// Ham stdout/stderr'ın `[exit]`, stdout ve stderr biçimindeki toplam ölçüsü.
+fn exec_total_size(code: i32, stdout: &CaptureStats, stderr: &CaptureStats) -> (u64, u64) {
+    let header = exec_header(code);
+    let marker = if stderr.bytes > 0 {
+        exec_stderr_marker()
+    } else {
+        ""
+    };
+    let bytes = header.len() as u64 + stdout.bytes + marker.len() as u64 + stderr.bytes;
+    let newlines = 1
+        + stdout.newlines
+        + if stderr.bytes > 0 {
+            2 + stderr.newlines
+        } else {
+            0
+        };
+    let ends_with_newline = if stderr.bytes > 0 {
+        stderr.ends_with_newline
+    } else if stdout.bytes > 0 {
+        stdout.ends_with_newline
+    } else {
+        true
+    };
+    let lines = if ends_with_newline {
+        newlines
+    } else {
+        newlines + 1
+    };
+    (bytes, lines)
+}
+
+fn format_exec_text(code: i32, stdout: &str, stderr: &str) -> String {
+    let mut out = format!("{}{stdout}", exec_header(code));
+    if !stderr.is_empty() {
+        out.push_str(exec_stderr_marker());
+        out.push_str(stderr);
+    }
+    out
+}
+
+fn summarize_exec_stats(code: i32, stdout: &CaptureStats, stderr: &CaptureStats) -> String {
+    let first = if stdout.first.is_empty() {
+        &stderr.first
+    } else {
+        &stdout.first
+    };
+    let last = if stderr.last.is_empty() {
+        &stdout.last
+    } else {
+        &stderr.last
+    };
+    let detail = if first.is_empty() && last.is_empty() {
+        "Output is empty.".to_string()
+    } else if first.is_empty() {
+        format!("Last line: {last}")
+    } else if last.is_empty() || first == last {
+        format!("First/last line: {first}")
+    } else {
+        format!("First line: {first} Last line: {last}")
+    };
+    clamp_summary(
+        &format!("Command exited with code {code}. {detail}"),
+        output_policy().summary_max_chars,
+    )
+}
+
+fn read_capture(path: &Path) -> Result<Vec<u8>, String> {
+    std::fs::read(path).map_err(|e| err(format!("exec çıktısı okunamadı: {e}")))
+}
+
+/// UTF-8 baytlarını chunk sınırlarından bağımsız olarak lossy metne çevirir.
+/// Böylece dosya istatistikleri taranırken geçersiz UTF-8 veya çok baytlı bir
+/// karakterin chunk ortasında bölünmesi özet satırını bozmaz.
+#[derive(Default)]
+struct LossyUtf8Decoder {
+    pending: Vec<u8>,
+}
+
+impl LossyUtf8Decoder {
+    fn decode(&mut self, bytes: &[u8], emit: &mut impl FnMut(char)) {
+        if bytes.is_empty() {
+            return;
+        }
+
+        let mut combined = Vec::with_capacity(self.pending.len() + bytes.len());
+        combined.extend_from_slice(&self.pending);
+        combined.extend_from_slice(bytes);
+        self.pending.clear();
+
+        let mut offset = 0usize;
+        while offset < combined.len() {
+            match std::str::from_utf8(&combined[offset..]) {
+                Ok(valid) => {
+                    for ch in valid.chars() {
+                        emit(ch);
+                    }
+                    break;
+                }
+                Err(error) => {
+                    let valid_up_to = error.valid_up_to();
+                    if valid_up_to > 0 {
+                        let valid = std::str::from_utf8(&combined[offset..offset + valid_up_to])
+                            .expect("valid UTF-8 prefix");
+                        for ch in valid.chars() {
+                            emit(ch);
+                        }
+                        offset += valid_up_to;
+                    }
+                    match error.error_len() {
+                        Some(invalid_len) => {
+                            emit(char::REPLACEMENT_CHARACTER);
+                            offset += invalid_len;
+                        }
+                        None => {
+                            self.pending.extend_from_slice(&combined[offset..]);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn finish(&mut self, emit: &mut impl FnMut(char)) {
+        if !self.pending.is_empty() {
+            self.pending.clear();
+            emit(char::REPLACEMENT_CHARACTER);
+        }
+    }
+}
+
+/// Bir capture satırının yalnızca ilk `CAPTURE_SUMMARY_MAX_CHARS` anlamlı
+/// karakterini tutar. Satırın tamamı belleğe alınmaz; sonundaki whitespace
+/// özetlenmiş satıra taşınmaz.
+#[derive(Default)]
+struct CaptureLineSummary {
+    prefix: String,
+    prefix_chars: usize,
+    pending_whitespace: String,
+    pending_whitespace_chars: usize,
+    has_content: bool,
+}
+
+impl CaptureLineSummary {
+    fn push_char(&mut self, ch: char) {
+        if ch.is_whitespace() {
+            if self.prefix_chars == 0 {
+                return; // Satır başındaki whitespace `trim` ile atılır.
+            }
+            let remaining = CAPTURE_SUMMARY_MAX_CHARS.saturating_sub(self.prefix_chars);
+            if self.pending_whitespace_chars < remaining {
+                self.pending_whitespace.push(ch);
+                self.pending_whitespace_chars += 1;
+            }
+            return;
+        }
+
+        self.has_content = true;
+        if self.prefix_chars >= CAPTURE_SUMMARY_MAX_CHARS {
+            return;
+        }
+        if !self.pending_whitespace.is_empty() {
+            self.prefix.push_str(&self.pending_whitespace);
+            self.prefix_chars += self.pending_whitespace_chars;
+            self.pending_whitespace.clear();
+            self.pending_whitespace_chars = 0;
+        }
+        if self.prefix_chars < CAPTURE_SUMMARY_MAX_CHARS {
+            self.prefix.push(ch);
+            self.prefix_chars += 1;
+        }
+    }
+
+    fn finish_line(&mut self, stats: &mut CaptureStats) {
+        if self.has_content {
+            let bounded = self.prefix.clone();
+            if stats.first.is_empty() {
+                stats.first = bounded.clone();
+            }
+            stats.last = bounded;
+        }
+        self.prefix.clear();
+        self.prefix_chars = 0;
+        self.pending_whitespace.clear();
+        self.pending_whitespace_chars = 0;
+        self.has_content = false;
+    }
+}
+
+/// Capture dosyasını sabit boyutlu chunk'larla tarar. Dosyadaki gerçek bayt,
+/// newline, son satır ve ilk/son anlamlı satır bilgisi bu şekilde pump
+/// görevi zaman aşımına uğramış olsa bile güvenilir biçimde elde edilir.
+fn reconcile_capture_stats(path: &Path, _shared: &CaptureStats) -> Result<CaptureStats, String> {
+    let mut file = File::open(path).map_err(|e| err(format!("exec çıktısı okunamadı: {e}")))?;
+    let mut stats = CaptureStats::default();
+    let mut line = CaptureLineSummary::default();
+    let mut decoder = LossyUtf8Decoder::default();
+    let mut buffer = [0u8; 64 * 1024];
+    let mut last_byte = None;
+
+    loop {
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| err(format!("exec çıktısı okunamadı: {e}")))?;
+        if read == 0 {
+            break;
+        }
+        stats.bytes += read as u64;
+        let chunk = &buffer[..read];
+        last_byte = chunk.last().copied();
+
+        let mut segment_start = 0usize;
+        for (index, byte) in chunk.iter().enumerate() {
+            if *byte != b'\n' {
+                continue;
+            }
+            decoder.decode(&chunk[segment_start..index], &mut |ch| line.push_char(ch));
+            stats.newlines += 1;
+            decoder.finish(&mut |ch| line.push_char(ch));
+            line.finish_line(&mut stats);
+            segment_start = index + 1;
+        }
+        if segment_start < chunk.len() {
+            decoder.decode(&chunk[segment_start..], &mut |ch| line.push_char(ch));
+        }
+    }
+
+    decoder.finish(&mut |ch| line.push_char(ch));
+    line.finish_line(&mut stats);
+    stats.ends_with_newline = last_byte == Some(b'\n');
+    Ok(stats)
+}
+
+/// Artifact yazarken gerçekten yazılan bayt ve satır sayısını sayar. Metadata
+/// bu değerlerden üretilir; capture istatistikleriyle tahmin edilmez.
+struct ArtifactCounter {
+    file: File,
+    bytes: u64,
+    newlines: u64,
+    last_byte: Option<u8>,
+}
+
+impl ArtifactCounter {
+    fn new(file: File) -> Self {
+        Self {
+            file,
+            bytes: 0,
+            newlines: 0,
+            last_byte: None,
+        }
+    }
+
+    fn line_count(&self) -> u64 {
+        if self.bytes == 0 {
+            0
+        } else if self.last_byte == Some(b'\n') {
+            self.newlines
+        } else {
+            self.newlines.saturating_add(1)
+        }
+    }
+}
+
+impl Write for ArtifactCounter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.file.write(buf)?;
+        if written > 0 {
+            let written_bytes = &buf[..written];
+            self.bytes += written as u64;
+            self.newlines += written_bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
+            self.last_byte = written_bytes.last().copied();
+        }
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
+/// stdout/stderr dosyalarını tek bir model artifact'ine kopyalar. Ham çıktı
+/// belleğe alınmaz; bu yüzden hard sınırı aşan komutlar da güvenle saklanır.
+fn write_exec_artifact(
+    root: &str,
+    code: i32,
+    stdout_path: &Path,
+    stderr_path: &Path,
+    stdout: &CaptureStats,
+    stderr: &CaptureStats,
+) -> Result<ToolArtifact, String> {
+    let name = new_artifact_name();
+    let (artifact_path, artifact_file) = create_artifact_file(root, &name)?;
+    let mut artifact = ArtifactCounter::new(artifact_file);
+    let write_result = (|| -> Result<(), String> {
+        artifact
+            .write_all(exec_header(code).as_bytes())
+            .map_err(|e| err(format!("artifact yazılamadı: {e}")))?;
+        let mut source =
+            File::open(stdout_path).map_err(|e| err(format!("exec stdout okunamadı: {e}")))?;
+        io::copy(&mut source, &mut artifact)
+            .map_err(|e| err(format!("artifact yazılamadı: {e}")))?;
+        if stderr.bytes > 0 {
+            artifact
+                .write_all(exec_stderr_marker().as_bytes())
+                .map_err(|e| err(format!("artifact yazılamadı: {e}")))?;
+            let mut source =
+                File::open(stderr_path).map_err(|e| err(format!("exec stderr okunamadı: {e}")))?;
+            io::copy(&mut source, &mut artifact)
+                .map_err(|e| err(format!("artifact yazılamadı: {e}")))?;
+        }
+        artifact
+            .flush()
+            .map_err(|e| err(format!("artifact flush edilemedi: {e}")))
+    })();
+    if let Err(e) = write_result {
+        drop(artifact);
+        let _ = std::fs::remove_file(&artifact_path);
+        return Err(e);
+    }
+
+    let bytes = match artifact.file.metadata() {
+        Ok(metadata) => metadata.len(),
+        Err(e) => {
+            drop(artifact);
+            let _ = std::fs::remove_file(&artifact_path);
+            return Err(err(format!("artifact okunamadı: {e}")));
+        }
+    };
+    let lines = artifact.line_count();
+    debug_assert_eq!(artifact.bytes, bytes);
+    drop(artifact);
+
+    Ok(artifact_metadata(
+        &name,
+        bytes,
+        lines,
+        summarize_exec_stats(code, stdout, stderr),
+    ))
+}
+
+fn artifact_error_detail(error: &str) -> String {
+    let detail = clamp_summary(error, 240);
+    if detail.is_empty() {
+        "unknown error".to_string()
+    } else {
+        detail
+    }
+}
+
+fn take_head_chars(text: &str, max: usize) -> String {
+    text.chars().take(max).collect()
+}
+
+fn take_tail_chars(text: &str, max: usize) -> String {
+    let skip = text.chars().count().saturating_sub(max);
+    text.chars().skip(skip).collect()
+}
+
+/// Artifact yazılamadığında medium çıktı yine head/tail bilgisini korur; ancak
+/// var olmayan bir artifact yolunu modele göstermez.
+fn shape_medium_fallback(raw: &str, bytes: u64, lines: u64, error: &str) -> String {
+    let policy = output_policy();
+    let head = take_head_chars(raw, policy.head_chars);
+    let tail = take_tail_chars(raw, policy.tail_chars);
+    let total_chars = raw.chars().count();
+    let omitted = total_chars
+        .saturating_sub(head.chars().count())
+        .saturating_sub(tail.chars().count());
+    format!(
+        "[tool output truncated; middle omitted]\n{head}\n[... {omitted} characters omitted; artifact unavailable; captured {bytes} bytes, {lines} lines ...]\n{tail}\nartifact_error={error}",
+        error = artifact_error_detail(error),
+    )
+}
+
+/// Hard fallback yalnızca metadata ve içerik dışı özet verir. Ham çıktının
+/// ilk/son satırı bile modele sızmaz.
+fn shape_hard_fallback(code: i32, bytes: u64, lines: u64, error: &str) -> String {
+    let summary = clamp_summary(
+        &format!(
+            "Command exited with code {code}. Output exceeded hard limit ({bytes} bytes, {lines} lines); artifact could not be written."
+        ),
+        output_policy().summary_max_chars,
+    );
+    format!(
+        "[tool output omitted; artifact unavailable]\nbytes={bytes}\nlines={lines}\nsummary={summary}\nartifact_error={error}",
+        error = artifact_error_detail(error),
+    )
+}
+
+fn mark_capture_incomplete(output: String, capture_incomplete: bool) -> String {
+    if capture_incomplete {
+        format!("{output}\ncapture_incomplete=true")
+    } else {
+        output
+    }
+}
+
+/// Dosyadan yakalanmış exec çıktısını ortak model politikasından geçirir.
+/// Küçük çıktı aynen döner; orta çıktı head/tail + artifact; hard çıktı ise
+/// yalnızca artifact özetidir. Artifact yazma hatası komutun tamamını
+/// başarısız yapmaz: medium head/tail, hard ise metadata/summary döner.
+#[allow(clippy::too_many_arguments)]
+fn finalize_exec_files(
+    root: &str,
+    code: i32,
+    stdout_path: &Path,
+    stderr_path: &Path,
+    stdout: &CaptureStats,
+    stderr: &CaptureStats,
+    cancelled: bool,
+    timed_out: bool,
+    capture_incomplete: bool,
+) -> Result<ExecOut, String> {
+    let stdout = reconcile_capture_stats(stdout_path, stdout)?;
+    let stderr = reconcile_capture_stats(stderr_path, stderr)?;
+    let (total_bytes, total_lines) = exec_total_size(code, &stdout, &stderr);
+    let policy = output_policy();
+    let hard = total_bytes > policy.hard_max_bytes || total_lines >= policy.hard_max_lines;
+
+    if hard {
+        return Ok(
+            match write_exec_artifact(root, code, stdout_path, stderr_path, &stdout, &stderr) {
+                Ok(artifact) => ExecOut {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    output: mark_capture_incomplete(shape_hard(&artifact), capture_incomplete),
+                    artifact: Some(artifact),
+                    hard: true,
+                    capture_incomplete,
+                    code,
+                    truncated: true,
+                    cancelled,
+                    timed_out,
+                },
+                Err(e) => ExecOut {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    output: mark_capture_incomplete(
+                        shape_hard_fallback(code, total_bytes, total_lines, &e),
+                        capture_incomplete,
+                    ),
+                    artifact: None,
+                    hard: true,
+                    capture_incomplete,
+                    code,
+                    truncated: true,
+                    cancelled,
+                    timed_out,
+                },
+            },
+        );
+    }
+
+    let stdout_bytes = read_capture(stdout_path)?;
+    let stderr_bytes = read_capture(stderr_path)?;
+    let stdout_text = String::from_utf8_lossy(&stdout_bytes).into_owned();
+    let stderr_text = String::from_utf8_lossy(&stderr_bytes).into_owned();
+    let raw_text = format_exec_text(code, &stdout_text, &stderr_text);
+    if raw_text.chars().count() > policy.soft_max_chars {
+        return Ok(
+            match write_exec_artifact(root, code, stdout_path, stderr_path, &stdout, &stderr) {
+                Ok(artifact) => ExecOut {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    output: mark_capture_incomplete(
+                        shape_medium(&raw_text, &artifact),
+                        capture_incomplete,
+                    ),
+                    artifact: Some(artifact),
+                    hard: false,
+                    capture_incomplete,
+                    code,
+                    truncated: true,
+                    cancelled,
+                    timed_out,
+                },
+                Err(e) => ExecOut {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    output: mark_capture_incomplete(
+                        shape_medium_fallback(&raw_text, total_bytes, total_lines, &e),
+                        capture_incomplete,
+                    ),
+                    artifact: None,
+                    hard: false,
+                    capture_incomplete,
+                    code,
+                    truncated: true,
+                    cancelled,
+                    timed_out,
+                },
+            },
+        );
+    }
+
+    Ok(ExecOut {
+        stdout: stdout_text,
+        stderr: stderr_text,
+        output: mark_capture_incomplete(raw_text, capture_incomplete),
+        artifact: None,
+        hard: false,
+        capture_incomplete,
+        code,
+        truncated: capture_incomplete,
+        cancelled,
+        timed_out,
+    })
 }
 
 #[tauri::command]
@@ -836,11 +1612,23 @@ pub async fn exec_cmd(
     root: String,
     // Faz 8 L3: kullanıcı allowlist uzantısı (TS `parseCustomAllowList` çıktısı).
     extra_allow: Option<ExtraAllow>,
+    // Kullanıcı açıkça onayladıysa allowlist kontrolü atlanır (yalnızca bu
+    // çağrı için). TS katmanı yalnızca onay yolundan `true` geçirir.
+    allow_unlisted: Option<bool>,
 ) -> Result<ExecOut, String> {
     let extra = extra_allow.unwrap_or_default();
-    let dir = prepare_exec(&cmd, &args, &cwd, &root, &extra)?;
+    let dir = prepare_exec(
+        &cmd,
+        &args,
+        &cwd,
+        &root,
+        &extra,
+        allow_unlisted.unwrap_or(false),
+    )?;
 
     let timeout = resolve_timeout(timeout_ms);
+    let capture_id = next_capture_id();
+    let (captures, stdout_file, stderr_file) = CaptureFiles::create(&capture_id)?;
 
     let mut child_cmd = tokio::process::Command::new(cmd.trim());
     proc_tree::configure_command(&mut child_cmd);
@@ -851,45 +1639,101 @@ pub async fn exec_cmd(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = child_cmd
-        .spawn()
-        .map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?;
+    let mut child = match child_cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            drop(stdout_file);
+            drop(stderr_file);
+            return Err(err(format!("komut çalıştırılamadı: {e}")));
+        }
+    };
     let mut tree = ProcTree::attach(&mut child);
-    let output_fut = child.wait_with_output();
-    tokio::pin!(output_fut);
-    let output = match tokio::time::timeout(timeout, &mut output_fut).await {
-        Ok(res) => {
-            // Child sonuçlandı; guard drop'ta eski PID'e dokunmamalı.
+    let Some(stdout_pipe) = child.stdout.take() else {
+        tree.kill();
+        drop(stdout_file);
+        drop(stderr_file);
+        return Err(err("stdout alınamadı"));
+    };
+    let Some(stderr_pipe) = child.stderr.take() else {
+        tree.kill();
+        drop(stdout_file);
+        drop(stderr_file);
+        return Err(err("stderr alınamadı"));
+    };
+
+    let gate = Arc::new(StreamGate::new());
+    let stdout_shared = new_shared_capture_stats();
+    let stderr_shared = new_shared_capture_stats();
+    let stdout_task = tokio::spawn(pump_exec(
+        stdout_pipe,
+        false,
+        None,
+        stdout_file,
+        gate.clone(),
+        stdout_shared.clone(),
+    ));
+    let stderr_task = tokio::spawn(pump_exec(
+        stderr_pipe,
+        true,
+        None,
+        stderr_file,
+        gate.clone(),
+        stderr_shared.clone(),
+    ));
+
+    let (status_result, timed_out) = match tokio::time::timeout(timeout, child.wait()).await {
+        Ok(Ok(status)) => {
             tree.disarm();
-            res.map_err(|e| err(format!("komut çalıştırılamadı: {e}")))?
+            (Ok(status), false)
+        }
+        Ok(Err(e)) => {
+            tree.kill();
+            let _ = child.start_kill();
+            (Err(err(format!("komut beklenemedi: {e}"))), false)
         }
         Err(_) => {
-            // Yalnız doğrudan child'ı değil, süreç ağacını da durdur.
             tree.kill();
-            tree.disarm();
-            let _ = tokio::time::timeout(DRAIN_TIMEOUT, &mut output_fut).await;
-            return Err(err("komut zaman aşımına uğradı"));
+            let _ = child.start_kill();
+            match child.wait().await {
+                Ok(status) => {
+                    tree.disarm();
+                    (Ok(status), true)
+                }
+                Err(e) => (Err(err(format!("komut beklenemedi: {e}"))), true),
+            }
         }
     };
 
-    let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let mut truncated = false;
-    if stdout.len() + stderr.len() > MAX_OUTPUT_BYTES {
-        let mut combined = format!("{stdout}\n{stderr}");
-        combined.truncate(MAX_OUTPUT_BYTES);
-        stdout = combined;
-        stderr.clear();
-        truncated = true;
-    }
-    Ok(ExecOut {
-        stdout,
-        stderr,
-        code: output.status.code().unwrap_or(-1),
-        truncated,
-        cancelled: false,
-        timed_out: false,
-    })
+    // İki pump da her durumda tamamlanır/iptal edilir. Böylece capture file
+    // handle'ları kapanmadan RAII guard'ın temp dosyaları silmeye çalışması
+    // engellenir ve hiçbir erken hata yolunda dosya kalmaz.
+    let stdout_result = collect_pump(stdout_task, &stdout_shared, "stdout").await;
+    let stderr_result = collect_pump(stderr_task, &stderr_shared, "stderr").await;
+
+    let status = match status_result {
+        Ok(status) => status,
+        Err(e) => return Err(e),
+    };
+    let stdout_pump = match stdout_result {
+        Ok(result) => result,
+        Err(e) => return Err(e),
+    };
+    let stderr_pump = match stderr_result {
+        Ok(result) => result,
+        Err(e) => return Err(e),
+    };
+    let capture_incomplete = stdout_pump.timed_out || stderr_pump.timed_out;
+    finalize_exec_files(
+        &root,
+        status.code().unwrap_or(-1),
+        captures.stdout_path(),
+        captures.stderr_path(),
+        &stdout_pump.stats,
+        &stderr_pump.stats,
+        false,
+        timed_out,
+        capture_incomplete,
+    )
 }
 
 /// P0.2 — canlı akışlı exec.
@@ -908,6 +1752,9 @@ pub async fn exec_cmd_stream(
     timeout_ms: Option<u64>,
     root: String,
     extra_allow: Option<ExtraAllow>,
+    // Kullanıcı açıkça onayladıysa allowlist kontrolü atlanır (yalnızca bu
+    // çağrı için). TS katmanı yalnızca onay yolundan `true` geçirir.
+    allow_unlisted: Option<bool>,
     on_event: Channel<ExecEvent>,
     state: tauri::State<'_, ExecState>,
 ) -> Result<ExecOut, String> {
@@ -916,7 +1763,14 @@ pub async fn exec_cmd_stream(
         return Err(err("geçersiz çalıştırma kimliği"));
     }
     let extra = extra_allow.unwrap_or_default();
-    let dir = prepare_exec(&cmd, &args, &cwd, &root, &extra)?;
+    let dir = prepare_exec(
+        &cmd,
+        &args,
+        &cwd,
+        &root,
+        &extra,
+        allow_unlisted.unwrap_or(false),
+    )?;
     let timeout = resolve_timeout(timeout_ms);
 
     // Kayıt spawn'dan ÖNCE: aynı kimlikle ikinci bir çalıştırma eskisinin
@@ -925,6 +1779,18 @@ pub async fn exec_cmd_stream(
     if !state.register(&run_id, tx) {
         return Err(err("çalıştırma kimliği zaten kullanımda"));
     }
+
+    // Capture dosyaları süreç başlamadan önce oluşturulur. Böylece dosya
+    // sistemi hatasında komut yanlışlıkla çalışmaz ve oluşabilecek her
+    // stdout/stderr baytı yakalanmış olur.
+    let capture_id = next_capture_id();
+    let (captures, stdout_file, stderr_file) = match CaptureFiles::create(&capture_id) {
+        Ok(value) => value,
+        Err(error) => {
+            state.remove(&run_id);
+            return Err(error);
+        }
+    };
 
     let mut child_cmd = tokio::process::Command::new(cmd.trim());
     proc_tree::configure_command(&mut child_cmd);
@@ -938,6 +1804,8 @@ pub async fn exec_cmd_stream(
     let mut child = match child_cmd.spawn() {
         Ok(child) => child,
         Err(e) => {
+            drop(stdout_file);
+            drop(stderr_file);
             state.remove(&run_id);
             return Err(err(format!("komut çalıştırılamadı: {e}")));
         }
@@ -945,37 +1813,70 @@ pub async fn exec_cmd_stream(
     // İptal/timeout'ta doğrudan child yerine tüm süreç ağacını durdur.
     let mut tree = ProcTree::attach(&mut child);
     let Some(stdout) = child.stdout.take() else {
+        tree.kill();
+        drop(stdout_file);
+        drop(stderr_file);
         state.remove(&run_id);
         return Err(err("stdout alınamadı"));
     };
     let Some(stderr) = child.stderr.take() else {
+        tree.kill();
+        drop(stdout_file);
+        drop(stderr_file);
         state.remove(&run_id);
         return Err(err("stderr alınamadı"));
     };
 
     // Kayıt sonrası HER çıkış yolunda state temizlenmeli (erken `?` dahil).
     let result = async {
-        let stdout_task = tokio::spawn(pump_exec(stdout, false, on_event.clone()));
-        let stderr_task = tokio::spawn(pump_exec(stderr, true, on_event.clone()));
+        let gate = Arc::new(StreamGate::new());
+        let stdout_shared = new_shared_capture_stats();
+        let stderr_shared = new_shared_capture_stats();
+        let stdout_task = tokio::spawn(pump_exec(
+            stdout,
+            false,
+            Some(on_event.clone()),
+            stdout_file,
+            gate.clone(),
+            stdout_shared.clone(),
+        ));
+        let stderr_task = tokio::spawn(pump_exec(
+            stderr,
+            true,
+            Some(on_event.clone()),
+            stderr_file,
+            gate.clone(),
+            stderr_shared.clone(),
+        ));
 
         let started = std::time::Instant::now();
         let mut cancelled = false;
         let mut timed_out = false;
-        let status = loop {
-            if let Some(st) = child
-                .try_wait()
-                .map_err(|e| err(format!("süreç durumu alınamadı: {e}")))?
-            {
-                break st;
+        let status_result = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // Süreç normal bitti; ağaç guard'ı artık drop'ta öldürmemeli.
+                    tree.disarm();
+                    break Ok(status);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tree.kill();
+                    let _ = child.start_kill();
+                    break Err(err(format!("süreç durumu alınamadı: {e}")));
+                }
             }
             if started.elapsed() >= timeout {
                 timed_out = true;
                 tree.kill();
                 let _ = child.start_kill();
-                break child
-                    .wait()
-                    .await
-                    .map_err(|e| err(format!("süreç beklenemedi: {e}")))?;
+                break match child.wait().await {
+                    Ok(status) => {
+                        tree.disarm();
+                        Ok(status)
+                    }
+                    Err(e) => Err(err(format!("süreç beklenemedi: {e}"))),
+                };
             }
             tokio::select! {
                 _ = tokio::time::sleep(Duration::from_millis(40)) => {}
@@ -984,49 +1885,42 @@ pub async fn exec_cmd_stream(
                         cancelled = true;
                         tree.kill();
                         let _ = child.start_kill();
-                        break child
-                            .wait()
-                            .await
-                            .map_err(|e| err(format!("süreç beklenemedi: {e}")))?;
+                        break match child.wait().await {
+                            Ok(status) => {
+                                tree.disarm();
+                                Ok(status)
+                            }
+                            Err(e) => Err(err(format!("süreç beklenemedi: {e}"))),
+                        };
                     }
                 }
             }
         };
-        // Süreç normal bitti; ağaç guard'ı artık drop'ta öldürmemeli.
-        tree.disarm();
 
         // Boru okuyucuları süreç ölünce EOF görür; burada reaping tamamlanır.
         // (Torun süreç boruyu açık tutarsa yine de asılı kalmayız.)
         // İki okuyucu da beklenir; biri hata verse bile diğeri boşta kalmaz.
-        let out_res = collect_pump(stdout_task, "stdout").await;
-        let err_res = collect_pump(stderr_task, "stderr").await;
-        let out_buf = out_res?;
-        let err_buf = err_res?;
-        let mut stdout = out_buf.text;
-        let mut stderr = err_buf.text;
-        let mut truncated = out_buf.truncated || err_buf.truncated;
-        if stdout.len() + stderr.len() > MAX_OUTPUT_BYTES {
-            let combined = format!("{stdout}\n{stderr}");
-            let mut start = combined.len().saturating_sub(MAX_OUTPUT_BYTES);
-            while start < combined.len() && !combined.is_char_boundary(start) {
-                start += 1;
-            }
-            stdout = combined[start..].to_string();
-            stderr.clear();
-            truncated = true;
-        }
+        let out_result = collect_pump(stdout_task, &stdout_shared, "stdout").await;
+        let err_result = collect_pump(stderr_task, &stderr_shared, "stderr").await;
+        let status = status_result?;
+        let out_pump = out_result?;
+        let err_pump = err_result?;
+        let capture_incomplete = out_pump.timed_out || err_pump.timed_out;
         let code = status.code().unwrap_or(-1);
-        let out = ExecOut {
-            stdout,
-            stderr,
+        let out = finalize_exec_files(
+            &root,
             code,
-            truncated,
+            captures.stdout_path(),
+            captures.stderr_path(),
+            &out_pump.stats,
+            &err_pump.stats,
             cancelled,
             timed_out,
-        };
+            capture_incomplete,
+        )?;
         let _ = on_event.send(ExecEvent::Exit {
             code,
-            truncated,
+            truncated: out.truncated,
             cancelled,
             timed_out,
         });
@@ -1055,7 +1949,7 @@ mod tests {
 
     /// Ek allowlist olmadan kontrol (yerleşik tablo).
     fn check_cmd2(cmd: &str, args: &[String]) -> Result<(), String> {
-        check_cmd(cmd, args, &serde_json::Map::new())
+        check_cmd(cmd, args, &serde_json::Map::new(), false)
     }
 
     /// P0.2 — timeout üst sınırı 600 sn'ye çıkarıldı; alt sınır 1 sn korunur.
@@ -1106,6 +2000,7 @@ mod tests {
             Some(5_000),
             root,
             None,
+            None,
         ))
         .expect("echo çalışmalı");
         assert_eq!(out.code, 0);
@@ -1115,21 +2010,451 @@ mod tests {
         let _ = fs::remove_dir_all(&base);
     }
 
-    /// P0.2 — final çıktı tavanı: bellekte son 8 KB tutulur, kırpma işaretlenir.
+    /// Exec çıktısı artık bellekte 8KB ile kırpılmaz: pump paylaşılan
+    /// istatistikleri ve capture dosyasının gerçek boyutunu kullanır.
     #[test]
-    fn p02_capped_buf_son_kismi_tutar() {
-        let mut b = CappedBuf::new(10);
-        b.push("abc");
-        assert_eq!(b.text, "abc");
-        assert!(!b.truncated);
-        b.push("defghijk");
-        assert_eq!(b.text, "bcdefghijk");
-        assert!(b.truncated);
-        // Tek parça limitten büyükse yalnızca son limit bayt kalır.
-        let mut c = CappedBuf::new(4);
-        c.push("0123456789");
-        assert_eq!(c.text, "6789");
-        assert!(c.truncated);
+    fn p02_capture_stats_ham_ciktiyi_sayar() {
+        let mut stats = CaptureStats::default();
+        stats.push(b"ilk\n", "ilk\n");
+        stats.push(b"son", "son");
+        assert_eq!(stats.bytes, 7);
+        assert_eq!(stats.newlines, 1);
+        assert_eq!(stats.first, "ilk");
+        assert_eq!(stats.last, "son");
+        assert!(!stats.ends_with_newline);
+    }
+
+    fn stats_for_bytes(bytes: &[u8]) -> CaptureStats {
+        let mut stats = CaptureStats::default();
+        let text = String::from_utf8_lossy(bytes);
+        stats.push(bytes, &text);
+        stats
+    }
+
+    fn line_count(bytes: &[u8]) -> u64 {
+        if bytes.is_empty() {
+            return 0;
+        }
+        let newlines = bytes.iter().filter(|byte| **byte == b'\n').count() as u64;
+        if bytes.last() == Some(&b'\n') {
+            newlines
+        } else {
+            newlines + 1
+        }
+    }
+
+    fn unique_test_id(prefix: &str) -> String {
+        format!(
+            "{prefix}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        )
+    }
+
+    #[test]
+    fn pump_timeout_shared_stats_sifirlanmaz() {
+        let shared = new_shared_capture_stats();
+        {
+            let mut stats = shared
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            stats.push(b"captured\n", "captured\n");
+        }
+        let result = tauri::async_runtime::block_on(async {
+            let task = tokio::spawn(async { std::future::pending::<Result<(), String>>().await });
+            collect_pump_with_timeout(task, &shared, "stdout", Duration::from_millis(10)).await
+        })
+        .expect("timeout istatistikleri dönmeli");
+        assert!(result.timed_out);
+        let stats = result.stats;
+        assert_eq!(stats.bytes, 9);
+        assert_eq!(stats.newlines, 1);
+        assert_eq!(stats.first, "captured");
+    }
+
+    #[test]
+    fn stream_gate_son_terminasyonlu_satiri_hard_sinirina_dahil_eder() {
+        let gate = StreamGate::new();
+        let limit = output_policy().hard_max_lines;
+        // `limit - 2` newline + son terminasyonsuz satır, exit başlığıyla
+        // birlikte tam `limit` mantıksal satır oluşturur.
+        assert!(gate.allow(false, limit - 2, limit - 2, true));
+        assert!(!gate.allow(false, 1, 0, false));
+    }
+
+    #[test]
+    fn stream_gate_bayt_limiti_final_cikti_icin_erken_durur() {
+        let gate = StreamGate::new();
+        let limit = output_policy().hard_max_bytes;
+        // Exit başlığı için ayrılan 32 baytlık üst sınır dahil edilir.
+        assert!(gate.allow(false, limit - 32, 0, false));
+        assert!(!gate.allow(false, 1, 0, false));
+    }
+
+    #[test]
+    fn hard_esikleri_ve_stream_gate_final_olcumuyle_uyumlu() {
+        let policy = output_policy();
+        assert_eq!(policy.hard_max_bytes, 131_072);
+        assert_eq!(policy.hard_max_lines, 20_000);
+
+        // Bayt sınırı kesin değer: 131.072 byte hâlâ hard değildir,
+        // 131.073 byte hard olur. Exit başlığı ölçüme dahildir.
+        let header_bytes = exec_header(0).len() as u64;
+        let exact_bytes = CaptureStats {
+            bytes: policy.hard_max_bytes - header_bytes,
+            ..CaptureStats::default()
+        };
+        let (exact_total, _) = exec_total_size(0, &exact_bytes, &CaptureStats::default());
+        assert_eq!(exact_total, policy.hard_max_bytes);
+        assert!(!(exact_total > policy.hard_max_bytes));
+
+        let mut over_bytes = exact_bytes;
+        over_bytes.bytes += 1;
+        let (over_total, _) = exec_total_size(0, &over_bytes, &CaptureStats::default());
+        assert_eq!(over_total, policy.hard_max_bytes + 1);
+        assert!(over_total > policy.hard_max_bytes);
+
+        // Satır sınırı 19.999/20.000 mantıksal satırdadır. Exit başlığı
+        // bir satır eklediği için stdout'ta 19.998/19.999 newline vardır.
+        let below_lines = CaptureStats {
+            bytes: policy.hard_max_lines - 2,
+            newlines: policy.hard_max_lines - 2,
+            ends_with_newline: true,
+            ..CaptureStats::default()
+        };
+        let (_, below_total_lines) = exec_total_size(0, &below_lines, &CaptureStats::default());
+        assert_eq!(below_total_lines, policy.hard_max_lines - 1);
+        assert!(below_total_lines < policy.hard_max_lines);
+
+        let at_limit = CaptureStats {
+            bytes: policy.hard_max_lines - 1,
+            newlines: policy.hard_max_lines - 1,
+            ends_with_newline: true,
+            ..CaptureStats::default()
+        };
+        let (_, at_limit_lines) = exec_total_size(0, &at_limit, &CaptureStats::default());
+        assert_eq!(at_limit_lines, policy.hard_max_lines);
+        assert!(at_limit_lines >= policy.hard_max_lines);
+
+        // Canlı akış 19.999 mantıksal satıra kadar izin verir; 20.000'e
+        // ulaşan chunk artık model/UI akışına gönderilmez.
+        let gate = StreamGate::new();
+        assert!(gate.allow(
+            false,
+            policy.hard_max_lines - 2,
+            policy.hard_max_lines - 2,
+            true
+        ));
+        assert!(!gate.allow(false, 1, 1, true));
+    }
+
+    #[test]
+    fn eksik_capture_modele_acikca_bildirilir() {
+        let output = mark_capture_incomplete("partial output".to_string(), true);
+        assert_eq!(output, "partial output\ncapture_incomplete=true");
+        assert_eq!(
+            mark_capture_incomplete("complete output".to_string(), false),
+            "complete output"
+        );
+    }
+
+    #[test]
+    fn stderr_only_ve_artifact_hatasi_yollari_capture_durumunu_korur() {
+        let base = std::env::temp_dir().join(unique_test_id("capture-paths"));
+        std::fs::create_dir_all(&base).unwrap();
+        let stdout_path = base.join("stdout.capture");
+        let stderr_path = base.join("stderr.capture");
+        std::fs::write(&stdout_path, b"").unwrap();
+        std::fs::write(&stderr_path, b"warning only\n").unwrap();
+        let empty = CaptureStats::default();
+        let stderr_stats = stats_for_bytes(b"warning only\n");
+
+        // stderr-only çıktı normaldir: stderr ayırıcısı korunur, ancak
+        // capture_incomplete yalnızca gerçekten eksik yakalamada işaretlenir.
+        let complete = finalize_exec_files(
+            &base.to_string_lossy(),
+            0,
+            &stdout_path,
+            &stderr_path,
+            &empty,
+            &stderr_stats,
+            false,
+            false,
+            false,
+        )
+        .expect("stderr-only çıktı finalize edilmeli");
+        assert!(complete.output.contains("[stderr]"));
+        assert!(complete.output.contains("warning only"));
+        assert!(!complete.output.contains("capture_incomplete=true"));
+        assert!(!complete.capture_incomplete);
+
+        // Drain timeout ya da başka bir eksik yakalama aynı işareti taşır.
+        let incomplete = finalize_exec_files(
+            &base.to_string_lossy(),
+            0,
+            &stdout_path,
+            &stderr_path,
+            &empty,
+            &stderr_stats,
+            false,
+            false,
+            true,
+        )
+        .expect("eksik stderr-only çıktı finalize edilmeli");
+        assert!(incomplete.output.contains("capture_incomplete=true"));
+        assert!(incomplete.capture_incomplete);
+        assert!(incomplete.truncated);
+
+        // Artifact yazılamayan medium yolunda da eksik capture işareti ve
+        // hata açıklaması birlikte bulunmalıdır.
+        let long_stdout = base.join("long.capture");
+        std::fs::write(&long_stdout, "x".repeat(20_000)).unwrap();
+        let long_stats = stats_for_bytes(&std::fs::read(&long_stdout).unwrap());
+        let failed = finalize_exec_files(
+            &base.join("missing-root").to_string_lossy(),
+            0,
+            &long_stdout,
+            &stderr_path,
+            &long_stats,
+            &stderr_stats,
+            false,
+            false,
+            true,
+        )
+        .expect("artifact hatası fallback üretmeli");
+        assert!(failed.artifact.is_none());
+        assert!(failed.output.contains("artifact_error="));
+        assert!(failed.output.contains("capture_incomplete=true"));
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[tokio::test]
+    async fn pump_newline_bulunmayan_buyuk_ciktiyi_tam_dosyaya_yazar() {
+        use tokio::io::{duplex, AsyncWriteExt};
+
+        let capture_id = unique_test_id("pump-large-line");
+        let (path, file) = create_capture_file(&capture_id, "stdout").unwrap();
+        let (mut writer, reader) = duplex(4_096);
+        let payload = vec![b'x'; 300_000];
+        let expected_len = payload.len() as u64;
+        let producer = tokio::spawn(async move {
+            writer.write_all(&payload).await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+
+        pump_exec(
+            reader,
+            false,
+            None,
+            file,
+            Arc::new(StreamGate::new()),
+            new_shared_capture_stats(),
+        )
+        .await
+        .unwrap();
+        producer.await.unwrap();
+
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), expected_len);
+        let stats = reconcile_capture_stats(&path, &CaptureStats::default()).unwrap();
+        assert_eq!(stats.bytes, expected_len);
+        assert_eq!(stats.newlines, 0);
+        assert!(stats.first.starts_with('x'));
+        assert!(stats.last.ends_with('x'));
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn capture_dosyasindaki_20000_satir_timeout_sonrasi_hard_sayilir() {
+        let base = std::env::temp_dir().join(unique_test_id("capture-lines"));
+        std::fs::create_dir_all(&base).unwrap();
+        let stdout_path = base.join("stdout.capture");
+        let stderr_path = base.join("stderr.capture");
+        let mut content = String::with_capacity(20_000 * 12);
+        for index in 0..20_000usize {
+            if index == 0 {
+                content.push_str("FIRST-LINE");
+            } else if index == 19_999 {
+                content.push_str("LAST-LINE");
+            } else {
+                content.push_str("middle-line");
+            }
+            content.push('\n');
+        }
+        std::fs::write(&stdout_path, &content).unwrap();
+        std::fs::write(&stderr_path, b"").unwrap();
+
+        // Pump timeout sonrası shared state boş kalmış gibi davran.
+        let stale_shared = CaptureStats::default();
+        let actual = reconcile_capture_stats(&stdout_path, &stale_shared).unwrap();
+        assert_eq!(actual.bytes, content.len() as u64);
+        assert_eq!(actual.newlines, 20_000);
+        assert!(actual.ends_with_newline);
+        assert_eq!(actual.first, "FIRST-LINE");
+        assert_eq!(actual.last, "LAST-LINE");
+
+        let empty_stats = CaptureStats::default();
+        let (_, artifact_lines) = exec_total_size(0, &actual, &empty_stats);
+        assert!(artifact_lines >= output_policy().hard_max_lines);
+        let out = finalize_exec_files(
+            &base.to_string_lossy(),
+            0,
+            &stdout_path,
+            &stderr_path,
+            &stale_shared,
+            &empty_stats,
+            false,
+            false,
+            false,
+        )
+        .expect("dosyadaki satırlar finalizasyonda kullanılmalı");
+        assert!(out.hard);
+        let artifact = out.artifact.expect("hard artifact oluşmalı");
+        assert_eq!(artifact.lines, artifact_lines);
+        assert!(artifact.summary.contains("FIRST-LINE"));
+        assert!(artifact.summary.contains("LAST-LINE"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn capture_files_raii_erken_hata_yolunda_temizlenir() {
+        let capture_id = unique_test_id("capture-raii");
+        let stdout_path = std::env::temp_dir().join(format!("macrocode-{capture_id}.stdout.tmp"));
+        let stderr_path = std::env::temp_dir().join(format!("macrocode-{capture_id}.stderr.tmp"));
+        std::fs::write(&stderr_path, b"engel").unwrap();
+
+        // stderr capture oluşturulurken hata verirse stdout yine temizlenir.
+        assert!(CaptureFiles::create(&capture_id).is_err());
+        assert!(!stdout_path.exists());
+        assert!(stderr_path.exists());
+        let _ = std::fs::remove_file(stderr_path);
+
+        let (captures, stdout_file, stderr_file) = CaptureFiles::create(&capture_id).unwrap();
+        let stdout_path = captures.stdout_path().to_path_buf();
+        let stderr_path = captures.stderr_path().to_path_buf();
+        assert!(stdout_path.exists());
+        assert!(stderr_path.exists());
+        drop(stdout_file);
+        drop(stderr_file);
+        drop(captures);
+        assert!(!stdout_path.exists());
+        assert!(!stderr_path.exists());
+    }
+
+    #[test]
+    fn artifact_metadata_gercek_dosyayla_ayni() {
+        let base = std::env::temp_dir().join(unique_test_id("artifact-metadata"));
+        std::fs::create_dir_all(&base).unwrap();
+        let stdout_path = base.join("stdout.capture");
+        let stderr_path = base.join("stderr.capture");
+        let stdout = b"out line\n";
+        let stderr = b"err line\n";
+        std::fs::write(&stdout_path, stdout).unwrap();
+        std::fs::write(&stderr_path, stderr).unwrap();
+        let stdout_stats = stats_for_bytes(stdout);
+        let stderr_stats = stats_for_bytes(stderr);
+
+        let artifact = write_exec_artifact(
+            &base.to_string_lossy(),
+            7,
+            &stdout_path,
+            &stderr_path,
+            &stdout_stats,
+            &stderr_stats,
+        )
+        .expect("artifact yazılmalı");
+        let artifact_bytes = std::fs::read(base.join(&artifact.path)).unwrap();
+        assert_eq!(artifact.bytes, artifact_bytes.len() as u64);
+        assert_eq!(artifact.lines, line_count(&artifact_bytes));
+        assert_eq!(
+            artifact.bytes,
+            exec_total_size(7, &stdout_stats, &stderr_stats).0
+        );
+        assert_eq!(
+            artifact.lines,
+            exec_total_size(7, &stdout_stats, &stderr_stats).1
+        );
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn artifact_yazma_hatasi_medium_head_tail_dondurur() {
+        let base = std::env::temp_dir().join(unique_test_id("artifact-fallback-medium"));
+        std::fs::create_dir_all(&base).unwrap();
+        let stdout_path = base.join("stdout.capture");
+        let stderr_path = base.join("stderr.capture");
+        let content = format!(
+            "HEAD-SENTINEL\n{}\nTAIL-SENTINEL\n",
+            "x".repeat(output_policy().soft_max_chars + 100)
+        );
+        std::fs::write(&stdout_path, &content).unwrap();
+        std::fs::write(&stderr_path, b"").unwrap();
+        let stdout_stats = stats_for_bytes(content.as_bytes());
+        let stderr_stats = stats_for_bytes(b"");
+
+        let out = finalize_exec_files(
+            &base.join("missing-root").to_string_lossy(),
+            0,
+            &stdout_path,
+            &stderr_path,
+            &stdout_stats,
+            &stderr_stats,
+            false,
+            false,
+            false,
+        )
+        .expect("artifact hatası komutu başarısız yapmamalı");
+        assert!(!out.hard);
+        assert!(out.truncated);
+        assert!(out.artifact.is_none());
+        assert!(out.output.contains("HEAD-SENTINEL"));
+        assert!(out.output.contains("TAIL-SENTINEL"));
+        assert!(out.output.contains("artifact unavailable"));
+        assert!(out.output.contains("artifact_error="));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn artifact_yazma_hatasi_hard_ham_icerik_dondurmez() {
+        let base = std::env::temp_dir().join(unique_test_id("artifact-fallback-hard"));
+        std::fs::create_dir_all(&base).unwrap();
+        let stdout_path = base.join("stdout.capture");
+        let stderr_path = base.join("stderr.capture");
+        let content = format!(
+            "{}\nHARD-RAW-SENTINEL\n{}",
+            "x".repeat(output_policy().hard_max_bytes as usize / 2),
+            "y".repeat(output_policy().hard_max_bytes as usize / 2)
+        );
+        std::fs::write(&stdout_path, &content).unwrap();
+        std::fs::write(&stderr_path, b"").unwrap();
+        let stdout_stats = stats_for_bytes(content.as_bytes());
+        let stderr_stats = stats_for_bytes(b"");
+
+        let out = finalize_exec_files(
+            &base.join("missing-root").to_string_lossy(),
+            0,
+            &stdout_path,
+            &stderr_path,
+            &stdout_stats,
+            &stderr_stats,
+            false,
+            false,
+            false,
+        )
+        .expect("artifact hatası komutu başarısız yapmamalı");
+        assert!(out.hard);
+        assert!(out.truncated);
+        assert!(out.artifact.is_none());
+        assert!(out.stdout.is_empty());
+        assert!(out.stderr.is_empty());
+        assert!(out.output.contains("bytes="));
+        assert!(out.output.contains("lines="));
+        assert!(out.output.contains("summary="));
+        assert!(!out.output.contains("HARD-RAW-SENTINEL"));
+        let _ = std::fs::remove_dir_all(base);
     }
 
     /// Kullanıcı allowlist'i: `{ "docker": [["ps"]] }`
@@ -1341,11 +2666,11 @@ mod tests {
     #[test]
     fn o7_ek_allowlist_predicateleri_asamaz() {
         let ex = extra(&[("find", &[&["-name"]]), ("rg", &[])]);
-        assert!(check_cmd("find", &args(&["-name", "x", "-exec", "id"]), &ex).is_err());
-        assert!(check_cmd("rg", &args(&["--pre", "kotu.sh", "d"]), &ex).is_err());
+        assert!(check_cmd("find", &args(&["-name", "x", "-exec", "id"]), &ex, false).is_err());
+        assert!(check_cmd("rg", &args(&["--pre", "kotu.sh", "d"]), &ex, false).is_err());
         // Temiz argümanlar yine geçer.
-        assert!(check_cmd("find", &args(&["-name", "x"]), &ex).is_ok());
-        assert!(check_cmd("rg", &args(&["desen"]), &ex).is_ok());
+        assert!(check_cmd("find", &args(&["-name", "x"]), &ex, false).is_ok());
+        assert!(check_cmd("rg", &args(&["desen"]), &ex, false).is_ok());
     }
 
     /// O7 senkronu — `rm` kısa bayrak kümesi char-üyeliğiyle denetlenir
@@ -1407,11 +2732,11 @@ mod tests {
     fn faz8_l3_kullanici_allowlisti_gecerer() {
         let ex = extra(&[("docker", &[&["ps"]]), ("mytool", &[])]);
         // Kullanıcının eklediği komut + prefix eşleşmesi → geçer.
-        assert!(check_cmd("docker", &args(&["ps"]), &ex).is_ok());
+        assert!(check_cmd("docker", &args(&["ps"]), &ex, false).is_ok());
         // Prefix eşleşmiyorsa reddedilir.
-        assert!(check_cmd("docker", &args(&["rm", "-rf"]), &ex).is_err());
+        assert!(check_cmd("docker", &args(&["rm", "-rf"]), &ex, false).is_err());
         // Boş liste = serbest argüman.
-        assert!(check_cmd("mytool", &args(&["-x", "1"]), &ex).is_ok());
+        assert!(check_cmd("mytool", &args(&["-x", "1"]), &ex, false).is_ok());
         // Ek tablo olmadan aynı komut reddedilir.
         assert!(check_cmd2("docker", &args(&["ps"])).is_err());
     }
@@ -1420,9 +2745,9 @@ mod tests {
     fn faz8_l3_yerlesik_ve_ek_tablo_birlestirilir() {
         // Yerleşik "npm" tablosu prefix eşleşmesi yapıyor; ek tablo da birleşir.
         let ex = extra(&[("npm", &[&["run", "build:ozel"]])]);
-        assert!(check_cmd("npm", &args(&["run", "build"]), &ex).is_ok()); // yerleşik
-        assert!(check_cmd("npm", &args(&["run", "build:ozel"]), &ex).is_ok()); // ek
-        assert!(check_cmd("npm", &args(&["install"]), &ex).is_err());
+        assert!(check_cmd("npm", &args(&["run", "build"]), &ex, false).is_ok()); // yerleşik
+        assert!(check_cmd("npm", &args(&["run", "build:ozel"]), &ex, false).is_ok()); // ek
+        assert!(check_cmd("npm", &args(&["install"]), &ex, false).is_err());
     }
 
     /// L1 — kullanıcı ek-allowlist'i dosya argümanı jail'ini GEÇEMEZ
@@ -1430,13 +2755,13 @@ mod tests {
     #[test]
     fn l1_ek_allowlist_dosya_argumani_jailini_asamaz() {
         let ex = extra(&[("touch", &[]), ("cat", &[])]);
-        assert!(check_cmd("touch", &args(&["/etc/pwned"]), &ex).is_err());
-        assert!(check_cmd("touch", &args(&["../kacis.txt"]), &ex).is_err());
-        assert!(check_cmd("touch", &args(&[".env"]), &ex).is_err());
-        assert!(check_cmd("cat", &args(&["../../.ssh/id_rsa"]), &ex).is_err());
+        assert!(check_cmd("touch", &args(&["/etc/pwned"]), &ex, false).is_err());
+        assert!(check_cmd("touch", &args(&["../kacis.txt"]), &ex, false).is_err());
+        assert!(check_cmd("touch", &args(&[".env"]), &ex, false).is_err());
+        assert!(check_cmd("cat", &args(&["../../.ssh/id_rsa"]), &ex, false).is_err());
         // Meşru kullanım etkilenmez.
-        assert!(check_cmd("touch", &args(&["yeni.txt"]), &ex).is_ok());
-        assert!(check_cmd("cat", &args(&["src/app.ts"]), &ex).is_ok());
+        assert!(check_cmd("touch", &args(&["yeni.txt"]), &ex, false).is_ok());
+        assert!(check_cmd("cat", &args(&["src/app.ts"]), &ex, false).is_ok());
     }
 
     /// H2 — dosya argümanı jail'i de büyük/küçük harf duyarlı (exec.rs daha
@@ -1454,7 +2779,28 @@ mod tests {
     fn faz8_l3_ek_tablo_dangerous_komutlari_acmaz() {
         // `rm` ek tabloda olsa bile -f/-r reddedilir (kurallar değişmez).
         let ex = extra(&[("rm", &[&["-rf"]])]);
-        assert!(check_cmd("rm", &args(&["-rf", "x"]), &ex).is_err());
+        assert!(check_cmd("rm", &args(&["-rf", "x"]), &ex, false).is_err());
+    }
+
+    /// Kullanıcı onayı: izin listesinde olmayan komut (ör. `bash`) onay
+    /// kartından geçildiğinde çalıştırılabilir. Ancak sert kilitler
+    /// (rm kuralları, komut-çalıştıran flag'ler, dosya argümanı jail'i)
+    /// onayla da gevşemez.
+    #[test]
+    fn kullanici_onayi_izin_listesi_disi_komutu_acabilir() {
+        let ex = extra(&[]);
+        // Onaysız: reddedilir.
+        assert!(check_cmd("bash", &args(&["-lc", "ls"]), &ex, false).is_err());
+        // Onaylı: allowlist kontrolü atlanır.
+        assert!(check_cmd("bash", &args(&["-lc", "ls"]), &ex, true).is_ok());
+        // Prefix eşleşmeyen yerleşik komut da onayla açılır (ör. `cargo run`).
+        assert!(check_cmd("cargo", &args(&["run"]), &ex, false).is_err());
+        assert!(check_cmd("cargo", &args(&["run"]), &ex, true).is_ok());
+        // Sert kilitler onayla da geçmez.
+        assert!(check_cmd("rm", &args(&["-rf", "x"]), &ex, true).is_err());
+        assert!(check_cmd("find", &args(&["-name", "x", "-exec", "id"]), &ex, true).is_err());
+        assert!(check_cmd("rg", &args(&["--pre", "kotu.sh", "d"]), &ex, true).is_err());
+        assert!(check_cmd("touch", &args(&["/etc/pwned"]), &ex, true).is_err());
     }
 
     #[test]

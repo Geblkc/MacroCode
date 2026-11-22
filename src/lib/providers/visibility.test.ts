@@ -13,6 +13,8 @@ const keys = (over: Partial<ApiKeys> = {}): ApiKeys => ({
   minimax: '',
   moonshotai: '',
   zhipuai: '',
+  nvidia: '',
+  evren: '',
   ...over,
 });
 

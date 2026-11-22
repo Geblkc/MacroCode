@@ -134,6 +134,7 @@ export function buildContext(files: ContextFile[], budget: ContextBudget = {}): 
 export function summarizeWorkspace(paths: string[], rootLabel: string): string {
   const visible = paths.filter((p) => !isIgnoredPath(p));
   const ordered = prioritizeFiles(visible).slice(0, 20);
-  const more = visible.length > ordered.length ? ` · +${visible.length - ordered.length} dosya` : '';
+  const more =
+    visible.length > ordered.length ? ` · +${visible.length - ordered.length} dosya` : '';
   return `/// workspace: ${rootLabel} · ${visible.length} dosya${more}\n/// ${ordered.join(', ')}`;
 }

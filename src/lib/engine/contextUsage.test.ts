@@ -26,7 +26,11 @@ describe('bağlam göstergesi — contextUsage', () => {
   it('son isteğin (lastRequest) girdi+çıktısını kullanır, kümülatif tokens’ı yok sayar', () => {
     const msgs = [
       msg({ id: 'a', tokens: { input: 190_000, output: 5_000 } }),
-      msg({ id: 'b', tokens: { input: 390_000, output: 10_000 }, lastRequest: { input: 150_000, output: 1_000 } }),
+      msg({
+        id: 'b',
+        tokens: { input: 390_000, output: 10_000 },
+        lastRequest: { input: 150_000, output: 1_000 },
+      }),
     ];
     const ctx = contextUsage(msgs, 'yok-boyle-model');
     expect(ctx.used).toBe(151_000);
@@ -41,11 +45,17 @@ describe('bağlam göstergesi — contextUsage', () => {
     expect(CONTEXT_WARN_PERCENT).toBe(75);
     expect(CONTEXT_ERR_PERCENT).toBe(90);
 
-    const warn = contextUsage([msg({ lastRequest: { input: 149_000, output: 0 } })], 'yok-boyle-model');
+    const warn = contextUsage(
+      [msg({ lastRequest: { input: 149_000, output: 0 } })],
+      'yok-boyle-model',
+    );
     expect(warn.percent).toBe(75);
     expect(warn.level).toBe('warn');
 
-    const err = contextUsage([msg({ lastRequest: { input: 180_000, output: 5_000 } })], 'yok-boyle-model');
+    const err = contextUsage(
+      [msg({ lastRequest: { input: 180_000, output: 5_000 } })],
+      'yok-boyle-model',
+    );
     expect(err.percent).toBe(93);
     expect(err.level).toBe('err');
   });

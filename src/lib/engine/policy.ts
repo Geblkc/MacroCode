@@ -6,6 +6,7 @@ import rawAllowlist from './allowlist.json';
 import rawBlocks from './blocks.json';
 import { parseMcpName } from './mcp/registry';
 import { t } from '../i18n/core';
+import { isToolOutputPath } from './toolOutput';
 import type { ApprovalMode, PolicyDecision, ToolName } from './types';
 
 const {
@@ -74,9 +75,7 @@ export function isBlockedExt(name: string): boolean {
  *  H2: büyük/küçük harf duyarsız — macOS/Windows dosya sistemleri `.GIT`'i
  *  `.git` diye çözer, blok listesi küçük harf. */
 export function isBlockedDir(path: string): boolean {
-  return path
-    .split('/')
-    .some((seg) => seg && BLOCKED_DIRS.has(seg.toLowerCase()));
+  return path.split('/').some((seg) => seg && BLOCKED_DIRS.has(seg.toLowerCase()));
 }
 
 /**
@@ -84,7 +83,16 @@ export function isBlockedDir(path: string): boolean {
  * `FILE_ARG_CMDS` ile senkron. Bayraklar (`-la`) ve desenler (`*.ts`) etkilenmez.
  */
 export const FILE_ARG_CMDS: ReadonlySet<string> = new Set([
-  'cat', 'head', 'tail', 'wc', 'find', 'rg', 'ls', 'touch', 'mkdir', 'prettier',
+  'cat',
+  'head',
+  'tail',
+  'wc',
+  'find',
+  'rg',
+  'ls',
+  'touch',
+  'mkdir',
+  'prettier',
 ]);
 
 /**
@@ -129,12 +137,16 @@ export function filePathArgs(cmd: string, args: string[]): string[] {
 export function isFileArgSafe(a: string): boolean {
   const v = a.trim().replace(/\\/g, '/');
   if (!v || v.startsWith('-')) return true; // bayrak
-  if (v.startsWith('/')) return false;      // mutlak yol
+  if (v.startsWith('/')) return false; // mutlak yol
   return !v.split('/').some((seg) => {
     const s = seg.toLowerCase();
-    return seg === '..' || BLOCKED_DIRS.has(s) || BLOCKED_FILES.has(s)
-      || s.startsWith('.env.')
-      || isBlockedExt(seg);
+    return (
+      seg === '..' ||
+      BLOCKED_DIRS.has(s) ||
+      BLOCKED_FILES.has(s) ||
+      s.startsWith('.env.') ||
+      isBlockedExt(seg)
+    );
   });
 }
 
@@ -390,7 +402,11 @@ export function parseCustomAllowList(lines: string[]): Record<string, string[][]
   return table;
 }
 
-export function isExecAllowed(cmd: string, args: string[], extraAllow: Record<string, string[][]> = {}): boolean {
+export function isExecAllowed(
+  cmd: string,
+  args: string[],
+  extraAllow: Record<string, string[][]> = {},
+): boolean {
   const c = cmd.trim();
   // Tehlikeli karakterler hiçbir komutta geçmez.
   if (args.some((a) => a.includes('\n') || a.includes('\0'))) return false;
@@ -415,8 +431,7 @@ export function decideTool(
   args: Record<string, unknown>,
   mode: ApprovalMode,
   extraAllow: Record<string, string[][]> = {},
-): PolicyDecision
-{
+): PolicyDecision {
   if (name === 'glob') {
     const p = typeof args.path === 'string' ? args.path : '';
     if (p && isBlockedFile(p)) {
@@ -436,13 +451,24 @@ export function decideTool(
   }
   if (name === 'read_file' || name === 'list_dir' || name === 'grep') {
     const p = typeof args.path === 'string' ? args.path : '';
-    if (p && isBlockedFile(p)) {
+    const artifactRead = name === 'read_file' && isToolOutputPath(p);
+    // Managed artifact istisnası, normal `.macrocode` erişim kapısından
+    // bağımsızdır; yalnızca yönetilen ad/biçim doğrulamasından geçen dosya
+    // bu yoldan okunabilir.
+    if (p && !artifactRead && isBlockedFile(p)) {
       return { allowed: false, reason: t('policy.forbiddenFile', { path: p }) };
     }
-    if (p && !isPathSafe(p)) {
+    if (p && !artifactRead && !isPathSafe(p)) {
       return { allowed: false, reason: t('policy.outsideRoot') };
     }
     return { allowed: true, autoApproved: true };
+  }
+  if (name === 'create_snapshot') {
+    // Disk yazdığı için yazma sınıfındadır; kaynak dosyaları değiştirmez.
+    if (mode === 'auto-read') {
+      return { allowed: false, reason: t('policy.readOnlyWrite') };
+    }
+    return { allowed: true, autoApproved: mode === 'auto-edit' };
   }
   if (name === 'propose_patch' || name === 'edit_file' || name === 'write_file') {
     // Faz 12 B.7: `auto-read` = **salt-okunur keşif modu** — yazma araçları
@@ -497,7 +523,12 @@ export function decideTool(
       return { allowed: false, reason: jailBreak };
     }
     if (!isExecAllowed(cmd, rawArgs, extraAllow)) {
-      return { allowed: false, reason: t('policy.forbiddenCommand', { cmd }) };
+      // İzin listesinde olmayan komut: doğrudan reddedilmez, **kullanıcıya
+      // sorulur**. Onay kartında "izin listesinde değil" uyarısıyla gösterilir;
+      // kullanıcı onaylarsa komut çalıştırılır (Rust'a `allow_unlisted` ile
+      // bildirilir). Sert kilitler (rm kuralları, komut-çalıştıran flag'ler,
+      // dosya/cwd jail'i) yukarıda zaten elendi — onlar onayla da geçmez.
+      return { allowed: true, autoApproved: false, unlisted: true };
     }
     // Güvenlik (O6 düzeltmesi): exec hiçbir standart modda (manual/auto-read/auto-edit)
     // otomatik onaylanamaz; kabuk komutları her zaman kullanıcı onayı gerektirir.

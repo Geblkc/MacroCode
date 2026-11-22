@@ -22,9 +22,7 @@ export default function TaskPanel({ items }: Props) {
       <div className="tasks-head">
         <Icon name="list-checks" size="sm" />
         {t('task.title')}
-        <span className="cnt">
-          {t('task.progress', { done, total: items.length })}
-        </span>
+        <span className="cnt">{t('task.progress', { done, total: items.length })}</span>
       </div>
       {items.map((task) => (
         <div

@@ -45,7 +45,10 @@ describe('Faz 10 — log kanalı', () => {
 
   it('iç içe nesne ve diziler de redakte edilir', () => {
     const out = redact({
-      req: { headers: { authorization: 'Bearer xyzabcdefghijkl' }, list: [{ apiKey: 'sk-1234567890ab' }] },
+      req: {
+        headers: { authorization: 'Bearer xyzabcdefghijkl' },
+        list: [{ apiKey: 'sk-1234567890ab' }],
+      },
     }) as Record<string, Record<string, Record<string, unknown>>>;
     expect(out.req.headers.authorization).toBe('«redakte»');
     const list = (out.req as unknown as { list: Array<Record<string, unknown>> }).list;
@@ -69,9 +72,7 @@ describe('Faz 10 — log kanalı', () => {
   });
 
   it('L6/L7: URL userinfo ve sorgu parametresi anahtarları redakte edilir', () => {
-    const out = redact(
-      'GET https://ali:gizli@example.com/x?api_key=abc123&model=m',
-    ) as string;
+    const out = redact('GET https://ali:gizli@example.com/x?api_key=abc123&model=m') as string;
     expect(out).not.toContain('gizli');
     expect(out).not.toContain('abc123');
     expect(out).toContain('https://«redakte»@example.com/x?api_key=«redakte»&model=m');

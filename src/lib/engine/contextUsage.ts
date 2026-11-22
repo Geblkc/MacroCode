@@ -6,11 +6,7 @@
  * `Message.tokens` kümülatif olduğu için bağlam için **kullanılmaz**.
  */
 import type { CustomModel, Message } from '../../types';
-import {
-  approxHistoryTokens,
-  compactAtPercent,
-  windowFor,
-} from './tokens';
+import { approxHistoryTokens, compactAtPercent, windowFor } from './tokens';
 
 export const CONTEXT_WARN_PERCENT = 75;
 export const CONTEXT_ERR_PERCENT = 90;

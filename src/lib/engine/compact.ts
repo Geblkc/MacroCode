@@ -48,10 +48,13 @@ export function shouldCompact(history: TokenCountable[], limit: number): boolean
  * Compaction noktası: sondan `keepTokens` kadar tut, tool çiftini koparma.
  * Son mesaj her zaman korunur. Drop boşsa compaction anlamsızdır.
  */
-export function splitAtCompactionPoint<T extends TokenCountable & { role: string; toolCallId?: string; toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }> }>(
-  h: T[],
-  keepTokens: number,
-): { keep: T[]; drop: T[] } {
+export function splitAtCompactionPoint<
+  T extends TokenCountable & {
+    role: string;
+    toolCallId?: string;
+    toolCalls?: Array<{ id: string; name: string; args: Record<string, unknown> }>;
+  },
+>(h: T[], keepTokens: number): { keep: T[]; drop: T[] } {
   if (h.length === 0) return { keep: [], drop: [] };
   let total = 0;
   let start = h.length - 1;
@@ -75,10 +78,7 @@ export function splitAtCompactionPoint<T extends TokenCountable & { role: string
     const first = keep[0];
     if ((first.role === 'tool' || first.role === 'system') && first.toolCallId) {
       const prev = drop[drop.length - 1];
-      if (
-        prev.role === 'assistant' &&
-        prev.toolCalls?.some((c) => c.id === first.toolCallId)
-      ) {
+      if (prev.role === 'assistant' && prev.toolCalls?.some((c) => c.id === first.toolCallId)) {
         keep = [prev, ...keep];
         drop = drop.slice(0, -1);
       }
@@ -165,5 +165,9 @@ export async function compactSessionMessages(
     content: buildSummaryContent(summary, nowTs),
     timestamp: nowTs,
   };
-  return { messages: [summaryMsg, ...tail], dropped: messages.length - tail.length, kept: tail.length };
+  return {
+    messages: [summaryMsg, ...tail],
+    dropped: messages.length - tail.length,
+    kept: tail.length,
+  };
 }

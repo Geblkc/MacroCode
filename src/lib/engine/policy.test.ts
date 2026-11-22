@@ -43,7 +43,9 @@ describe('Faz C — policy', () => {
     expect(decideTool('glob', { pattern: '**/*', path: '.git' }, 'manual').allowed).toBe(false);
 
     // Yazma araçları da reddedilir (auto-edit modunda bile).
-    expect(decideTool('write_file', { path: '.git/hooks/pre-commit' }, 'auto-edit').allowed).toBe(false);
+    expect(decideTool('write_file', { path: '.git/hooks/pre-commit' }, 'auto-edit').allowed).toBe(
+      false,
+    );
     expect(decideTool('edit_file', { path: '.git/config' }, 'auto-edit').allowed).toBe(false);
     expect(decideTool('propose_patch', { path: '.git/config' }, 'auto-edit').allowed).toBe(false);
   });
@@ -58,7 +60,9 @@ describe('Faz C — policy', () => {
     expect(isBlockedFile('.ENV.local')).toBe(true);
     // decideTool yolu da aynı duyarlılıkta.
     expect(decideTool('read_file', { path: '.GIT/config' }, 'manual').allowed).toBe(false);
-    expect(decideTool('write_file', { path: '.GIT/hooks/pre-commit' }, 'auto-edit').allowed).toBe(false);
+    expect(decideTool('write_file', { path: '.GIT/hooks/pre-commit' }, 'auto-edit').allowed).toBe(
+      false,
+    );
     // exec dosya argümanı jail'i (Rust `check_file_arg` ile senkron).
     expect(execFileArgViolation('cat', ['.GIT/config'])).not.toBeNull();
     expect(execFileArgViolation('cat', ['KEYS.JSON'])).not.toBeNull();
@@ -99,7 +103,22 @@ describe('Faz C — policy', () => {
     expect(decideTool('read_file', { path: '../x' }, 'manual').allowed).toBe(false);
   });
 
-  it('M6: git dosya argümanı jail\'i (--, rev:path, -F/--output)', () => {
+  it('read_file managed artifact yoluna izin verir, normal .macrocode kapalı kalır', () => {
+    expect(
+      decideTool('read_file', { path: '.macrocode/tool-outputs/tool-output-abc_123.log' }, 'manual')
+        .allowed,
+    ).toBe(true);
+    expect(decideTool('read_file', { path: '.macrocode/context.md' }, 'manual').allowed).toBe(
+      false,
+    );
+    expect(
+      decideTool('read_file', { path: '.macrocode/tool-outputs/../../outside.log' }, 'manual')
+        .allowed,
+    ).toBe(false);
+    expect(decideTool('grep', { path: '.macrocode/tool-outputs' }, 'manual').allowed).toBe(false);
+  });
+
+  it("M6: git dosya argümanı jail'i (--, rev:path, -F/--output)", () => {
     expect(gitPathArgs(['show', 'HEAD:src/app.ts'])).toContain('src/app.ts');
     expect(gitPathArgs(['log', '--', '.env'])).toContain('.env');
     expect(gitPathArgs(['commit', '-F', 'mesaj.txt'])).toContain('mesaj.txt');
@@ -140,6 +159,37 @@ describe('Faz C — policy', () => {
     expect(decideTool('exec', { cmd: 'rm', args: [] }, 'manual').allowed).toBe(false);
   });
 
+  it('izin listesinde olmayan komut onay kartına düşer (unlisted)', () => {
+    // Kullanıcı onayıyla çalıştırılabilsin: reddedilmez, onay ister.
+    const d = decideTool('exec', { cmd: 'bash', args: ['-lc', 'ls'] }, 'manual');
+    expect(d.allowed).toBe(true);
+    expect(d.autoApproved).toBe(false);
+    expect(d.unlisted).toBe(true);
+
+    // İzin listesindeki komut unlisted değildir.
+    const ok = decideTool('exec', { cmd: 'npm', args: ['--version'] }, 'manual');
+    expect(ok.allowed).toBe(true);
+    expect(ok.unlisted).toBeFalsy();
+
+    // Prefix eşleşmeyen yerleşik komut da unlisted sayılır (ör. `cargo run`).
+    const cargo = decideTool('exec', { cmd: 'cargo', args: ['run'] }, 'manual');
+    expect(cargo.unlisted).toBe(true);
+
+    // Kullanıcı ek allowlist'i komutu izinli yapar → unlisted olmaz.
+    const extra = { bash: [['-lc']] };
+    const allowed = decideTool('exec', { cmd: 'bash', args: ['-lc', 'ls'] }, 'manual', extra);
+    expect(allowed.unlisted).toBeFalsy();
+
+    // Sert kilitler onayla da geçmez.
+    expect(decideTool('exec', { cmd: 'rm', args: ['-rf'] }, 'manual').allowed).toBe(false);
+    expect(
+      decideTool('exec', { cmd: 'find', args: ['.', '-exec', 'sh', '-c', 'id'] }, 'manual').allowed,
+    ).toBe(false);
+    expect(decideTool('exec', { cmd: 'cat', args: ['/etc/passwd'] }, 'manual').allowed).toBe(false);
+    // Salt-okunur modda exec tamamen kapalı.
+    expect(decideTool('exec', { cmd: 'bash', args: [] }, 'auto-read').allowed).toBe(false);
+  });
+
   it('Faz 3: geniş allowlist satırları', () => {
     expect(isExecAllowed('git', ['push'])).toBe(true);
     expect(isExecAllowed('git', ['add', '.'])).toBe(true);
@@ -165,10 +215,13 @@ describe('Faz C — policy', () => {
   });
 
   it('Faz 3 drift: TS tablosu allowlist.json ile birebir aynı', () => {
-    const { _note: _n, _predicates: _p, ...json } = rawAllowlist as unknown as Record<
-      string,
-      string[][]
-    > & { _predicates: Record<string, string[]> };
+    const {
+      _note: _n,
+      _predicates: _p,
+      ...json
+    } = rawAllowlist as unknown as Record<string, string[][]> & {
+      _predicates: Record<string, string[]>;
+    };
     void _n;
     void _p;
     expect(allowedCommands()).toEqual(json);
@@ -213,9 +266,9 @@ describe('Faz C — policy', () => {
     expect(
       decideTool('exec', { cmd: 'rg', args: ['--pre', 'x.sh', 'd'] }, 'manual', extra).allowed,
     ).toBe(false);
-    expect(
-      decideTool('exec', { cmd: 'find', args: ['-name', 'x'] }, 'manual', extra).allowed,
-    ).toBe(true);
+    expect(decideTool('exec', { cmd: 'find', args: ['-name', 'x'] }, 'manual', extra).allowed).toBe(
+      true,
+    );
   });
 
   it('O7: rm bayrak kümesi char-üyeliği ("-1f" tarzı da reddedilir)', () => {
@@ -263,7 +316,7 @@ describe('Faz C — policy', () => {
     expect(dAutoRead.autoApproved).toBeFalsy();
   });
 
-  it('O1 (Faz 4): dosya argümanı jaili decideTool\'da', () => {
+  it("O1 (Faz 4): dosya argümanı jaili decideTool'da", () => {
     const jail = (cmd: string, a: string[]) =>
       decideTool('exec', { cmd, args: a }, 'manual').allowed;
     // Mutlak yol / ../ / bloklu — onay da aşılamaz (policy kararı allowed:false).
@@ -361,8 +414,12 @@ describe('Faz C — policy', () => {
       expect(d.autoApproved, name).toBe(true);
     }
     // Diğer modlar etkilenmez.
-    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'manual').autoApproved).toBe(false);
-    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'auto-edit').autoApproved).toBe(true);
+    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'manual').autoApproved).toBe(
+      false,
+    );
+    expect(decideTool('write_file', { path: 'a.ts', content: 'x' }, 'auto-edit').autoApproved).toBe(
+      true,
+    );
     expect(decideTool('exec', { cmd: 'ls' }, 'auto-edit').autoApproved).toBe(false);
   });
 

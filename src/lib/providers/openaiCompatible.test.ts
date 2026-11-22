@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createOpenAICompatibleProvider } from './openaiCompatible';
-import { PROVIDERS, PROVIDER_IDS, PROVIDER_DEFS, ALL_MODELS, suggestProvider, getProvider } from './index';
+import {
+  PROVIDERS,
+  PROVIDER_IDS,
+  PROVIDER_DEFS,
+  ALL_MODELS,
+  suggestProvider,
+  getProvider,
+} from './index';
 import type { StreamChunk } from './common';
 import { ProviderError } from './common';
 
@@ -45,6 +52,25 @@ describe('openaiCompatible fabrikası', () => {
     const [, opts] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(opts.method).toBe('POST');
     expect((opts.headers as Record<string, string>).authorization).toBe('Bearer k');
+  });
+
+  it('mapModel yalnız istek gövdesindeki kimliği dönüştürür', async () => {
+    const mapped = createOpenAICompatibleProvider({
+      name: 'evren',
+      baseUrl: 'https://evren-llmapi.ssyz.org.tr/v1',
+      mapModel: (id) => id.replace(/^evren\//, ''),
+      models: [],
+    });
+    const fetchImpl = vi.fn(async () => sseResponse([textPayload('ok'), 'data: [DONE]']));
+    await mapped.stream({
+      apiKey: 'evren_llm_test',
+      model: 'evren/glm-5.3',
+      messages: [{ role: 'user', content: 'selam' }],
+      onChunk: () => {},
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const [, opts] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect((JSON.parse(opts.body as string) as { model: string }).model).toBe('glm-5.3');
   });
 
   it('usage chunk taşır', async () => {
@@ -92,7 +118,9 @@ describe('openaiCompatible fabrikası', () => {
     const chunks: StreamChunk[] = [];
     const fetchImpl = vi.fn(async () =>
       sseResponse([
-        data({ usage: { prompt_tokens: 500, completion_tokens: 10, prompt_cache_hit_tokens: 250 } }),
+        data({
+          usage: { prompt_tokens: 500, completion_tokens: 10, prompt_cache_hit_tokens: 250 },
+        }),
         'data: [DONE]',
       ]),
     );
@@ -110,8 +138,22 @@ describe('openaiCompatible fabrikası', () => {
     const chunks: StreamChunk[] = [];
     const fetchImpl = vi.fn(async () =>
       sseResponse([
-        data({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'read_file', arguments: '{"pa' } }] } }] }),
-        data({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a.txt"}' } }] } }] }),
+        data({
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  { index: 0, id: 'call-1', function: { name: 'read_file', arguments: '{"pa' } },
+                ],
+              },
+            },
+          ],
+        }),
+        data({
+          choices: [
+            { delta: { tool_calls: [{ index: 0, function: { arguments: 'th":"a.txt"}' } }] } },
+          ],
+        }),
         'data: [DONE]',
       ]),
     );
@@ -131,9 +173,7 @@ describe('openaiCompatible fabrikası', () => {
   });
 
   it('error payload ProviderError fırlatır', async () => {
-    const fetchImpl = vi.fn(async () =>
-      sseResponse([data({ error: { message: 'kota bitti' } })]),
-    );
+    const fetchImpl = vi.fn(async () => sseResponse([data({ error: { message: 'kota bitti' } })]));
     await expect(
       prov.stream({
         apiKey: 'k',
@@ -252,11 +292,20 @@ describe('openaiCompatible fabrikası', () => {
     });
   });
 
-  it('model maxOutput istek limitine yansır (16k tavan)', async () => {    const p = createOpenAICompatibleProvider({
+  it('model maxOutput istek limitine yansır (16k tavan)', async () => {
+    const p = createOpenAICompatibleProvider({
       name: 'xai',
       baseUrl: 'https://api.x.ai/v1',
       models: [
-        { id: 'grok-4.20', name: 'Grok', provider: 'xai', contextWindow: 256000, supportsVision: true, maxOutput: 16384, capabilities: { tools: true, vision: true, reasoning: true } },
+        {
+          id: 'grok-4.20',
+          name: 'Grok',
+          provider: 'xai',
+          contextWindow: 256000,
+          supportsVision: true,
+          maxOutput: 16384,
+          capabilities: { tools: true, vision: true, reasoning: true },
+        },
       ],
     });
     const fetchImpl = vi.fn(async () => sseResponse(['data: [DONE]']));
@@ -272,7 +321,8 @@ describe('openaiCompatible fabrikası', () => {
     expect(body.max_tokens).toBe(16384);
   });
 
-  it('extraHeaders + mapRole uygulanır', async () => {    const p = createOpenAICompatibleProvider({
+  it('extraHeaders + mapRole uygulanır', async () => {
+    const p = createOpenAICompatibleProvider({
       name: 'openrouter',
       baseUrl: 'https://openrouter.ai/api/v1',
       models: [],
@@ -296,18 +346,25 @@ describe('openaiCompatible fabrikası', () => {
   });
 });
 
-describe('registry bütünlüğü (10 provider)', () => {
+describe('registry bütünlüğü (12 provider)', () => {
+  /** Modelleri yalnızca canlı `/v1/models` keşfinden gelen sağlayıcılar. */
+  const LIVE_ONLY = new Set<string>(['nvidia']);
+
   it('her provider kayıtlı, modelli, default model geçerli', () => {
-    expect(PROVIDER_IDS).toHaveLength(10);
+    expect(PROVIDER_IDS).toHaveLength(12);
     for (const id of PROVIDER_IDS) {
       expect(PROVIDERS[id], id).toBeDefined();
-      expect(PROVIDERS[id].models.length, id).toBeGreaterThan(0);
+      if (!LIVE_ONLY.has(id)) {
+        expect(PROVIDERS[id].models.length, id).toBeGreaterThan(0);
+      }
       const def = PROVIDER_DEFS[id];
       expect(def.defaultModel, id).toBeTruthy();
-      expect(
-        PROVIDERS[id].models.some((m) => m.id === def.defaultModel),
-        `${id} default`,
-      ).toBe(true);
+      if (!LIVE_ONLY.has(id)) {
+        expect(
+          PROVIDERS[id].models.some((m) => m.id === def.defaultModel),
+          `${id} default`,
+        ).toBe(true);
+      }
     }
   });
 

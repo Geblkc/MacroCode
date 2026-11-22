@@ -82,7 +82,10 @@ export class McpClient {
     return {
       protocolVersion:
         typeof result.protocolVersion === 'string' ? result.protocolVersion : 'bilinmiyor',
-      serverInfo: { name: serverInfo?.name ?? 'bilinmiyor', ...(serverInfo?.version ? { version: serverInfo.version } : {}) },
+      serverInfo: {
+        name: serverInfo?.name ?? 'bilinmiyor',
+        ...(serverInfo?.version ? { version: serverInfo.version } : {}),
+      },
     };
   }
 
@@ -91,9 +94,7 @@ export class McpClient {
   }
 
   async callTool(name: string, args: Record<string, unknown> = {}): Promise<McpCallResult> {
-    return parseToolResult(
-      await this.roundTrip('tools/call', { name, arguments: args }),
-    );
+    return parseToolResult(await this.roundTrip('tools/call', { name, arguments: args }));
   }
 
   async close(): Promise<void> {

@@ -68,7 +68,6 @@ describe('Faz 12 B.8 — agent durumu kalıcılığı (run_state)', () => {
     // 2. tur: YENİ run, kayıtlı durumdan (restart simülasyonu).
     const state = JSON.parse(saved) as AgentRunState;
     const events: AgentEvent[] = [];
-    let m = 0;
     const restored = createAgentRun(
       [],
       {
@@ -78,7 +77,6 @@ describe('Faz 12 B.8 — agent durumu kalıcılığı (run_state)', () => {
         workspaceRoot: '/tmp',
         onEvent: (e) => events.push(e),
         streamImpl: async ({ onChunk }) => {
-          m++;
           onChunk({ text: 'devam etti', done: false });
           onChunk({ text: '', done: true });
         },
@@ -124,6 +122,43 @@ describe('Faz 12 B.8 — agent durumu kalıcılığı (run_state)', () => {
     expect(r.kind).toBe('done');
     const s = JSON.parse(run.serialize()) as AgentRunState;
     expect(s.steps).toBe(8);
+  });
+
+  it('restore: döngü koruması onayı geri yüklenir ve aracı çalıştırmaz', async () => {
+    const state: AgentRunState = {
+      msgs: [{ role: 'user', content: 'x' }],
+      steps: 4,
+      finalText: '',
+      usage: null,
+      pending: [{ call: { id: 'g4', name: 'read_file', args: { path: 'a.ts' } }, loopGuard: true }],
+    };
+    let turns = 0;
+    let executed = 0;
+    const run = createAgentRun(
+      [],
+      {
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        workspaceRoot: '/tmp',
+        onEvent: () => {},
+        streamImpl: async ({ onChunk }) => {
+          turns++;
+          onChunk({ text: 'farklı yol', done: false });
+          onChunk({ text: '', done: true });
+        },
+        runToolImpl: async () => {
+          executed++;
+          return 'çalışmamalıydı';
+        },
+      },
+      state,
+    );
+    const r = await run.resolve([{ id: 'g4', approved: true }]);
+    if (r.kind !== 'done') throw new Error('done bekleniyordu');
+    expect(r.text).toContain('farklı yol');
+    expect(turns).toBe(1);
+    expect(executed).toBe(0);
   });
 
   it('restore: pending çağrılar step() ile yeniden bildirilir', async () => {

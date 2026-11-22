@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { getModel } from '../lib/providers';
-import { effortValuesForModel, normalizeEffort, reasoningModeForModel } from '../lib/providers/effort';
+import {
+  effortValuesForModel,
+  normalizeEffort,
+  reasoningModeForModel,
+} from '../lib/providers/effort';
 import type { ReasoningMode } from '../lib/providers/effort';
 import { useT } from '../lib/i18n';
 import type { TranslationKey } from '../lib/i18n/locales/tr';
@@ -114,7 +118,7 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
       if (onDone) onDone();
       else triggerRef.current?.focus();
     },
-    [model, modelParams, setModelParams, setOpen, onDone, mode],
+    [model, modelParams, setModelParams, setOpen, onDone, mode, combined],
   );
 
   // Dış tıklama + Esc: menüyü kapat (Esc'te giriş alanına odak döner).
@@ -187,11 +191,7 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
   if (mode === 'fixed') label = t('effort.fixedOn');
   else if (mode === 'toggle') {
     label =
-      enabled === true
-        ? t('effort.on')
-        : enabled === false
-          ? t('effort.off')
-          : t('effort.auto');
+      enabled === true ? t('effort.on') : enabled === false ? t('effort.off') : t('effort.auto');
   } else if (mode === 'effort') {
     if (combined && enabled === false) label = t('effort.off');
     else label = selected ? effortText(selected) : t('effort.auto');
@@ -229,7 +229,11 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
             <>
               {(['auto', 'on', 'off'] as const).map((v, i) => {
                 const isActive =
-                  v === 'auto' ? enabled === undefined : v === 'on' ? enabled === true : enabled === false;
+                  v === 'auto'
+                    ? enabled === undefined
+                    : v === 'on'
+                      ? enabled === true
+                      : enabled === false;
                 const chooseValue = v === 'auto' ? '' : v;
                 return (
                   <button
@@ -248,7 +252,11 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
                       <Icon name="activity" size="sm" />
                     </span>
                     <span className="effort-option-title">
-                      {v === 'auto' ? t('effort.auto') : v === 'on' ? t('effort.on') : t('effort.off')}
+                      {v === 'auto'
+                        ? t('effort.auto')
+                        : v === 'on'
+                          ? t('effort.on')
+                          : t('effort.off')}
                     </span>
                     {isActive && (
                       <span className="effort-option-check">
@@ -267,7 +275,7 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
                 }}
                 type="button"
                 role="option"
-                aria-selected={!combined ? !selected : (enabled === undefined && !selected)}
+                aria-selected={!combined ? !selected : enabled === undefined && !selected}
                 className={`effort-option${(!combined && !selected) || (combined && enabled === undefined && !selected) ? ' active' : ''}`}
                 onClick={() => choose('')}
                 onKeyDown={(e) => onOptionKey(e, 0, values.length + (combined ? 2 : 1))}
@@ -316,7 +324,9 @@ export default function EffortSelector({ open: openProp, onOpenChange, onDone, d
                   aria-selected={value === selected}
                   className={`effort-option${value === selected ? ' active' : ''}`}
                   onClick={() => choose(value)}
-                  onKeyDown={(e) => onOptionKey(e, i + (combined ? 2 : 1), values.length + (combined ? 2 : 1))}
+                  onKeyDown={(e) =>
+                    onOptionKey(e, i + (combined ? 2 : 1), values.length + (combined ? 2 : 1))
+                  }
                 >
                   <span className="effort-option-icon">
                     <Icon name="activity" size="sm" />

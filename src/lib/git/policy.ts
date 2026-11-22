@@ -6,21 +6,15 @@
  */
 import rawBlocks from '../engine/blocks.json';
 
-const BLOCKED_FILES = new Set<string>(
-  (rawBlocks.files ?? []).map((f) => f.toLowerCase()),
-);
-const BLOCKED_DIRS = new Set<string>(
-  (rawBlocks.dirs ?? []).map((d) => d.toLowerCase()),
-);
+const BLOCKED_FILES = new Set<string>((rawBlocks.files ?? []).map((f) => f.toLowerCase()));
+const BLOCKED_DIRS = new Set<string>((rawBlocks.dirs ?? []).map((d) => d.toLowerCase()));
 const SECRET_EXTS = new Set<string>(
   ((rawBlocks as unknown as { secretExts?: string[] }).secretExts ?? []).map((e) =>
     e.toLowerCase(),
   ),
 );
 const DATA_EXTS = new Set<string>(
-  ((rawBlocks as unknown as { dataExts?: string[] }).dataExts ?? []).map((e) =>
-    e.toLowerCase(),
-  ),
+  ((rawBlocks as unknown as { dataExts?: string[] }).dataExts ?? []).map((e) => e.toLowerCase()),
 );
 
 export const MAX_COMMIT_MESSAGE = 5000;
@@ -64,6 +58,8 @@ export function repoPathError(raw: string): string | null {
 /** Branch adı hızlı kontrolü. Otoriter kontrol Rust `check-ref-format`. */
 export function branchNameError(name: string): string | null {
   if (!name || name.length > 255) return 'git.error.invalidBranch';
+  // Kontrol karakterleri Git ref adlarında yasaktır (kasıtlı aralık).
+  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(name)) return 'git.error.invalidBranch';
   if (name.startsWith('-') || name.startsWith('/') || name.endsWith('/')) {
     return 'git.error.invalidBranch';

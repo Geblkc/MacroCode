@@ -33,7 +33,13 @@ describe('özel uç yardımcıları', () => {
       models: ['m1'],
     });
     expect(prov.models.map((m) => m.id)).toEqual(['m1']);
-    await prov.stream({ apiKey: 'k', model: 'm1', messages: [], onChunk: () => {}, fetchImpl: cap });
+    await prov.stream({
+      apiKey: 'k',
+      model: 'm1',
+      messages: [],
+      onChunk: () => {},
+      fetchImpl: cap,
+    });
     expect(seen).toBe('http://l:1/v1/chat/completions');
   });
 

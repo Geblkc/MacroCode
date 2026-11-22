@@ -24,7 +24,10 @@ describe('Faz 5 — HTTP transport', () => {
     const fetchImpl = vi.fn(async () =>
       res(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { ok: true } })),
     );
-    const t = createHttpTransport({ url: 'https://ornek/mcp', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const t = createHttpTransport({
+      url: 'https://ornek/mcp',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
     await t.send(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }));
     expect(fetchImpl).toHaveBeenCalledOnce();
     expect(await t.read()).toContain('"ok":true');
@@ -34,7 +37,10 @@ describe('Faz 5 — HTTP transport', () => {
 
   it('http hatası McpError olur', async () => {
     const fetchImpl = vi.fn(async () => new Response('x', { status: 500 }));
-    const t = createHttpTransport({ url: 'https://ornek/mcp', fetchImpl: fetchImpl as unknown as typeof fetch });
+    const t = createHttpTransport({
+      url: 'https://ornek/mcp',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
     await expect(t.send('{"jsonrpc":"2.0","id":1}')).rejects.toThrow(/http 500/);
   });
 });

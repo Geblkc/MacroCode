@@ -115,11 +115,7 @@ async function rustFetchImpl(input: RequestInfo | URL, init?: RequestInit): Prom
   }
 
   const body =
-    init?.body == null
-      ? null
-      : typeof init.body === 'string'
-        ? init.body
-        : String(init.body);
+    init?.body == null ? null : typeof init.body === 'string' ? init.body : String(init.body);
 
   const id = nextRequestId++;
   const queue = new EventQueue<string>();
@@ -144,7 +140,8 @@ async function rustFetchImpl(input: RequestInfo | URL, init?: RequestInit): Prom
     }
   });
 
-  const running = invoke('proxy_fetch', { id, url, method, headers, body, on_data: channel })
+  // Tauri v2 Rust komut argümanlarını JS'e camelCase olarak sunar (`on_data` → `onData`).
+  const running = invoke('proxy_fetch', { id, url, method, headers, body, onData: channel })
     .then(() => {
       queue.close();
       resolveMeta();

@@ -1,0 +1,117 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please fill in as much as you
+        can — incomplete reports are hard to reproduce.
+
+        **Do not paste API keys, tokens or private file contents.** Replace them
+        with `***`.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: I reproduced this on the latest release.
+          required: true
+        - label: I removed secrets (API keys, tokens, private code) from this report.
+          required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: MacroCode version
+      description: Settings → About, or the `/version` output.
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Linux (deb/rpm)
+        - Linux (AppImage)
+        - Windows (installer)
+        - Windows (portable)
+        - macOS
+        - Built from source
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Chat / streaming
+        - Agent mode / tools
+        - Git panel
+        - Settings / providers / models
+        - MCP servers
+        - Sessions / persistence
+        - UI / accessibility
+        - Packaging / updates
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Provider / model (if relevant)
+      placeholder: "e.g. Anthropic · claude-sonnet"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open ...
+        2. Type ...
+        3. See ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics / logs
+      description: |
+        Run `/log` inside MacroCode and paste the redacted output. If the app
+        crashed, copy the error screen details ("Copy error details").
+      render: text
+    validations:
+      required: false
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Screenshots or additional context
+    validations:
+      required: false

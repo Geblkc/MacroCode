@@ -8,9 +8,11 @@ vi.mock('../db', async (importOriginal) => {
   return { ...actual, appendAudit: (...args: unknown[]) => auditMock(...args) };
 });
 
-import { createAgentRun, toProviderMessages } from './agent';
+import { createAgentRun, LOOP_GUARD_THRESHOLD, toProviderMessages } from './agent';
 import type { AgentDeps, AgentHistoryItem } from './agent';
 import type { AgentEvent } from './types';
+import { CORE_TOOLS } from './toolspec';
+import { t } from '../i18n/core';
 
 /** Eski `runAgent` yerine: kullanıcı mesajı geçmişe eklenip tek tur çalıştırılır. */
 async function runAgentCompat(
@@ -40,6 +42,7 @@ describe('Faz F — agent loop', () => {
     });
     expect(r.text).toBe('selam');
     expect(r.steps).toBe(1);
+    expect(events[0]?.k).toBe('turn_start');
     expect(events.some((e) => e.k === 'done')).toBe(true);
   });
 
@@ -73,8 +76,286 @@ describe('Faz F — agent loop', () => {
     expect(events.filter((e) => e.k === 'tool_result')).toHaveLength(1);
   });
 
+  it('adım bütçesi araç çağrısıyla tükenince araçsız kapanış turunda cevap üretir', async () => {
+    const events: AgentEvent[] = [];
+    const toolCounts: number[] = [];
+    let n = 0;
+    const r = await runAgentCompat('incele', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      maxSteps: 2,
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ tools, onChunk }) => {
+        toolCounts.push(tools.length);
+        n++;
+        if (n <= 2) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: `c${n}`, name: 'read_file', args: { path: `f${n}.ts` } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'işte son cevap', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () => 'dosya içeriği',
+    });
+
+    expect(r.text).toContain('işte son cevap');
+    // İlk iki turda araçlar açık, kapanış turunda hiç araç verilmedi.
+    expect(toolCounts).toEqual([CORE_TOOLS.length, CORE_TOOLS.length, 0]);
+    expect(events.some((e) => e.k === 'notice')).toBe(true);
+    expect(events.filter((e) => e.k === 'done')).toHaveLength(1);
+  });
+
+  it('varsayılan adım sınırı yok: 8 adımı aşan araç zinciri kesilmez', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    const r = await runAgentCompat('uzun iş', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n <= 10) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: `c${n}`, name: 'read_file', args: { path: `f${n}.ts` } }],
+          });
+        } else {
+          onChunk({ text: 'tamamlandı', done: false });
+        }
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => 'içerik',
+    });
+
+    expect(r.text).toBe('tamamlandı');
+    expect(r.steps).toBe(11);
+    expect(events.filter((e) => e.k === 'tool_call')).toHaveLength(10);
+    // Sınırsız modda "adım sınırına ulaşıldı" uyarısı hiç basılmaz.
+    expect(events.filter((e) => e.k === 'notice')).toHaveLength(0);
+  });
+
+  it('doom-loop: aynı araç aynı girdilerle üst üste çağrılırsa onay istenir', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    let executed = 0;
+    const run = createAgentRun([{ role: 'user', content: 'tekrar' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        onChunk({
+          text: '',
+          done: false,
+          toolCalls: [{ id: `g${n}`, name: 'read_file', args: { path: 'a.ts' } }],
+        });
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => {
+        executed++;
+        return 'içerik';
+      },
+    });
+
+    const r = await run.step();
+    expect(r.kind).toBe('needs-approval');
+    if (r.kind !== 'needs-approval') throw new Error('onay bekleniyordu');
+    expect(r.pending).toHaveLength(1);
+    expect(n).toBe(LOOP_GUARD_THRESHOLD);
+    // 4. çağrı çalıştırılmadan duraklatıldı.
+    expect(executed).toBe(LOOP_GUARD_THRESHOLD - 1);
+    expect(events.filter((e) => e.k === 'tool_result')).toHaveLength(LOOP_GUARD_THRESHOLD - 1);
+    expect(events.some((e) => e.k === 'notice')).toBe(true);
+  });
+
+  it('doom-loop onayı: araç çalıştırılmaz, sayaç sıfırlanır, döngü devam eder', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    let executed = 0;
+    const run = createAgentRun([{ role: 'user', content: 'tekrar' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n <= LOOP_GUARD_THRESHOLD) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: `g${n}`, name: 'read_file', args: { path: 'a.ts' } }],
+          });
+        } else {
+          onChunk({ text: 'farklı yol bulundu', done: false });
+        }
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => {
+        executed++;
+        return 'içerik';
+      },
+    });
+
+    const paused = await run.step();
+    if (paused.kind !== 'needs-approval') throw new Error('onay bekleniyordu');
+    const r = await run.resolve([{ id: paused.pending[0].id, approved: true }]);
+    if (r.kind !== 'done') throw new Error('done bekleniyordu');
+    expect(r.text).toContain('farklı yol bulundu');
+    expect(executed).toBe(LOOP_GUARD_THRESHOLD - 1);
+    expect(events.some((e) => e.k === 'tool_result' && e.id === paused.pending[0].id)).toBe(true);
+  });
+
+  it('izin listesinde olmayan exec komutu onay kartına düşer, onaylanınca çalışır', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    let executed = 0;
+    const run = createAgentRun([{ role: 'user', content: 'kabuk çalıştır' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'x1', name: 'exec', args: { cmd: 'bash', args: ['-lc', 'ls'] } }],
+          });
+        } else {
+          onChunk({ text: 'bitti', done: false });
+        }
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => {
+        executed++;
+        return 'çıktı';
+      },
+    });
+
+    // Reddedilmez: onay kartına düşer (izin listesinde değil).
+    const paused = await run.step();
+    expect(paused.kind).toBe('needs-approval');
+    if (paused.kind !== 'needs-approval') throw new Error('onay bekleniyordu');
+    expect(paused.pending[0].name).toBe('exec');
+    expect(executed).toBe(0);
+
+    // Onaylanınca komut çalıştırılır.
+    const r = await run.resolve([{ id: paused.pending[0].id, approved: true }]);
+    expect(executed).toBe(1);
+    expect(r.kind === 'done' && r.text).toContain('bitti');
+    expect(events.some((e) => e.k === 'tool_result' && e.id === 'x1')).toBe(true);
+  });
+
+  it('izin listesinde olmayan exec reddedilirse çalıştırılmaz', async () => {
+    let n = 0;
+    let executed = 0;
+    const run = createAgentRun([{ role: 'user', content: 'kabuk çalıştır' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: () => {},
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'x1', name: 'exec', args: { cmd: 'bash', args: ['-lc', 'ls'] } }],
+          });
+        } else {
+          onChunk({ text: 'alternatif', done: false });
+        }
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => {
+        executed++;
+        return 'çıktı';
+      },
+    });
+
+    const paused = await run.step();
+    if (paused.kind !== 'needs-approval') throw new Error('onay bekleniyordu');
+    await run.resolve([{ id: paused.pending[0].id, approved: false }]);
+    expect(executed).toBe(0);
+  });
+
+  it('doom-loop reddi: işlemler tamamen durur', async () => {
+    let n = 0;
+    const run = createAgentRun([{ role: 'user', content: 'tekrar' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: () => {},
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        onChunk({
+          text: '',
+          done: false,
+          toolCalls: [{ id: `g${n}`, name: 'read_file', args: { path: 'a.ts' } }],
+        });
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => 'içerik',
+    });
+
+    const paused = await run.step();
+    if (paused.kind !== 'needs-approval') throw new Error('onay bekleniyordu');
+    const r = await run.resolve([{ id: paused.pending[0].id, approved: false }]);
+    expect(r.kind).toBe('done');
+    // Reddedildikten sonra model yeni bir tur daha çağrılmadı.
+    expect(n).toBe(LOOP_GUARD_THRESHOLD);
+  });
+
+  it('doom-loop: farklı argümanlar sayacı sıfırlar', async () => {
+    let n = 0;
+    const run = createAgentRun([{ role: 'user', content: 'tekrar' }], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: () => {},
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n <= 6) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: `g${n}`, name: 'read_file', args: { path: `a${n}.ts` } }],
+          });
+        } else {
+          onChunk({ text: 'tamam', done: false });
+        }
+        onChunk({ text: '', done: true });
+      },
+      runToolImpl: async () => 'içerik',
+    });
+
+    const r = await run.step();
+    if (r.kind !== 'done') throw new Error('done bekleniyordu');
+    expect(r.text).toContain('tamam');
+    expect(n).toBe(7);
+  });
+
   it('yasaklı exec çalıştırılmaz', async () => {
     const events: AgentEvent[] = [];
+    let n = 0;
     await runAgentCompat('sil', [], {
       provider: 'openai',
       apiKey: 'k',
@@ -82,12 +363,19 @@ describe('Faz F — agent loop', () => {
       workspaceRoot: '/tmp',
       onEvent: (e) => events.push(e),
       streamImpl: async ({ onChunk }) => {
-        onChunk({
-          text: '',
-          done: false,
-          toolCalls: [{ id: 'c9', name: 'exec', args: { cmd: 'rm', args: ['-rf'] } }],
-        });
-        onChunk({ text: '', done: true });
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'c9', name: 'exec', args: { cmd: 'rm', args: ['-rf'] } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          // Sınırsız modda döngünün kapanması için araçsız kapanış turu.
+          onChunk({ text: 'reddedildi', done: false });
+          onChunk({ text: '', done: true });
+        }
       },
       runToolImpl: async () => {
         throw new Error('çalışmamalıydı');
@@ -157,10 +445,18 @@ describe('Faz F — agent loop', () => {
         seen.push([...messages]);
         n++;
         if (n === 1) {
-          onChunk({ text: '', done: false, toolCalls: [{ id: 'a1', name: 'exec', args: { cmd: 'ls', args: [] } }] });
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'a1', name: 'exec', args: { cmd: 'ls', args: [] } }],
+          });
           onChunk({ text: '', done: true });
         } else if (n === 2) {
-          onChunk({ text: '', done: false, toolCalls: [{ id: 'a2', name: 'read_file', args: { path: 'x' } }] });
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'a2', name: 'read_file', args: { path: 'x' } }],
+          });
           onChunk({ text: '', done: true });
         } else {
           onChunk({ text: 'bitti', done: false });
@@ -179,7 +475,11 @@ describe('Faz F — agent loop', () => {
     if (r2.kind !== 'done') throw new Error('done bekleniyordu');
     expect(r2.text).toContain('bitti');
     // Üçüncü tur mesajlarında ilk tool geçmişi korunuyor
-    const third = seen[2] as Array<{ role: string; toolCalls?: Array<{ id: string }>; toolCallId?: string }>;
+    const third = seen[2] as Array<{
+      role: string;
+      toolCalls?: Array<{ id: string }>;
+      toolCallId?: string;
+    }>;
     const ids = third.flatMap((m) => [
       ...(m.toolCalls ?? []).map((c) => c.id),
       ...(m.toolCallId ? [m.toolCallId] : []),
@@ -393,7 +693,11 @@ describe('Faz F — agent loop', () => {
       streamImpl: async ({ onChunk }) => {
         n++;
         if (n === 1) {
-          onChunk({ text: '', done: false, toolCalls: [{ id: 'r1', name: 'exec', args: { cmd: 'ls', args: [] } }] });
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'r1', name: 'exec', args: { cmd: 'ls', args: [] } }],
+          });
           onChunk({ text: '', done: true });
         } else {
           onChunk({ text: 'alternatif denedim', done: false });
@@ -412,7 +716,7 @@ describe('Faz F — agent loop', () => {
     expect(done.text).toContain('alternatif');
   });
 
-  it('Y2 (Faz 3): resolve(approved) exec\'i çalıştırır — onay gerekli hatası YOK', async () => {
+  it("Y2 (Faz 3): resolve(approved) exec'i çalıştırır — onay gerekli hatası YOK", async () => {
     // runToolImpl YOK → gerçek defaultRunTool → toolExec akışı test edilir.
     // approve edilmeden guard düşer; approve sonrası invoke noktasına ulaşır.
     const events: AgentEvent[] = [];
@@ -450,7 +754,7 @@ describe('Faz F — agent loop', () => {
     expect(res?.k === 'tool_result' && res.output).toContain('Tauri');
   });
 
-  it('Y2 (Faz 3): resolve(approved=false) exec\'i çalıştırmaz', async () => {
+  it("Y2 (Faz 3): resolve(approved=false) exec'i çalıştırmaz", async () => {
     const events: AgentEvent[] = [];
     let n = 0;
     const run = createAgentRun([{ role: 'user', content: 'koş' }], {
@@ -484,7 +788,11 @@ describe('Faz F — agent loop', () => {
 
   it('Faz 1 C.6: eşleşmeyen tool çifti provider 400 üretmez', () => {
     const msgs = toProviderMessages([
-      { role: 'assistant', content: 'eski', toolCalls: [{ id: 'orphan', name: 'read_file', args: {} }] },
+      {
+        role: 'assistant',
+        content: 'eski',
+        toolCalls: [{ id: 'orphan', name: 'read_file', args: {} }],
+      },
       { role: 'user', content: 'devam' },
     ]);
     // Orphan çağrı metinle birlikte korunur ama boş tool listesi gönderilmez
@@ -495,6 +803,21 @@ describe('Faz F — agent loop', () => {
       { role: 'tool', content: 'sahipsiz', toolCallId: 'yok', toolName: 'exec' },
     ]);
     expect(converted.some((m) => m.role === 'user' && m.content.includes('sahipsiz'))).toBe(true);
+  });
+
+  it('provider metadata tool adını Unicode-safe biçimde sınırlar', () => {
+    const longName = 'x'.repeat(200);
+    const converted = toProviderMessages([
+      {
+        role: 'assistant',
+        content: '',
+        toolCalls: [{ id: 'long-tool', name: longName, args: {} }],
+      },
+      { role: 'tool', content: 'ok', toolCallId: 'long-tool', toolName: longName },
+    ]);
+    const toolMessage = converted.find((m) => m.role === 'tool');
+    expect(toolMessage?.toolName).toHaveLength(128);
+    expect(toolMessage?.toolName?.endsWith('…')).toBe(true);
   });
 
   it('Faz 4: reasoning olayı akar, thinking geçmişe yazılır ve korunur', async () => {
@@ -537,5 +860,208 @@ describe('Faz F — agent loop', () => {
     expect(asst?.thinking).toEqual([{ thinking: 'plan', signature: 'sig-1' }]);
     // usage reasoning birleşir
     expect(events.some((e) => e.k === 'done')).toBe(true);
+  });
+
+  it('Rust tarafından önceden şekillendirilen exec çıktısı da notice üretir', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    await runAgentCompat('çalıştır', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'exec-hard', name: 'read_file', args: { path: 'x' } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'bitti', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () =>
+        '[tool output redirected to file; content omitted]\npath=.macrocode/tool-outputs/tool-output-x.log\nbytes=200000\nlines=30000\nsummary=done\nread_more=read_file(path=".macrocode/tool-outputs/tool-output-x.log", offset=1, limit=200)',
+    });
+
+    expect(events.some((e) => e.k === 'notice')).toBe(true);
+  });
+
+  it('Rust exec artifact yazma hatasını başarı kılınmış gibi göstermez', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    await runAgentCompat('çalıştır', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'exec-failed', name: 'read_file', args: { path: 'x' } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'bitti', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () =>
+        'command timed out\n[tool output truncated; middle omitted]\nHEAD\n[... 100 characters omitted; artifact unavailable; captured 200 bytes, 3 lines ...]\nTAIL\nartifact_error=disk full',
+    });
+
+    expect(events.some((e) => e.k === 'notice' && e.text === t('agent.outputArtifactFailed'))).toBe(
+      true,
+    );
+  });
+
+  it('soft limiti aşan araç çıktısı policy ile şekillendirilir ve notice gönderilir', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    let stored = '';
+    await runAgentCompat('oku', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'long1', name: 'read_file', args: { path: 'buyuk.ts' } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'özet', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () => 'x'.repeat(12_001),
+      outputStore: async (_root, content) => {
+        stored = content;
+        return {
+          id: 'tool-output-test',
+          path: '.macrocode/tool-outputs/tool-output-test.log',
+          bytes: content.length,
+          lines: 1,
+          summary: 'long output',
+        };
+      },
+    });
+
+    expect(stored).toHaveLength(12_001);
+    expect(events.some((e) => e.k === 'notice' && e.text === t('agent.outputClipped'))).toBe(true);
+    const result = events.find((e) => e.k === 'tool_result');
+    expect(result?.k === 'tool_result' && result.output.length).toBeLessThan(12_001);
+    expect(result?.k === 'tool_result' && result.output).toContain(
+      'read_more=read_file(path=".macrocode/tool-outputs/tool-output-test.log"',
+    );
+  });
+
+  it('ithal edilmiş büyük tool sonucunu provider öncesi output policy ile şekillendirir', async () => {
+    const events: AgentEvent[] = [];
+    const seen: unknown[][] = [];
+    const raw = 'X'.repeat(12_001);
+    let storeCalls = 0;
+
+    await runAgentCompat(
+      'devam et',
+      [
+        {
+          role: 'assistant',
+          content: '',
+          toolCalls: [{ id: 'old-call', name: 'read_file', args: { path: 'old.ts' } }],
+        },
+        {
+          role: 'tool',
+          toolCallId: 'old-call',
+          toolName: 'read_file',
+          content: raw,
+        },
+      ],
+      {
+        provider: 'openai',
+        apiKey: 'k',
+        model: 'm',
+        workspaceRoot: '/tmp',
+        onEvent: (e) => events.push(e),
+        outputStore: async (_root, content) => {
+          storeCalls += 1;
+          return {
+            id: 'tool-output-old',
+            path: '.macrocode/tool-outputs/tool-output-old.log',
+            bytes: content.length,
+            lines: 1,
+            summary: 'old output',
+          };
+        },
+        streamImpl: async ({ messages, onChunk }) => {
+          seen.push(messages);
+          onChunk({ text: 'devam', done: false });
+          onChunk({ text: '', done: true });
+        },
+      },
+    );
+
+    expect(storeCalls).toBe(1);
+    expect(seen).toHaveLength(1);
+    const providerText = JSON.stringify(seen[0]);
+    expect(providerText).not.toContain(raw);
+    expect(providerText).toContain('[tool output truncated; middle omitted]');
+    expect(providerText).toContain('read_more=read_file');
+    expect(providerText).toContain('.macrocode/tool-outputs/tool-output-old.log');
+    expect(events.some((e) => e.k === 'notice' && e.text === t('agent.outputClipped'))).toBe(true);
+  });
+
+  it('artifact oluşturulamazsa başarısız tool çıktısında ayrı notice gönderir', async () => {
+    const events: AgentEvent[] = [];
+    let n = 0;
+    await runAgentCompat('oku', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      onEvent: (e) => events.push(e),
+      streamImpl: async ({ onChunk }) => {
+        n++;
+        if (n === 1) {
+          onChunk({
+            text: '',
+            done: false,
+            toolCalls: [{ id: 'long-error', name: 'read_file', args: { path: 'buyuk.ts' } }],
+          });
+          onChunk({ text: '', done: true });
+        } else {
+          onChunk({ text: 'özet', done: false });
+          onChunk({ text: '', done: true });
+        }
+      },
+      runToolImpl: async () => {
+        throw new Error(`${'A'.repeat(4_000)}${'M'.repeat(6_001)}${'Z'.repeat(2_000)}`);
+      },
+      outputStore: async () => {
+        throw new Error('disk full');
+      },
+    });
+
+    expect(events.some((e) => e.k === 'notice' && e.text === t('agent.outputArtifactFailed'))).toBe(
+      true,
+    );
+    const result = events.find((e) => e.k === 'tool_result');
+    expect(result?.k === 'tool_result' && result.ok).toBe(false);
+    expect(result?.k === 'tool_result' && result.output).toContain('artifact_error=disk full');
+    expect(result?.k === 'tool_result' && result.output).not.toContain('M'.repeat(100));
   });
 });

@@ -55,9 +55,7 @@ export function effortValuesForModel(model: Model | undefined): string[] {
   if (option) {
     const values = [
       ...new Set(
-        option.values
-          .map((v) => normalizeEffort(v))
-          .filter((v): v is string => v !== undefined),
+        option.values.map((v) => normalizeEffort(v)).filter((v): v is string => v !== undefined),
       ),
     ];
     if (values.length > 0) return values;

@@ -20,7 +20,7 @@ export const COMMIT_SYSTEM_PROMPT = [
   'Use the Conventional Commits format (e.g. "feat(scope): summary").',
   'First line max 72 characters, imperative mood, no trailing period.',
   'Add a short body only when it materially helps (wrap at 72 chars).',
-  "Match the language of the recent commit subjects; if they are mixed or empty, use English.",
+  'Match the language of the recent commit subjects; if they are mixed or empty, use English.',
   'Never invent changes that are not present in the diff.',
 ].join(' ');
 

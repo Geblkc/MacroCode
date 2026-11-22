@@ -18,17 +18,97 @@ import { createToolCallId } from '../engine/types';
 import { isTauriRuntime, streamAnthropicViaRust } from './rustStream';
 
 const MODELS: AIProvider['models'] = [
-  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
+  {
+    id: 'claude-opus-5-5',
+    name: 'Claude Opus 5.5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
   // Faz 12: kullanıcı listesinden eklenen modeller (models.dev limit/fiyat verisiyle).
-  { id: 'claude-opus-5', name: 'Claude Opus 5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-sonnet-5', name: 'Claude Sonnet 5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-fable-5', name: 'Claude Fable 5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-mythos-5', name: 'Claude Mythos 5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-opus-4-8', name: 'Claude Opus 4.8', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-opus-4-7', name: 'Claude Opus 4.7', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
-  { id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: false } },
-  { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', provider: 'anthropic', contextWindow: 1000000, supportsVision: true, maxOutput: 128000, capabilities: { tools: true, vision: true, reasoning: true } },
+  {
+    id: 'claude-opus-5',
+    name: 'Claude Opus 5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-sonnet-5',
+    name: 'Claude Sonnet 5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-fable-5',
+    name: 'Claude Fable 5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-mythos-5',
+    name: 'Claude Mythos 5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-opus-4-8',
+    name: 'Claude Opus 4.8',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-opus-4-7',
+    name: 'Claude Opus 4.7',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-sonnet-5-5',
+    name: 'Claude Sonnet 5.5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
+  {
+    id: 'claude-haiku-5-5',
+    name: 'Claude Haiku 5.5',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: false },
+  },
+  {
+    id: 'claude-fable-5-1',
+    name: 'Claude Fable 5.1',
+    provider: 'anthropic',
+    contextWindow: 1000000,
+    supportsVision: true,
+    maxOutput: 128000,
+    capabilities: { tools: true, vision: true, reasoning: true },
+  },
 ];
 
 /**
@@ -108,9 +188,9 @@ export function buildAnthropicMessages(
   // Faz 11: prompt cache — önek (system + mesajlar) yeterince büyükse son
   // kullanıcı bloğu `cache_control` ile işaretlenir (API kısa önekte 400 döner).
   if (opts.cachePrompts && opts.model) {
-    const prefixTokens = approxTokens(opts.systemText ?? '') + approxTokens(
-      rawMessages.map((m) => m.content ?? '').join('\n'),
-    );
+    const prefixTokens =
+      approxTokens(opts.systemText ?? '') +
+      approxTokens(rawMessages.map((m) => m.content ?? '').join('\n'));
     if (cacheableBySize(prefixTokens, opts.model)) {
       markCacheControl(out as Array<{ role: string; content: unknown }>, opts.model, prefixTokens);
     }
@@ -133,10 +213,7 @@ export const anthropicProvider: AIProvider = {
     const p = sanitizeParams(config.params);
     // Kullanıcının maxTokens girdisi de tavana tabidir (tutarlılık: openai-uyumlu
     // sağlayıcılar zaten böyle yapıyordu).
-    const maxTokens = Math.min(
-      p.maxTokens ?? registryMax ?? 4096,
-      MAX_OUTPUT_TOKEN_CAP,
-    );
+    const maxTokens = Math.min(p.maxTokens ?? registryMax ?? 4096, MAX_OUTPUT_TOKEN_CAP);
     // Thinking yalnızca reasoning capability'li modelde anlamlıdır. Thinking'te
     // temperature 1'e sabitlenir ve top_p gönderilmez (API 400 verir).
     const hasThinking = p.thinkingBudget !== undefined && (record?.capabilities.reasoning ?? false);
@@ -147,7 +224,8 @@ export const anthropicProvider: AIProvider = {
     // ayarı korunur, efor seçildiyse ayrıca gönderilir.
     const effort = p.reasoningEffort;
     const outputConfig = effort ? { effort } : undefined;
-    const tools = config.tools && config.tools.length > 0 ? toAnthropicTools(config.tools) : undefined;
+    const tools =
+      config.tools && config.tools.length > 0 ? toAnthropicTools(config.tools) : undefined;
     // Faz 7 A2: compaction özeti ve kalıcı sistem mesajları istek gövdesinin
     // `system` alanına taşınır (Anthropic `messages` dizisinde system rolü yok).
     const systemText = [systemPrompt?.trim(), systemTextOf(messages)].filter(Boolean).join('\n\n');
@@ -258,25 +336,20 @@ export const anthropicProvider: AIProvider = {
         if (json.type === 'message_start' && startUsage) {
           const cacheRead = toUsageCount(startUsage.cache_read_input_tokens);
           const cacheWrite = toUsageCount(startUsage.cache_creation_input_tokens);
-          const totalInput =
-            toUsageCount(startUsage.input_tokens) + cacheRead + cacheWrite;
-          const u = toUsage(
-            totalInput,
-            startUsage.output_tokens,
-            undefined,
-            cacheRead,
-            cacheWrite,
-          );
+          const totalInput = toUsageCount(startUsage.input_tokens) + cacheRead + cacheWrite;
+          const u = toUsage(totalInput, startUsage.output_tokens, undefined, cacheRead, cacheWrite);
           if (u) onChunk({ text: '', done: false, usage: u });
         }
         // message_delta: { usage: { output_tokens } } (kumulatif)
-        const deltaUsage = json.usage as { input_tokens?: unknown; output_tokens?: unknown } | undefined;
+        const deltaUsage = json.usage as
+          { input_tokens?: unknown; output_tokens?: unknown } | undefined;
         if (json.type === 'message_delta' && deltaUsage) {
           const u = toUsage(deltaUsage.input_tokens, deltaUsage.output_tokens);
           if (u) onChunk({ text: '', done: false, usage: u });
         }
         if (json.type === 'content_block_start') {
-          const block = json.content_block as { type?: string; id?: string; name?: string } | undefined;
+          const block = json.content_block as
+            { type?: string; id?: string; name?: string } | undefined;
           const index = typeof json.index === 'number' ? json.index : -1;
           if (block?.type === 'tool_use' && index >= 0) {
             toolStarts.set(index, {
@@ -286,17 +359,33 @@ export const anthropicProvider: AIProvider = {
             if (!toolJson.has(index)) toolJson.set(index, '');
           }
         }
-        const delta = json.delta as { type?: string; text?: string; thinking?: string; signature?: string; partial_json?: string } | undefined;
+        const delta = json.delta as
+          | {
+              type?: string;
+              text?: string;
+              thinking?: string;
+              signature?: string;
+              partial_json?: string;
+            }
+          | undefined;
         if (json.type === 'content_block_delta' && delta?.type === 'text_delta' && delta.text) {
           onChunk({ text: delta.text, done: false });
         }
         // Faz 4: extended thinking akışı (dim blokta gösterilir).
-        if (json.type === 'content_block_delta' && delta?.type === 'thinking_delta' && delta.thinking) {
+        if (
+          json.type === 'content_block_delta' &&
+          delta?.type === 'thinking_delta' &&
+          delta.thinking
+        ) {
           const index = typeof json.index === 'number' ? json.index : -1;
           if (index >= 0) thinkingText.set(index, (thinkingText.get(index) ?? '') + delta.thinking);
           onChunk({ text: '', done: false, reasoning: delta.thinking });
         }
-        if (json.type === 'content_block_delta' && delta?.type === 'signature_delta' && delta.signature) {
+        if (
+          json.type === 'content_block_delta' &&
+          delta?.type === 'signature_delta' &&
+          delta.signature
+        ) {
           const index = typeof json.index === 'number' ? json.index : -1;
           if (index >= 0) thinkingSig.set(index, (thinkingSig.get(index) ?? '') + delta.signature);
         }

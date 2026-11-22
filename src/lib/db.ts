@@ -2,6 +2,7 @@ import type { Session } from '../types';
 import { migrateProviderModel, PROVIDER_IDS } from './providers';
 import { isTauri } from './tauri';
 import { logError, redact } from './logger';
+import { errorMessage, isDatabaseBusyError } from './dbErrors';
 
 export const DB_URL = 'sqlite:sessions.db';
 export const SESSIONS_TABLE_SQL =
@@ -9,10 +10,10 @@ export const SESSIONS_TABLE_SQL =
 export const PENDING_APPROVALS_TABLE_SQL =
   'CREATE TABLE IF NOT EXISTS pending_approvals (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, call_data TEXT NOT NULL, run_state TEXT, created_at INTEGER NOT NULL);';
 export const AUDIT_TABLE_SQL =
-  'CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, args_preview TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL);'
+  'CREATE TABLE IF NOT EXISTS audit_log (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, tool TEXT NOT NULL, args_preview TEXT NOT NULL, decision TEXT NOT NULL, result TEXT NOT NULL);';
 
 export const USAGE_TABLE_SQL =
-  'CREATE TABLE IF NOT EXISTS usage_events (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, project TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, ttft_ms INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT \'ok\', cost_usd REAL NOT NULL DEFAULT 0, estimated INTEGER NOT NULL DEFAULT 0, tool_name TEXT, tool_ms INTEGER NOT NULL DEFAULT 0);';
+  "CREATE TABLE IF NOT EXISTS usage_events (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, session_id TEXT NOT NULL, provider TEXT NOT NULL, model TEXT NOT NULL, project TEXT, input_tokens INTEGER NOT NULL DEFAULT 0, output_tokens INTEGER NOT NULL DEFAULT 0, reasoning_tokens INTEGER NOT NULL DEFAULT 0, cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0, latency_ms INTEGER NOT NULL DEFAULT 0, ttft_ms INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'ok', cost_usd REAL NOT NULL DEFAULT 0, estimated INTEGER NOT NULL DEFAULT 0, tool_name TEXT, tool_ms INTEGER NOT NULL DEFAULT 0);";
 
 const META_ID = '__meta__';
 
@@ -20,6 +21,75 @@ const META_ID = '__meta__';
 export interface SqlDatabase {
   execute(query: string, bindValues?: unknown[]): Promise<unknown>;
   select<T>(query: string, bindValues?: unknown[]): Promise<T>;
+}
+
+/**
+ * SQLite yazma kuyruğu.
+ *
+ * `tauri-plugin-sql` bağlantı havuzu kullanır ve her `execute` çağrısı
+ * farklı bir bağlantıya düşebilir. Bu nedenle `BEGIN`/`COMMIT` komutlarını
+ * ayrı `execute` çağrılarıyla göndermek güvenli değildir: transaction bir
+ * bağlantıda açılıp diğerinde kapatılabiliyor ve kilitli bağlantı havuzda
+ * kalıyordu. Buna ek olarak agent döngüsünde audit/usage/onay yazmaları
+ * birbirleriyle yarışıyordu.
+ *
+ * Tüm uygulama içi yazmaları bu kuyrukta sıraya alıyoruz. Okuma işlemleri
+ * WAL modunda yazıcıyı bloklamaz.
+ */
+let sqlWriteTail: Promise<void> = Promise.resolve();
+
+/** Verilen yazma işlemini uygulama içi FIFO kuyruğuna alır. */
+export function withSqlWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+  const result = sqlWriteTail.then(operation, operation);
+  // Kuyruk zinciri her zaman çözülmüş bir Promise olarak devam etmeli;
+  // aksi halde bir hata sonraki tüm yazmaları reddedilmiş kabul eder.
+  sqlWriteTail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/** SQLITE_BUSY için kısa, sınırlı yeniden denemeler. */
+const SQLITE_BUSY_RETRY_DELAYS_MS = [50];
+
+async function retrySqliteBusy<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= SQLITE_BUSY_RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      if (!isDatabaseBusyError(error) || attempt === SQLITE_BUSY_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, SQLITE_BUSY_RETRY_DELAYS_MS[attempt]);
+      });
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * Tek bir yazma işlemini sıraya alır ve geçici SQLite kilitlerini yeniden dener.
+ * Tablo oluşturma gibi ek işlemler çağıran taraflara bırakılmıştır.
+ */
+export async function executeSqlWrite<T>(
+  operation: (db: SqlDatabase) => Promise<T>,
+  provided?: SqlDatabase,
+): Promise<T> {
+  const db = await openDb(provided);
+  if (!db) throw new Error('SQLite veritabanı açılamadı');
+  try {
+    const result = await withSqlWriteLock(() => retrySqliteBusy(() => operation(db)));
+    lastDbError = null;
+    return result;
+  } catch (error) {
+    lastDbError = errorMessage(error);
+    logError('db.write.failed', { error: lastDbError });
+    throw error;
+  }
 }
 
 interface SessionRow {
@@ -47,6 +117,26 @@ export function sqlError(): string | null {
  */
 let dbPromise: Promise<SqlDatabase | null> | null = null;
 
+/** SQLite'ı WAL moduna geçirir; okuyucular yazıcıyı bloklamaz. */
+async function configureSqlite(db: SqlDatabase): Promise<void> {
+  // WAL veritabanı kalıcı bir özelliktir; bağlantı havuzu açıldıktan sonra
+  // bir kez ayarlamak yeterlidir. Mevcut bir bağlantı kilitliyse bu ayar
+  // başarısız olabilir; asıl yazma işlemleri yine güvenli biçimde kuyruğa alınır.
+  try {
+    await retrySqliteBusy(() => db.execute('PRAGMA journal_mode = WAL'));
+  } catch (error) {
+    logError('db.wal.failed', { error: errorMessage(error) });
+  }
+  // busy_timeout bağlantı başına ayarlanır. SQLx'in varsayılanı 5 saniyedir;
+  // aynı değer korunur, ancak uygulama içi yazmalar zaten FIFO kuyruğunda
+  // olduğu için kalıcı bir dış kilitte agent çok uzun beklemez.
+  try {
+    await retrySqliteBusy(() => db.execute('PRAGMA busy_timeout = 5000'));
+  } catch (error) {
+    logError('db.busy_timeout.failed', { error: errorMessage(error) });
+  }
+}
+
 async function openDb(provided?: SqlDatabase): Promise<SqlDatabase | null> {
   if (provided) return provided;
   if (!isTauri()) return null;
@@ -55,6 +145,7 @@ async function openDb(provided?: SqlDatabase): Promise<SqlDatabase | null> {
       try {
         const { default: Database } = await import('@tauri-apps/plugin-sql');
         const db = (await Database.load(DB_URL)) as unknown as SqlDatabase;
+        await configureSqlite(db);
         await db.execute(SESSIONS_TABLE_SQL);
         await db.execute(PENDING_APPROVALS_TABLE_SQL);
         await db.execute(AUDIT_TABLE_SQL);
@@ -70,7 +161,7 @@ async function openDb(provided?: SqlDatabase): Promise<SqlDatabase | null> {
         lastDbError = null;
         return db;
       } catch (e) {
-        lastDbError = e instanceof Error ? e.message : String(e);
+        lastDbError = errorMessage(e);
         logError('db.open.failed', { error: lastDbError });
         // Başarısızlıkta önbellek düşürülür → sonraki çağrı yeniden dener.
         dbPromise = null;
@@ -150,9 +241,63 @@ export async function loadSessionsFromDb(provided?: SqlDatabase): Promise<Loaded
   }
 }
 
-/** Session'lari SQLite'a yazar. Basarisizsa `false` (localStorage yedegi durur).
- *  Atomik UPSERT: transaction icinde `INSERT OR REPLACE` + stale silme.
- *  `DELETE FROM sessions` full-snapshot kullanilmaz (crash'ta veri kaybi + O(n) IPC). */
+/** Rust tarafındaki tek-connection transaction ile snapshot'ı yazar. */
+async function saveSessionsWithRust(
+  sessions: Session[],
+  activeSessionId: string | null,
+): Promise<void> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  await invoke('db_save_sessions', {
+    db: DB_URL,
+    sessions: sessions.map((session) => ({ id: session.id, data: JSON.stringify(session) })),
+    activeSessionId,
+  });
+}
+
+/**
+ * Transaction'sız fallback (yalnızca test/fake veya eski Rust binary için).
+ *
+ * Önceki uygulama `BEGIN IMMEDIATE`, `INSERT` ve `COMMIT` çağrılarını ayrı
+ * `execute` çağrılarına bölüyordu. Plugin bağlantı havuzunda bu çağrılar
+ * farklı bağlantılara düşebildiği için transaction açıkta kalıyor ve sonraki
+ * yazmalar `database is locked` ile başarısız oluyordu. Bu yol bilinçli olarak
+ * transaction kullanmaz; gerçek Tauri binary'sinde Rust command atomik yazma
+ * sağlar.
+ */
+async function saveSessionsWithoutTransaction(
+  db: SqlDatabase,
+  sessions: Session[],
+  activeSessionId: string | null,
+): Promise<void> {
+  await db.execute(SESSIONS_TABLE_SQL);
+  for (const session of sessions) {
+    await db.execute('INSERT OR REPLACE INTO sessions (id, data) VALUES ($1, $2)', [
+      session.id,
+      JSON.stringify(session),
+    ]);
+  }
+  await db.execute('INSERT OR REPLACE INTO sessions (id, data) VALUES ($1, $2)', [
+    META_ID,
+    JSON.stringify({ activeSessionId }),
+  ]);
+  if (sessions.length > 0) {
+    const placeholders = sessions.map((_, i) => `$${i + 2}`).join(', ');
+    await db.execute(`DELETE FROM sessions WHERE id != $1 AND id NOT IN (${placeholders})`, [
+      META_ID,
+      ...sessions.map((s) => s.id),
+    ]);
+  } else {
+    await db.execute('DELETE FROM sessions WHERE id != $1', [META_ID]);
+  }
+}
+
+/**
+ * Session'ları SQLite'a yazar. Başarısızsa `false` döner; localStorage yedeği
+ * bu durumda devrede kalır.
+ *
+ * Tauri'da snapshot tek bir Rust transaction'ında yazılır. Böylece havuzdaki
+ * farklı bağlantılara bölünen `BEGIN/COMMIT` çağrıları ortadan kalkar.
+ */
 export async function saveSessionsToDb(
   sessions: Session[],
   activeSessionId: string | null,
@@ -161,43 +306,33 @@ export async function saveSessionsToDb(
   const db = await openDb(provided);
   if (!db) return false;
   try {
-    await db.execute(SESSIONS_TABLE_SQL);
-    await db.execute(PENDING_APPROVALS_TABLE_SQL);
-    await db.execute(AUDIT_TABLE_SQL);
-    await db.execute('BEGIN IMMEDIATE');
-    try {
-      for (const s of sessions) {
-        await db.execute('INSERT OR REPLACE INTO sessions (id, data) VALUES ($1, $2)', [
-          s.id,
-          JSON.stringify(s),
-        ]);
-      }
-      await db.execute('INSERT OR REPLACE INTO sessions (id, data) VALUES ($1, $2)', [
-        META_ID,
-        JSON.stringify({ activeSessionId }),
-      ]);
-      if (sessions.length > 0) {
-        const placeholders = sessions.map((_, i) => `$${i + 2}`).join(', ');
-        await db.execute(
-          `DELETE FROM sessions WHERE id != $1 AND id NOT IN (${placeholders})`,
-          [META_ID, ...sessions.map((s) => s.id)],
-        );
-      } else {
-        await db.execute('DELETE FROM sessions WHERE id != $1', [META_ID]);
-      }
-      await db.execute('COMMIT');
-    } catch (inner) {
-      try {
-        await db.execute('ROLLBACK');
-      } catch {
-        // ROLLBACK hatasi yoksayilir; dis catch `false` donecek.
-      }
-      throw inner;
-    }
+    await withSqlWriteLock(() =>
+      retrySqliteBusy(async () => {
+        if (!provided && isTauri()) {
+          try {
+            await saveSessionsWithRust(sessions, activeSessionId);
+            return;
+          } catch (error) {
+            // Yeni Rust binary'si yoksa eski yazma yoluna düş; kilit hatası
+            // ise retry'ye bırakılsın.
+            const message = errorMessage(error).toLowerCase();
+            if (
+              !message.includes('unknown command') &&
+              !message.includes('not found') &&
+              !message.includes('db_save_sessions')
+            ) {
+              throw error;
+            }
+          }
+        }
+        await saveSessionsWithoutTransaction(db, sessions, activeSessionId);
+      }),
+    );
+    lastDbError = null;
     return true;
   } catch (e) {
     // O7: sessiz hata yolu kapandı — `sqlError()` ile boot uyarısı okunabilir.
-    lastDbError = e instanceof Error ? e.message : String(e);
+    lastDbError = errorMessage(e);
     logError('db.save.failed', { error: lastDbError });
     return false;
   }
@@ -235,7 +370,8 @@ export function createSessionPersister(
   return { schedule, flush };
 }
 
-export type AuditDecision = 'allowed-auto' | 'allowed-approval' | 'denied' | 'approved' | 'rejected';
+export type AuditDecision =
+  'allowed-auto' | 'allowed-approval' | 'denied' | 'approved' | 'rejected';
 
 export interface AuditEntry {
   sessionId: string;
@@ -275,22 +411,22 @@ export interface UsageEvent {
 
 /** Ateşle-bırak yazım (akışı durdurmaz; hata false döner). */
 export async function appendAudit(e: AuditEntry, provided?: SqlDatabase): Promise<boolean> {
-  const db = await openDb(provided);
-  if (!db) return false;
+  const id = `audit-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  // L6/L7: denetim kaydı kalıcı bir log'dur — araç argümanları/sonuçları
+  // API anahtarı veya token içerebilir (ör. MCP env). Yazmadan önce redakte et.
+  const argsPreview = redact(e.argsPreview) as string;
+  const result = redact(e.result) as string;
   try {
-    await db.execute(AUDIT_TABLE_SQL);
-    const id = `audit-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
-    // L6/L7: denetim kaydı kalıcı bir log'dur — araç argümanları/sonuçları
-    // API anahtarı veya token içerebilir (ör. MCP env). Yazmadan önce redakte et.
-    const argsPreview = redact(e.argsPreview) as string;
-    const result = redact(e.result) as string;
-    await db.execute(
-      'INSERT INTO audit_log (id, ts, session_id, tool, args_preview, decision, result) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-      [id, Date.now(), e.sessionId, e.tool, argsPreview, e.decision, result],
+    await executeSqlWrite(
+      (db) =>
+        db.execute(
+          'INSERT INTO audit_log (id, ts, session_id, tool, args_preview, decision, result) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+          [id, Date.now(), e.sessionId, e.tool, argsPreview, e.decision, result],
+        ),
+      provided,
     );
     return true;
-  } catch (e) {
-    lastDbError = e instanceof Error ? e.message : String(e);
+  } catch {
     return false;
   }
 }
@@ -304,7 +440,6 @@ export async function readAuditLog(
   const db = await openDb(provided);
   if (!db) return [];
   try {
-    await db.execute(AUDIT_TABLE_SQL);
     const rows = await db.select<Array<Record<string, unknown>>>(
       'SELECT id, ts, session_id, tool, args_preview, decision, result FROM audit_log WHERE session_id = $1 ORDER BY ts DESC LIMIT $2',
       [sessionId, Math.min(Math.max(limit, 1), 100)],
@@ -324,11 +459,14 @@ export async function readAuditLog(
   }
 }
 
-export async function readUsageLog(sessionId: string, limit = 20, provided?: SqlDatabase): Promise<UsageEvent[]> {
+export async function readUsageLog(
+  sessionId: string,
+  limit = 20,
+  provided?: SqlDatabase,
+): Promise<UsageEvent[]> {
   const db = await openDb(provided);
   if (!db) return [];
   try {
-    await db.execute(USAGE_TABLE_SQL);
     const rows = await db.select<Array<Record<string, unknown>>>(
       'SELECT id, ts, session_id, provider, model, project, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, latency_ms, ttft_ms, status, cost_usd, estimated, tool_name, tool_ms FROM usage_events WHERE session_id = $1 ORDER BY ts DESC LIMIT $2',
       [sessionId, Math.min(Math.max(limit, 1), 100)],
@@ -363,47 +501,44 @@ export async function appendUsageEvent(
   event: UsageEvent,
   provided?: SqlDatabase,
 ): Promise<boolean> {
-  const db = await openDb(provided);
-  if (!db) return false;
   try {
-    await db.execute(USAGE_TABLE_SQL);
-    await db.execute(
-      'INSERT INTO usage_events (id, ts, session_id, provider, model, project, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, latency_ms, ttft_ms, status, cost_usd, estimated, tool_name, tool_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)',
-      [
-        event.id,
-        event.ts,
-        event.sessionId,
-        event.provider,
-        event.model,
-        event.project ?? null,
-        event.inputTokens,
-        event.outputTokens,
-        event.reasoningTokens,
-        event.cacheReadTokens,
-        event.cacheWriteTokens,
-        event.latencyMs,
-        event.ttftMs,
-        event.status,
-        event.costUsd,
-        event.estimated,
-        event.toolName ?? null,
-        event.toolMs,
-      ],
+    await executeSqlWrite(
+      (db) =>
+        db.execute(
+          'INSERT INTO usage_events (id, ts, session_id, provider, model, project, input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens, latency_ms, ttft_ms, status, cost_usd, estimated, tool_name, tool_ms) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)',
+          [
+            event.id,
+            event.ts,
+            event.sessionId,
+            event.provider,
+            event.model,
+            event.project ?? null,
+            event.inputTokens,
+            event.outputTokens,
+            event.reasoningTokens,
+            event.cacheReadTokens,
+            event.cacheWriteTokens,
+            event.latencyMs,
+            event.ttftMs,
+            event.status,
+            event.costUsd,
+            event.estimated,
+            event.toolName ?? null,
+            event.toolMs,
+          ],
+        ),
+      provided,
     );
     return true;
-  } catch (e) {
-    lastDbError = e instanceof Error ? e.message : String(e);
+  } catch {
     return false;
   }
 }
 
-export async function readAllUsageEvents(
-  provided?: SqlDatabase,
-): Promise<UsageEvent[]> {
+export async function readAllUsageEvents(provided?: SqlDatabase): Promise<UsageEvent[]> {
   const db = await openDb(provided);
   if (!db) return [];
   try {
-    await db.execute(USAGE_TABLE_SQL);
     const rows = await db.select<Array<Record<string, unknown>>>(
       'SELECT * FROM usage_events ORDER BY ts DESC LIMIT 1000',
     );
@@ -433,17 +568,14 @@ export async function readAllUsageEvents(
   }
 }
 
-export async function deleteUsageEvent(
-  eventId: string,
-  provided?: SqlDatabase,
-): Promise<boolean> {
-  const db = await openDb(provided);
-  if (!db) return false;
+export async function deleteUsageEvent(eventId: string, provided?: SqlDatabase): Promise<boolean> {
   try {
-    await db.execute('DELETE FROM usage_events WHERE id = $1', [eventId]);
+    await executeSqlWrite(
+      (db) => db.execute('DELETE FROM usage_events WHERE id = $1', [eventId]),
+      provided,
+    );
     return true;
-  } catch (e) {
-    lastDbError = e instanceof Error ? e.message : String(e);
+  } catch {
     return false;
   }
 }
@@ -452,7 +584,6 @@ export async function readUsageEvents(provided?: SqlDatabase): Promise<UsageEven
   const db = await openDb(provided);
   if (!db) return [];
   try {
-    await db.execute(USAGE_TABLE_SQL);
     const rows = await db.select<Array<Record<string, unknown>>>(
       'SELECT * FROM usage_events ORDER BY ts DESC LIMIT 10000',
     );

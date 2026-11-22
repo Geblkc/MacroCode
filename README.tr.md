@@ -29,10 +29,11 @@ kimlik doğrulama başlıkları olarak çıkar.
 
 | | |
 |---|---|
-| 🧠 **10 sağlayıcı** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) ve GLM (Zhipu AI). Her sağlayıcı, anahtarı (Ollama için yerel URL) girilene kadar listelerde görünmez. |
-| 🔮 **Yüzlerce model** | Elle hazırlanmış küçük katalog, [models.dev](https://models.dev) metadata'sıyla zenginleşir: bağlam limitleri, görsel/düşünme yetenekleri ve fiyatlandırma. |
+| 🧠 **12 sağlayıcı** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI), GLM (Zhipu AI), NVIDIA ve EVREN LLM. Her sağlayıcı, anahtarı (Ollama için yerel URL) girilene kadar listelerde görünmez. |
+| 🔮 **Yüzlerce model** | Model listesi her sağlayıcının API'sinden canlı çekilir (kendi anahtarınla); bağlam limitleri, görsel/düşünme yetenekleri ve fiyatlar [models.dev](https://models.dev) metadata'sıyla zenginleşir. API listesi alınamazsa yerleşik kataloğa düşer. |
 | ⌨️ **Terminal deneyimi** | Slash komutları (`/model`, `/tokens`, `/compact`, `/help`…), `↑ ↓` ile mesaj geçmişi, her turda anlık token ölçümü. |
 | 🤖 **Ajan modu** | `/root` ile bir proje klasörünü gösterin; dosya okuyabilir, kodda arama yapabilir, dosya düzenleyebilir ve shell komutu çalıştırabilir. Her yazma/çalıştırma, kabul edebileceğin veya reddedebileceğin bir onay kartından geçer; `rm` kısıtlıdır ve sistem klasörleri engellidir. Ek araçlar için stdio veya HTTP MCP sunucularına da bağlanır. |
+| ⏱️ **Proje anlık görüntüleri** | `/snapshot` (veya Titlebar workspace menüsü) ile tüm projenin geri yükleme noktasını alın, `/snapshots` ile listeleyin ve `/restore <id>` ile o ana dönün. Gizli dosyalar ve yoksayılan dizinler hariç tutulur; her geri yüklemeden önce güvenlik kopyası oluşturulur. |
 | 🔀 **Yerleşik Git** | Sağ panel ve `/git` komutları: durum, diff, stage/unstage, commit (isteğe bağlı AI mesajı), geçmiş, branch'ler, fetch/pull (yalnızca fast-forward)/push. Mutasyonlar onay ister; uygulama credential saklamaz ve force push yapmaz. |
 | 💸 **Maliyet kontrolü** | Prompt önbellekleme (Anthropic cache breakpoint'leri / OpenAI uyumlu cache anahtarları) uzun oturumları ucuz tutar; `/tokens` her turun tam maliyetini, önbellek okumaları dahil gösterir. |
 | 🌍 **5 dil** | Arayüzün 5 tam çevirisi var: English, Türkçe, Deutsch, Français ve Español; geçiş anında uygulanır, yeniden başlatma gerekmez. |
@@ -41,7 +42,12 @@ kimlik doğrulama başlıkları olarak çıkar.
 ## Kurulum
 
 Platformuna uygun paketi [Releases](https://github.com/Geblkc/Macro-Code/releases)
-sayfasından indir (Linux `.deb` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
+sayfasından indir (Linux `.deb` / `.rpm` / `.AppImage`, Windows `.msi` / `.exe`,
+macOS `.dmg`).
+
+> Windows ve macOS paketleri, sürüm imzalama secret'ları tanımlıysa
+> Authenticode/Developer ID ile imzalanır. İmzasız bir derlemede Windows
+> SmartScreen ve macOS Gatekeeper bilinmeyen yayıncı uyarısı gösterebilir.
 
 Ya da kaynaktan derle:
 
@@ -68,15 +74,15 @@ npm run build        # yalnızca tip kontrolü + web derlemesi
 ## Dokümantasyon
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — projenin yapısı, modül modül
-- [`docs/MODELS.md`](docs/MODELS.md) — model kataloğu ve models.dev ile birleşim kuralları
+- [`docs/MODELS.md`](docs/MODELS.md) — canlı API kataloğu, yedek katalog kuralları ve models.dev birleşimi
 - [`docs/PACKAGING.md`](docs/PACKAGING.md) — `.deb` / `.rpm` / AppImage yerel derleme + Windows kurulumu (CI)
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — her değişikliğin tarihli kaydı
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — katkı kuralları
+- [`CONTRIBUTINGtr.md`](CONTRIBUTINGtr.md) — katkı kuralları
 
 ## Katkı
 
 Hata raporları, çeviriler ve pull request'ler her zaman beklenir. Akış için
-[`CONTRIBUTING.md`](CONTRIBUTING.md) dosyasına bak; büyük değişikliklerden önce
+[`CONTRIBUTINGtr.md`](CONTRIBUTINGtr.md) dosyasına bak; büyük değişikliklerden önce
 açık bir issue açmanı öneririz.
 
 ## Lisans

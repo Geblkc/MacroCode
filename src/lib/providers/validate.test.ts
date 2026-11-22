@@ -31,14 +31,18 @@ describe('validateDetailed', () => {
       called = true;
       return { ok: true, status: 200 };
     }) as unknown as typeof fetch;
-    expect(await validateDetailed('anthropic', 'sk-ant-abcdefghij123456', { fetchImpl: spy })).toBe('ok');
+    expect(await validateDetailed('anthropic', 'sk-ant-abcdefghij123456', { fetchImpl: spy })).toBe(
+      'ok',
+    );
     expect(called).toBe(false);
     expect(await validateDetailed('anthropic', 'kisa', { fetchImpl: spy })).toBe('invalid');
   });
 
   it('ollama: tags ok/network', async () => {
     expect(await validateDetailed('ollama', 'http://x:11434', { fetchImpl: okFetch })).toBe('ok');
-    expect(await validateDetailed('ollama', 'http://x:11434', { fetchImpl: errFetch })).toBe('network');
+    expect(await validateDetailed('ollama', 'http://x:11434', { fetchImpl: errFetch })).toBe(
+      'network',
+    );
   });
 
   it('gemini: key + ok', async () => {

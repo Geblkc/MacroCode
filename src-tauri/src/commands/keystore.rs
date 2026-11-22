@@ -10,7 +10,7 @@ use tauri_plugin_store::{Store, StoreExt};
 
 const STORE_PATH: &str = "keys.json";
 
-const VALID_PROVIDERS: [&str; 10] = [
+const VALID_PROVIDERS: [&str; 12] = [
     "anthropic",
     "openai",
     "gemini",
@@ -21,6 +21,8 @@ const VALID_PROVIDERS: [&str; 10] = [
     "minimax",
     "moonshotai",
     "zhipuai",
+    "nvidia",
+    "evren",
 ];
 
 /// "Ollama" / "ollamaurl" gibi varyantlari kanonik forma cevirir.
@@ -46,7 +48,7 @@ fn normalize_provider(raw: &str) -> Result<String, String> {
         }
     }
     Err(format!(
-        "bilinmeyen saglayici: {raw} · anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai kullan"
+        "bilinmeyen saglayici: {raw} · anthropic/openai/gemini/ollama/openrouter/deepseek/xai/minimax/moonshotai/zhipuai/nvidia/evren kullan"
     ))
 }
 
@@ -144,6 +146,8 @@ pub struct KeyStatus {
     pub minimax: bool,
     pub moonshotai: bool,
     pub zhipuai: bool,
+    pub nvidia: bool,
+    pub evren: bool,
 }
 
 #[tauri::command]
@@ -161,6 +165,8 @@ pub async fn key_status(app: AppHandle) -> Result<KeyStatus, String> {
         minimax: has("minimax"),
         moonshotai: has("moonshotai"),
         zhipuai: has("zhipuai"),
+        nvidia: has("nvidia"),
+        evren: has("evren"),
     })
 }
 
@@ -177,7 +183,9 @@ pub async fn has_any_key(app: AppHandle) -> Result<bool, String> {
         || status.xai
         || status.minimax
         || status.moonshotai
-        || status.zhipuai)
+        || status.zhipuai
+        || status.nvidia
+        || status.evren)
 }
 
 /// Maskeli ipucu (`••••a1b2`): tam değer ASLA dönmez.
@@ -210,6 +218,8 @@ mod tests {
         assert_eq!(normalize_provider("anthropic").unwrap(), "anthropic");
         assert_eq!(normalize_provider("Ollama").unwrap(), "ollamaUrl");
         assert_eq!(normalize_provider("ollamaurl").unwrap(), "ollamaUrl");
+        assert_eq!(normalize_provider("NVIDIA").unwrap(), "nvidia");
+        assert_eq!(normalize_provider("evren").unwrap(), "evren");
     }
 
     #[test]

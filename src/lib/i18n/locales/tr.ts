@@ -130,7 +130,8 @@ export const tr = {
   'input.sendTitle': 'gönder (Enter)',
   'input.pendingHint': {
     one: '{count} onay bekleniyor · Enter onayla · Esc reddet',
-    other: '{count} onay bekleniyor · Esc tümünü reddeder · her kartı tek tek onaylayın veya “Tümünü onayla”',
+    other:
+      '{count} onay bekleniyor · Esc tümünü reddeder · her kartı tek tek onaylayın veya “Tümünü onayla”',
   },
   'input.hint.send': 'gönder',
   'input.hint.newline': 'satır',
@@ -140,7 +141,10 @@ export const tr = {
   'input.hint.commands': 'komut önerisi',
   'input.slashMenuAria': 'slash komut önerileri',
   'input.cmdHint': '↑↓ gezin · Tab tamamlar · Enter gönderir · Esc kapatır',
-  'input.meta': { one: '{count} karakter · ~{tokens} token', other: '{count} karakter · ~{tokens} token' },
+  'input.meta': {
+    one: '{count} karakter · ~{tokens} token',
+    other: '{count} karakter · ~{tokens} token',
+  },
   'input.metaImages': { one: ' · {count} görsel', other: ' · {count} görsel' },
 
   /* ── Durum çubuğu ── */
@@ -163,6 +167,17 @@ export const tr = {
   'status.mcpActive': { one: '{count} MCP sunucusu etkin', other: '{count} MCP sunucusu etkin' },
   'status.workspaceTitle': 'Proje klasörünü değiştir (klasör seçme diyaloğu)',
 
+  /* ── Agent aktivitesi ── */
+  'agentActivity.preparing': 'Agent hazırlanıyor',
+  'agentActivity.thinking': 'Agent düşünüyor',
+  'agentActivity.writing': 'Agent yanıt yazıyor',
+  'agentActivity.tool': 'Araç çalışıyor',
+  'agentActivity.awaitingApproval': 'Onayınız bekleniyor',
+  'agentActivity.retrying': 'Bağlantı yeniden deneniyor',
+  'agentActivity.finalizing': 'Agent sonucu hazırlıyor',
+  'agentActivity.ariaLabel': 'Agent çalışma durumu',
+  'agentActivity.retryDetail': '{attempt}/{total} deneme',
+
   /* ── Karşılama ── */
   'welcome.subtitle': 'Terminal AI yardımcısı',
   'welcome.agentHint': 'Agent modu için proje klasörü seç · /root',
@@ -172,12 +187,27 @@ export const tr = {
   'tool.failed': 'hata',
   'tool.done': 'tamamlandı',
   'tool.output': 'araç çıktısı',
+  'tool.name.readFile': 'Dosya oku',
+  'tool.name.writeFile': 'Dosya yaz',
+  'tool.name.editFile': 'Dosyayı düzenle',
+  'tool.name.proposePatch': 'Yama öner',
+  'tool.name.exec': 'Komut çalıştır',
+  'tool.name.grep': 'Ara',
+  'tool.name.glob': 'Dosya ara',
+  'tool.name.listDir': 'Dizin listele',
+  'tool.name.todo': 'Görev listesini güncelle',
+  'tool.name.plan': 'Plan oluştur',
+  'tool.name.subagent': 'Alt agent çalıştır',
+  'tool.name.snapshot': 'Anlık görüntü oluştur',
+  'tool.lineCount': { one: '{count} satır', other: '{count} satır' },
 
   /* ── Onay kartı ── */
   'approval.pending': 'Onay bekleniyor',
   'approval.approve': 'Onayla',
   'approval.reject': 'Reddet',
   'approval.alwaysRun': 'Bu komutu her zaman çalıştır',
+  'approval.unlistedCommand':
+    'Bu komut izin listesinde değil — yalnızca onayınızla çalıştırılacak.',
   'approval.warning': 'Bu komut kod çalıştırır — dikkatli ol',
   'approval.rejectNote': 'Kullanıcı reddetti',
   'approval.approveAll': 'Tümünü onayla',
@@ -185,8 +215,7 @@ export const tr = {
   'approval.showAll': 'Tümünü göster',
   'approval.collapse': 'Daralt',
   'approval.charCount': '{count} karakter',
-  'approval.largePayload':
-    'Büyük argüman ({count} karakter) — onaylamadan önce tamamını inceleyin',
+  'approval.largePayload': 'Büyük argüman ({count} karakter) — onaylamadan önce tamamını inceleyin',
   'approval.bulkHint': {
     one: '{count} onay bekliyor',
     other: '{count} onay bekliyor — her birini kartında onaylayın veya hepsini tek seferde',
@@ -274,14 +303,19 @@ export const tr = {
   'settings.providers.storageNote':
     'Anahtarlar bu cihazda saklanır (keys.json), cihazdan çıkmaz. Kaydedilen anahtar bir daha tam gösterilmez, yalnızca son 4 karakter (••••a1b2).',
   'settings.providers.localSection': 'Yerel sağlayıcı',
-  'settings.providers.localNote': 'Bilgisayarında çalışan model sunucusu — API anahtarı gerekmez, sadece adres yeter.',
+  'settings.providers.localNote':
+    'Bilgisayarında çalışan model sunucusu — API anahtarı gerekmez, sadece adres yeter.',
   'settings.providers.testAll': 'Tümünü test et',
   'settings.providers.getKey': 'Anahtar al',
   'settings.providers.resetUrl': 'sıfırla',
   'settings.providers.resetUrlTitle': 'fabrika adresine dön',
   'settings.providers.state.connectedHint': 'Bağlantı başarılı — anahtar geçerli.',
-  'settings.providers.state.invalidHint': 'Sağlayıcı anahtarı reddetti. Anahtarı kontrol et (kopyalarken boşluk olmasın).',
+  'settings.providers.state.invalidHint':
+    'Sağlayıcı anahtarı reddetti. Anahtarı kontrol et (kopyalarken boşluk olmasın).',
   'settings.providers.state.networkHint': 'Sunucuya ulaşılamadı — internet bağlantını kontrol et.',
+  'settings.providers.state.terms': 'şartlar bekleniyor',
+  'settings.providers.state.termsHint':
+    'EVREN kullanım şartları kabul edilmedi — {url} adresinde kabul edip tekrar dene.',
   'settings.providers.error.keyFirst':
     'önce anahtar gir (kayıtlı anahtar test edilemiyorsa yeniden yaz)',
   'settings.providers.error.urlFirst': 'önce base URL ve anahtar gir',
@@ -312,15 +346,20 @@ export const tr = {
   'settings.models.column.price': 'Fiyat /1M',
   'settings.models.refreshSection': 'Listeyi yenile',
   'settings.models.sourceNote': '{source} — bulunanlar otomatik eklenmez',
-  'settings.models.catalogNote':
-    { one: 'models.dev kataloğu ({count} model) — arama, filtrele ve listeye ekle:', other: 'models.dev kataloğu ({count} model) — arama, filtrele ve listeye ekle:' },
+  'settings.models.catalogNote': {
+    one: 'models.dev kataloğu ({count} model) — arama, filtrele ve listeye ekle:',
+    other: 'models.dev kataloğu ({count} model) — arama, filtrele ve listeye ekle:',
+  },
   'settings.models.catalogSearchPlaceholder': 'id, ad, açıklama veya aile ara…',
   'settings.models.resultsCount': { one: '{count} sonuç', other: '{count} sonuç' },
   'settings.models.firstSixty': ' (ilk 60 gösteriliyor)',
   'settings.models.catalogCtxOut': '{ctx} ctx · {out} çıktı',
   'settings.models.catalogCost': '{input} giriş · {output} çıktı',
   'settings.models.catalogCostCache': ' · {cache} cache',
-  'settings.models.foundNote': { one: 'bulunanlar ({count}) — ekle ile listeye alınır:', other: 'bulunanlar ({count}) — ekle ile listeye alınır:' },
+  'settings.models.foundNote': {
+    one: 'bulunanlar ({count}) — ekle ile listeye alınır:',
+    other: 'bulunanlar ({count}) — ekle ile listeye alınır:',
+  },
   'settings.models.addToList': 'ekle',
   'settings.models.addCustom': 'Elle model ekle',
   'settings.models.addCustomId': 'Model id',
@@ -336,7 +375,8 @@ export const tr = {
   'settings.models.shownOf': '{shown} / {total} model gösteriliyor',
   'settings.models.toggleLabel': '{model} aç / kapat',
   'settings.models.refreshNote': 'Bulunanlar otomatik eklenmez — "ekle" ile listeye alınır.',
-  'settings.models.addCustomNote': 'Listede olmayan bir modeli elle tanımla. Sağlayıcıya göre otomatik fiyat gelmez.',
+  'settings.models.addCustomNote':
+    'Listede olmayan bir modeli elle tanımla. Sağlayıcıya göre otomatik fiyat gelmez.',
   'settings.models.addCustomNamePlaceholder': 'örn: Şirket Modeli',
   'settings.models.addCustomContextPlaceholder': 'örn: 200000',
   'settings.models.addCustomMaxOutputPlaceholder': 'örn: 8192',
@@ -351,7 +391,8 @@ export const tr = {
   'settings.params.sub.model': 'Model parametreleri',
   'settings.params.sub.prices': 'Fiyatlar',
   'settings.params.modelSection': 'Model parametreleri',
-  'settings.params.paramsNote': 'Seçili varsayılan model için ({model}). Boş = sağlayıcı varsayılanı gönderilir.',
+  'settings.params.paramsNote':
+    'Seçili varsayılan model için ({model}). Boş = sağlayıcı varsayılanı gönderilir.',
   'settings.params.resetNote': 'Boş = sağlayıcı varsayılanı gönderilir.',
   'settings.params.temperature': 'temperature (0–2)',
   'settings.params.topP': 'top_p (0–1)',
@@ -359,8 +400,7 @@ export const tr = {
   'settings.params.thinkingBudget': 'düşünme bütçesi',
   'settings.params.reset': 'Varsayılan',
   'settings.params.topPDisabled': 'düşünme açıkken top_p gönderilmez',
-  'settings.params.thinkingSupported':
-    'destekleyen modelde düşünme açılır (temperature 1 olur)',
+  'settings.params.thinkingSupported': 'destekleyen modelde düşünme açılır (temperature 1 olur)',
   'settings.params.thinkingOnly': 'yalnızca reasoning rozetli modelde',
   'settings.params.emptyDefault': 'boş = model varsayılanı',
   'settings.params.thinkingOff': 'boş = kapalı',
@@ -395,6 +435,17 @@ export const tr = {
   'settings.models.source.openai': 'OpenAI listesi',
   'settings.models.source.gemini': 'Gemini listesi',
   'settings.models.source.modelsDev': 'models.dev kataloğu',
+  'settings.models.liveSection': 'Canlı API kataloğu',
+  'settings.models.liveNote':
+    'Model listesi sağlayıcının API’sinden çekilir; alınamazsa mevcut katalog kullanılır. API listesi geldiğinde yalnızca o listenin modelleri gösterilir.',
+  'settings.models.liveRefreshAll': 'Tümünü yenile',
+  'settings.models.liveApi': 'API',
+  'settings.models.liveFallback': 'mevcut katalog',
+  'settings.models.liveCount': { one: '{count} model', other: '{count} model' },
+  'settings.models.liveUpdated': 'güncellendi: {time}',
+  'settings.models.liveBusy': 'yenileniyor…',
+  'settings.models.liveError': 'API alınamadı — {message}',
+  'settings.models.liveNone': 'anahtarı olan sağlayıcı yok',
 
   /* ── Ayarlar · Görünüm & Dil ── */
   'settings.appearance.viewSection': 'Görünüm',
@@ -430,12 +481,18 @@ export const tr = {
   'settings.chat.allowList': 'Ek shell komutları (satır başına bir, örn: docker ps)',
   'settings.chat.allowListNote':
     'Bu komutlar onay ekranındaki “her zaman çalıştır” kutusuyla otomatik eklenir.',
-  'settings.chat.allowListInvalid': { one: '{count} satır geçersiz ve yok sayılıyor: {lines}', other: '{count} satır geçersiz ve yok sayılıyor: {lines}' },
+  'settings.chat.allowListInvalid': {
+    one: '{count} satır geçersiz ve yok sayılıyor: {lines}',
+    other: '{count} satır geçersiz ve yok sayılıyor: {lines}',
+  },
   'settings.chat.audit': 'Denetim kaydı',
   'settings.chat.auditNote': 'Denetim kaydını tut',
   'settings.chat.execTimeout': 'Komut zaman aşımı üst sınırı (saniye)',
   'settings.chat.execTimeoutNote':
     'Uzun build/test komutları için genel üst sınır (1–600 sn). Varsayılan: 300 sn.',
+  'settings.chat.agentMaxSteps': 'Agent adım sınırı (0 = sınırsız)',
+  'settings.chat.agentMaxStepsNote':
+    '0 = sınırsız (varsayılan): büyük dosyalar yazılırken iş yarıda kesilmez. 1–200 arası bir değer isteğe bağlı güvenlik sönümü ekler.',
 
   /* ── Ayarlar · MCP ── */
   'settings.mcp.section': 'MCP sunucuları',
@@ -478,21 +535,26 @@ export const tr = {
   /* ── Ayarlar · Dil ve bölge ── */
   'settings.appearance.langSection': 'Dil',
   'settings.appearance.interface': 'Arayüz dili',
-  'settings.appearance.interfaceNote':
-    'Arayüz, terminal mesajları ve hatalar bu dilde gösterilir.',
+  'settings.appearance.interfaceNote': 'Arayüz, terminal mesajları ve hatalar bu dilde gösterilir.',
   'settings.appearance.system': 'Sistem dili',
   'settings.appearance.numberFormat': 'Sayı biçimi',
   'settings.appearance.numberFormatNote': 'Sayı biçimi seçilen dile göre belirlenir.',
   'settings.about.subtitle': 'GPL-2.0-only lisansı · BYOK · Windows / macOS / Linux',
   'settings.save.ok': 'Ayarlar kaydedildi.',
-  'settings.save.failed': { one: '{count} ayar kaydedilemedi ({label}): {message}', other: '{count} ayar kaydedilemedi ({label}): {message}' },
+  'settings.save.failed': {
+    one: '{count} ayar kaydedilemedi ({label}): {message}',
+    other: '{count} ayar kaydedilemedi ({label}): {message}',
+  },
   'settings.about.version': 'Sürüm',
   'settings.about.copyVersion': 'Sürüm bilgisini kopyala',
   'settings.about.license': 'Lisans',
   'settings.about.privacy':
     'API anahtarları cihazında saklanır (keys.json) ve asla dışarı gönderilmez. Oturumlar yerel SQLite veritabanında tutulur. Ağ trafiği yalnızca seçtiğiniz sağlayıcıya gider.',
   'settings.about.source': 'Kaynak kod',
-  'settings.about.modelCount': { one: '{count} model · {providers} sağlayıcı', other: '{count} model · {providers} sağlayıcı' },
+  'settings.about.modelCount': {
+    one: '{count} model · {providers} sağlayıcı',
+    other: '{count} model · {providers} sağlayıcı',
+  },
   'settings.about.copied': 'Kopyalandı.',
   'settings.about.copyFailed': 'Kopyalanamadı — pano erişimi yok.',
   'settings.about.platform': 'Platform',
@@ -525,6 +587,10 @@ export const tr = {
   'commands.help.files': '  /files         workspace dosya özeti',
   'commands.help.apply': '  /apply <id>    bekleyen yamayı onayla-uygula (/apply all = tümü)',
   'commands.help.undo': '  /undo [id]     son veya belirtilen yamayı geri al',
+  'commands.help.snapshot': '  /snapshot [etiket] projenin anlık görüntüsünü al',
+  'commands.help.snapshots': '  /snapshots     kayıtlı anlık görüntüleri listele',
+  'commands.help.restore': '  /restore <id>  anlık görüntüye geri yükle (onaylı)',
+  'commands.help.snapshot-del': '  /snapshot-del <id> anlık görüntüyü sil',
   'commands.help.skill': '  /skill         kayıtlı skill listesi',
   'commands.help.approval': '  /approval [m]  onay modu (manual|auto-read|auto-edit)',
   'commands.help.approvalModes':
@@ -535,8 +601,7 @@ export const tr = {
   'commands.help.plan': '  /plan          planlama/analiz moduna geç',
   'commands.help.ask': '  /ask           soru-cevap/danışma moduna geç',
   'commands.help.context': "  /context        agent'in bildiği proje bağlamını göster",
-  'commands.help.note':
-    '  /note <not>     kalıcı proje notu ekle (sonraki oturumlarda hatırlanır)',
+  'commands.help.note': '  /note <not>     kalıcı proje notu ekle (sonraki oturumlarda hatırlanır)',
   'commands.help.log': '  /log [n]        son olay kayıtları (n varsayılan 30)',
   'commands.help.audit': '  /audit [n]     denetim kaydını göster (varsayılan 20)',
   // Slash öneri popup'ındaki kısa açıklamalar (tek kaynak: lib/commands.ts COMMAND_SPECS).
@@ -556,6 +621,10 @@ export const tr = {
   'commands.desc.files': 'workspace dosya özeti',
   'commands.desc.apply': 'bekleyen yamayı uygula',
   'commands.desc.undo': 'yamayı geri al',
+  'commands.desc.snapshot': 'proje anlık görüntüsü al',
+  'commands.desc.snapshots': 'anlık görüntüleri listele',
+  'commands.desc.restore': 'anlık görüntüye geri yükle',
+  'commands.desc.snapshotDel': 'anlık görüntüyü sil',
   'commands.desc.skill': 'kayıtlı skill listesi',
   'commands.desc.approval': 'onay modu',
   'commands.desc.mode': 'agent modu (build/plan/ask)',
@@ -595,9 +664,14 @@ export const tr = {
   'commands.resetDone': '/// konuşma sıfırlandı',
   'commands.sessionStarted': '/// yeni session başlatıldı',
   'commands.activeModel': '/// aktif model: {model}',
-  'commands.providerModels': { one: '/// {provider}: {count} model', other: '/// {provider}: {count} model' },
-  'commands.providerModelsLocked':
-    { one: '/// {provider}: {count} model · anahtar yok — listede gizli', other: '/// {provider}: {count} model · anahtar yok — listede gizli' },
+  'commands.providerModels': {
+    one: '/// {provider}: {count} model',
+    other: '/// {provider}: {count} model',
+  },
+  'commands.providerModelsLocked': {
+    one: '/// {provider}: {count} model · anahtar yok — listede gizli',
+    other: '/// {provider}: {count} model · anahtar yok — listede gizli',
+  },
   'commands.modelSet': '/// model: {model}',
   'commands.modelUnknown': '! bilinmeyen model id — yine de ayarlandı',
   'commands.capabilities': '/// capabilities: {tags}',
@@ -630,23 +704,27 @@ export const tr = {
     '/// kullanım: /note <not>  ·  notlar sonraki oturumlarda agent’a aktarılır',
   'commands.noteSaved': '/// not kaydedildi: {note}',
   'commands.noteFailed': '✗ not kaydedilemedi: {message}',
-  'commands.contextSummary': { one: '/// repo bağlamı: {count} dosya · anahtar dosyalar: {files}', other: '/// repo bağlamı: {count} dosya · anahtar dosyalar: {files}' },
+  'commands.contextSummary': {
+    one: '/// repo bağlamı: {count} dosya · anahtar dosyalar: {files}',
+    other: '/// repo bağlamı: {count} dosya · anahtar dosyalar: {files}',
+  },
   'commands.contextMap': '/// harita (ilk 25):',
-  'commands.contextNotes': { one: '/// kalıcı notlar ({count}):', other: '/// kalıcı notlar ({count}):' },
+  'commands.contextNotes': {
+    one: '/// kalıcı notlar ({count}):',
+    other: '/// kalıcı notlar ({count}):',
+  },
   'commands.contextFailed': '✗ bağlam okunamadı: {message}',
   'commands.approval.manual': 'manuel (yazma onaylı)',
   'commands.approval.autoRead': 'salt-okunur (yazma ve komut kapalı)',
   'commands.approval.autoEdit': 'otomatik düzenleme (yazma onaysız, komut onaylı)',
-  'commands.approvalCurrent':
-    '/// onay modu: {mode} · /approval manual|auto-read|auto-edit',
+  'commands.approvalCurrent': '/// onay modu: {mode} · /approval manual|auto-read|auto-edit',
   'commands.approvalInvalid': '✗ geçersiz onay modu · manual | auto-read | auto-edit',
   'commands.approvalAutoEditWarn':
     '! otomatik düzenleme: agent dosya yazma/düzenleme onayı almadan yapabilir (shell komutları hâlâ onaylı)',
   'commands.approvalAutoReadWarn':
     '! salt-okunur mod: agent dosya yazamaz, komut çalıştıramaz (yalnızca okuma/araştırma)',
   'commands.approvalSet': '/// onay modu: {mode}',
-  'commands.approvalNoWorkspace':
-    ' · (workspace yok — /root <yol> ile agent modunu aç)',
+  'commands.approvalNoWorkspace': ' · (workspace yok — /root <yol> ile agent modunu aç)',
   'commands.modeCurrent': '/// agent modu: {mode} · /mode build|plan|ask',
   'commands.modeSet': '/// agent modu değiştirildi: {mode}',
   'commands.modeInvalid': '✗ geçersiz agent modu · build | plan | ask',
@@ -677,7 +755,8 @@ export const tr = {
   'commands.filesTauriOnly': '✗ /files yalnızca Tauri’de çalışır',
   'commands.filesFailed': '✗ /files hatası: {message}',
   'commands.applyNotFound': '✗ bekleyen onay bulunamadı: {id}',
-  'commands.applyNeedId': '✗ birden fazla onay bekliyor — her biri için /apply <id> veya tümü için /apply all · {list}',
+  'commands.applyNeedId':
+    '✗ birden fazla onay bekliyor — her biri için /apply <id> veya tümü için /apply all · {list}',
   'commands.applyNone': '/// bekleyen yama yok',
   'commands.applyPending': '/// bekleyen: {list}',
   'commands.applyFailed': '✗ /apply hatası: {message}',
@@ -686,7 +765,10 @@ export const tr = {
   'commands.skillList': '/// skills: {list}',
   'commands.imagesIgnored': '! görseller komutlarda kullanılmaz · yoksayıldı',
   'commands.importFailed': '✗ içe aktarma başarısız: {message}',
-  'commands.imported': { one: '/// içe aktarıldı: {count} session', other: '/// içe aktarıldı: {count} session' },
+  'commands.imported': {
+    one: '/// içe aktarıldı: {count} session',
+    other: '/// içe aktarıldı: {count} session',
+  },
   'commands.fileUnreadable': '✗ dosya okunamadı',
 
   /* ── Token özeti ── */
@@ -707,7 +789,10 @@ export const tr = {
   'export.authorUser': 'Sen',
   'export.authorSystem': 'System',
   'export.reasoning': 'düşünme notları',
-  'export.images': { one: '*[{count} görsel eklendi — dışa aktarımda yer almıyor]*', other: '*[{count} görsel eklendi — dışa aktarımda yer almıyor]*' },
+  'export.images': {
+    one: '*[{count} görsel eklendi — dışa aktarımda yer almıyor]*',
+    other: '*[{count} görsel eklendi — dışa aktarımda yer almıyor]*',
+  },
   'export.footer': '*MacroCode tarafından dışa aktarıldı*',
 
   /* ── Oturum / yedek hataları ── */
@@ -719,6 +804,8 @@ export const tr = {
   'errors.importSessionName': 'içe aktarılan session',
   'errors.dbUnavailable':
     '! session veritabanı açılamadı: {message} · oturumlar yalnızca localStorage’da saklanıyor',
+  'errors.dbLocked':
+    '! session veritabanı geçici olarak kilitli: {message} · yeniden denendi, işlem localStorage yedeğinde tutuldu',
 
   /* ── Hata mesajları ── */
   'errors.apiKeyInvalid': '✗ api hatası (401): geçersiz API anahtarı · /key ile güncelleyebilirsin',
@@ -733,8 +820,7 @@ export const tr = {
   'errors.network': '✗ ağ hatası: sunucuya ulaşılamıyor · internet bağlantını kontrol et',
   'errors.unknown': '✗ bilinmeyen hata: {message}',
   'errors.apiKeyMissing': '✗ api anahtarı eksik · /key ile ekleyebilirsin',
-  'errors.visionUnsupported':
-    '✗ {model} görsel desteklemiyor · vision rozetli modele geç (/model)',
+  'errors.visionUnsupported': '✗ {model} görsel desteklemiyor · vision rozetli modele geç (/model)',
 
   /* ── Ajan / akış ── */
   'agent.compacted': '/// context özetlendi (compaction)',
@@ -742,7 +828,10 @@ export const tr = {
   'agent.noWorkspace': '✗ workspace seçilmedi · /root ile klasör seç',
   'agent.toolFailed': '✗ araç çalıştırılamadı: {tool}',
   'agent.approvalNeeded': 'Onay bekleniyor',
-  'agent.pendingRestored': { one: '{count} bekleyen onay geri yüklendi', other: '{count} bekleyen onay geri yüklendi' },
+  'agent.pendingRestored': {
+    one: '{count} bekleyen onay geri yüklendi',
+    other: '{count} bekleyen onay geri yüklendi',
+  },
   'agent.approvalModeSet': '/// onay modu: {mode}',
   'agent.approvalModeNote': '! auto-edit modunda yazma onaysız yapılır',
   'agent.workspaceSet': '/// workspace: {root}',
@@ -758,8 +847,11 @@ export const tr = {
   'agent.undoNothing': '/// geri alınacak yama yok',
   'agent.applyPending': '/// bekleyen yama uygulandı',
   'agent.applyNone': '/// bekleyen yama yok',
-  'agent.runsRestored':
-    { one: '/// {count} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)', other: '/// {count} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)' },
+  'agent.runsRestored': {
+    one: '/// {count} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)',
+    other:
+      '/// {count} oturumdaki bekleyen agent işi geri yüklendi (kaldığı yerden devam edebilir)',
+  },
   'agent.summaryPrefix': '[özet · {date}]',
   /* ── İzin (policy) mesajları ── */
   'policy.forbiddenFile': 'yasaklı dosya: {path}',
@@ -773,11 +865,9 @@ export const tr = {
   'policy.rmBlocked': 'yasaklı komut: rm yalnızca -i ile · -f/-r reddedilir',
   'policy.forbiddenCommand': 'yasaklı komut: {cmd} · allowlist dışı',
   'policy.unknownTool': 'bilinmeyen araç: {name}',
-  'policy.predicateViolation':
-    'yasaklı argüman: {cmd} {arg} · bu flag komut çalıştırabilir',
+  'policy.predicateViolation': 'yasaklı argüman: {cmd} {arg} · bu flag komut çalıştırabilir',
   'policy.fileArgViolation': 'argüman jail dışı: {arg}',
-  'policy.warnNpmScript':
-    'npm script çalıştırır — package.json içeriği doğrudan kod çalıştırır',
+  'policy.warnNpmScript': 'npm script çalıştırır — package.json içeriği doğrudan kod çalıştırır',
   'policy.warnNpx': 'paket indirip çalıştırabilir',
   'policy.warnPip': 'paket kurulumu çalıştırma içerir',
   'policy.warnGoTest': 'go test kod çalıştırır',
@@ -817,18 +907,41 @@ export const tr = {
   'agent.approved': '[✓] onaylandı: {id}',
   'agent.rejected': '[✗] reddedildi: {id}',
   'agent.previewEmpty': '(boş)',
-  'agent.errCustomEndpoint': '✗ özel uçlar agent modunu desteklemiyor · ayarlardan yerleşik akışa dön',
-  'agent.errNoTools': '✗ {provider}/{model} agent modunu desteklemiyor · /provider {providers} dene veya tools destekli modele geç',
+  'agent.errCustomEndpoint':
+    '✗ özel uçlar agent modunu desteklemiyor · ayarlardan yerleşik akışa dön',
+  'agent.errNoTools':
+    '✗ {provider}/{model} agent modunu desteklemiyor · /provider {providers} dene veya tools destekli modele geç',
   'agent.errNoApiKey': '✗ api anahtarı eksik · /key ile ekleyebilirsin',
   'agent.errEmptyReply': '✗ agent boş döndü · farklı ifade dene',
+  'agent.stepLimitNotice': {
+    one: '/// adım sınırına ulaşıldı ({count} adım) · son cevap isteniyor',
+    other: '/// adım sınırına ulaşıldı ({count} adım) · son cevap isteniyor',
+  },
+  'agent.stepLimitNoAnswer': '/// adım sınırında model son cevap üretmedi',
+  'agent.outputClipped':
+    '/// araç çıktısı çıktı politikasıyla şekillendi · tam çıktı artifact dosyasında',
+  'agent.outputArtifactFailed':
+    '/// araç çıktısı policy ile şekillendi · artifact dosyası oluşturulamadı',
+  'agent.loopGuardNotice': {
+    one: '/// döngü koruması: aynı araç aynı girdilerle {count} kez üst üste çağrıldı · devam için onay gerekli',
+    other:
+      '/// döngü koruması: aynı araç aynı girdilerle {count} kez üst üste çağrıldı · devam için onay gerekli',
+  },
+  'agent.loopGuardApproved':
+    '/// döngü koruması: kullanıcı devam etmeyi onayladı · farklı bir yol dene',
+  'agent.loopGuardRejected': '/// döngü koruması: kullanıcı işlemi durdurdu',
+  'agent.loopGuardSkipped': '/// döngü koruması: bu çağrı atlandı',
   'agent.pendingLine': {
     one: '⏸ onay bekleniyor: {names} [Enter onayla / Esc reddet]',
     other: '⏸ onaylar bekleniyor: {names} [her kartta tek tek onaylayın · Esc tümünü reddeder]',
   },
-  'extrasCapped': '/// eskiler görünümden atıldı · /export ile yedekle',
+  extrasCapped: '/// eskiler görünümden atıldı · /export ile yedekle',
   'errors.listFailed': '{source} listesi alınamadı (http {status})',
+  'errors.evrenTerms':
+    'EVREN kullanım şartları henüz kabul edilmedi — {url} adresinde kabul edip tekrar dene.',
   'errors.catalogFailed': 'models.dev kataloğu alınamadı (http {status})',
   'errors.catalogInvalid': 'models.dev yanıtı çözümlenemedi (geçersiz JSON)',
+  'errors.liveEmpty': '{provider} API’si boş model listesi döndürdü',
   'errors.proxyNoResponse': 'proxy: yanıt başlamadı',
 
   /* ── Güncellemeler ── */
@@ -916,11 +1029,9 @@ export const tr = {
   'git.noWorkspace': 'Workspace seçilmedi',
   'git.noWorkspaceHint': 'Önce /root ile bir proje klasörü seç.',
   'git.notRepo': 'Bu klasör bir git deposu değil',
-  'git.notRepoHint':
-    'Git deposu başlatabilir veya repo kökünü workspace olarak açabilirsin.',
+  'git.notRepoHint': 'Git deposu başlatabilir veya repo kökünü workspace olarak açabilirsin.',
   'git.outsideRepo': 'Workspace bir üst repo’nun altında',
-  'git.outsideRepoHint':
-    'Repo kökü: {path} · mutasyonlar kapalı. Repo kökünü workspace olarak aç.',
+  'git.outsideRepoHint': 'Repo kökü: {path} · mutasyonlar kapalı. Repo kökünü workspace olarak aç.',
   'git.gitMissingHint': 'Git’i kurup PATH’e ekle, sonra paneli yenile.',
   'git.init': 'Git deposu başlat',
   'git.initConfirm': 'Bu klasörde yeni bir git deposu oluşturulacak.',
@@ -956,8 +1067,7 @@ export const tr = {
   'git.commitDone': 'commit {sha}: {subject}',
   'git.hooksWarning':
     'Git hook’ları çalışabilir (pre-commit/commit-msg). Hook’lar repoya ait kod çalıştırabilir.',
-  'git.commitPanelHint':
-    'commit mesajını panelde yaz · /git commit <mesaj> ile hızlı commit',
+  'git.commitPanelHint': 'commit mesajını panelde yaz · /git commit <mesaj> ile hızlı commit',
   'git.aiSuggest': 'AI öner',
   'git.aiSuggestHint': 'Stage edilmiş diff’ten commit mesajı öner',
   'git.aiConsent':
@@ -978,19 +1088,15 @@ export const tr = {
   'git.branch.empty': 'branch yok',
   'git.branch.usage': '✗ kullanım: /git switch [-c] <ad>',
   'git.branch.createConfirm': '“{name}” branch’i oluşturulup ona geçilecek.',
-  'git.branch.switchConfirm':
-    '“{name}” branch’ine geçilecek. Kirli çalışma ağacı taşınır.',
+  'git.branch.switchConfirm': '“{name}” branch’ine geçilecek. Kirli çalışma ağacı taşınır.',
   'git.branch.switched': 'branch: {name}',
   'git.detached': 'detached HEAD',
-  'git.operationInProgress':
-    'Sürmekte olan işlem: {operation} · önce tamamla veya iptal et',
+  'git.operationInProgress': 'Sürmekte olan işlem: {operation} · önce tamamla veya iptal et',
   'git.push': 'Push',
   'git.pull': 'Pull',
   'git.fetch': 'Fetch',
-  'git.pushConfirm':
-    'Yerel commit’ler uzak branch’e gönderilecek. Hook’lar çalışabilir.',
-  'git.pullConfirm':
-    'Uzak değişiklikler yalnızca fast-forward ise alınacak. Hook’lar çalışabilir.',
+  'git.pushConfirm': 'Yerel commit’ler uzak branch’e gönderilecek. Hook’lar çalışabilir.',
+  'git.pullConfirm': 'Uzak değişiklikler yalnızca fast-forward ise alınacak. Hook’lar çalışabilir.',
   'git.pushDone': 'push tamamlandı',
   'git.pullDone': 'pull tamamlandı',
   'git.fetchDone': 'fetch tamamlandı',
@@ -1055,6 +1161,40 @@ export const tr = {
   'stats.breakdown.model': 'Model bazlı',
   'stats.empty': 'Seçilen aralıkta kullanım kaydı yok.',
   'stats.loading': 'Yükleniyor…',
+
+  /* ── Hata sınırı ── */
+  'errorBoundary.title': 'Beklenmeyen bir hata oluştu',
+  'errorBoundary.message':
+    'Arayüz bu ekranı oluştururken bir hatayla karşılaştı. Oturumların diskte güvende; yeniden deneyebilir veya uygulamayı yeniden yükleyebilirsin.',
+  'errorBoundary.retry': 'Yeniden dene',
+  'errorBoundary.reload': 'Yeniden yükle',
+  'errorBoundary.copy': 'Hata ayrıntılarını kopyala',
+
+  // ── Proje anlık görüntüleri ──────────────────────────────────────────
+  'commands.snapshotCreated': '/// anlık görüntü oluşturuldu: {id} · {n} dosya · {size} MB',
+  'commands.snapshotListEmpty': '/// kayıtlı anlık görüntü yok · /snapshot [etiket] ile oluştur',
+  'commands.snapshotFailed': '✗ anlık görüntü hatası: {message}',
+  'commands.restoreNeedId': '! kullanım: /restore <id> · /snapshots ile listele',
+  'commands.restoreFailed': '✗ geri yükleme hatası: {message}',
+  'tool.snapshotCreated': '/// anlık görüntü oluşturuldu: {id} · {n} dosya · {label}',
+  'snapshot.title': 'Proje Anlık Görüntüleri',
+  'snapshot.untitled': 'adsız',
+  'snapshot.needsRoot': '/root ile bir workspace seçmeden anlık görüntü alınamaz.',
+  'snapshot.empty': 'Henüz anlık görüntü yok. Yukarıdan bir etiket girip oluşturabilirsin.',
+  'snapshot.labelPlaceholder': 'Etiket (isteğe bağlı)',
+  'snapshot.create': 'Oluştur',
+  'snapshot.files': 'dosya',
+  'snapshot.restore': 'Geri Yükle',
+  'snapshot.restoreTitle': 'Anlık görüntüye geri yükle',
+  'snapshot.restoreMessage':
+    '"{name}" ({id}) anlık görüntüsüne geri yüklenecek. Sonradan eklenen dosyalar silinir; mevcut durum güvenlik kopyası olarak kaydedilir.',
+  'snapshot.restoredToast': 'Anlık görüntü geri yüklendi',
+  'snapshot.restoreFailed': '✗ geri yükleme hatası: {message}',
+  'snapshot.delete': 'Sil',
+  'snapshot.deleteTitle': 'Anlık görüntüyü sil',
+  'snapshot.deleteMessage': '"{name}" ({id}) anlık görüntüsü silinecek. Bu işlem geri alınamaz.',
+  'snapshot.deleteFailed': '✗ silme hatası: {message}',
+  'snapshot.restoreHint': 'Projeyi bu ana döndür',
 } as const;
 
 export type TranslationKey = keyof typeof tr;

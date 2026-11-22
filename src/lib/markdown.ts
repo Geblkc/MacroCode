@@ -282,7 +282,9 @@ export function tokenizeBlocks(src: string): MdBlock[] {
     if (RE_UL.test(line) || RE_OL.test(line)) {
       const ordered = RE_OL.test(line) && !RE_UL.test(line);
       const items = parseList(lines, i, ordered);
-      blocks.push(ordered ? { kind: 'ol', items: items.items } : { kind: 'ul', items: items.items });
+      blocks.push(
+        ordered ? { kind: 'ol', items: items.items } : { kind: 'ul', items: items.items },
+      );
       i = items.next;
       continue;
     }

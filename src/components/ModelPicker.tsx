@@ -68,9 +68,7 @@ export default function ModelPicker({
         activeModel={value}
         onSelect={(m) => onChange(m.id)}
         clear={
-          emptyLabel !== undefined
-            ? { label: emptyLabel, onSelect: () => onChange('') }
-            : undefined
+          emptyLabel !== undefined ? { label: emptyLabel, onSelect: () => onChange('') } : undefined
         }
         extra={
           extra

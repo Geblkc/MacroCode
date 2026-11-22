@@ -8,15 +8,41 @@ import {
   type ApprovalsDb,
 } from './approvals';
 
-function fakeDb(): ApprovalsDb & { rows: Map<string, { id: string; session_id: string; call_data: string; run_state: string | null; created_at: number }> } {
-  const rows = new Map<string, { id: string; session_id: string; call_data: string; run_state: string | null; created_at: number }>();
+function fakeDb(): ApprovalsDb & {
+  rows: Map<
+    string,
+    {
+      id: string;
+      session_id: string;
+      call_data: string;
+      run_state: string | null;
+      created_at: number;
+    }
+  >;
+} {
+  const rows = new Map<
+    string,
+    {
+      id: string;
+      session_id: string;
+      call_data: string;
+      run_state: string | null;
+      created_at: number;
+    }
+  >();
   return {
     rows,
     async execute(query: string, bind?: unknown[]) {
       const q = query.trim().toUpperCase();
       if (q.startsWith('CREATE TABLE')) return null;
       if (q.startsWith('INSERT OR REPLACE')) {
-        const [id, session_id, call_data, run_state, created_at] = (bind ?? []) as [string, string, string, string | null, number];
+        const [id, session_id, call_data, run_state, created_at] = (bind ?? []) as [
+          string,
+          string,
+          string,
+          string | null,
+          number,
+        ];
         rows.set(id, { id, session_id, call_data, run_state, created_at });
         return null;
       }
@@ -50,7 +76,12 @@ describe('Faz 1 G3 — approvals kuyruk + kalıcılık', () => {
     clearApprovalsMemory();
     const db = fakeDb();
     await queueApproval(
-      { id: 'c1', sessionId: 's1', call: { id: 'c1', name: 'exec', args: { cmd: 'ls' } }, createdAt: 1 },
+      {
+        id: 'c1',
+        sessionId: 's1',
+        call: { id: 'c1', name: 'exec', args: { cmd: 'ls' } },
+        createdAt: 1,
+      },
       db,
     );
     const listed = await listApprovals('s1', db);
@@ -71,5 +102,33 @@ describe('Faz 1 G3 — approvals kuyruk + kalıcılık', () => {
     clearApprovalsMemory();
     const restored = await restoreApprovals(db);
     expect(restored.map((p) => p.id)).toContain('c2');
+  });
+
+  it('DB kilitliyse onay akışı durmaz; bellek yedeği korunur', async () => {
+    clearApprovalsMemory();
+    const lockedDb: ApprovalsDb = {
+      async execute() {
+        throw new Error('error returned from database: (code: 5) database is locked');
+      },
+      async select<T>(): Promise<T> {
+        throw new Error('error returned from database: (code: 5) database is locked');
+      },
+    };
+
+    await expect(
+      queueApproval(
+        {
+          id: 'locked',
+          sessionId: 's1',
+          call: { id: 'locked', name: 'exec', args: {} },
+          createdAt: 3,
+        },
+        lockedDb,
+      ),
+    ).resolves.toBeUndefined();
+
+    // Kuyruk DB'ye yazılamasa da agent'ın onay akışı devam edebilmeli.
+    const listed = await listApprovals('s1', lockedDb);
+    expect(listed.map((p) => p.id)).toContain('locked');
   });
 });

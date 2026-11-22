@@ -14,6 +14,8 @@ interface Props {
   detail: ApprovalDetail;
   /** Uyarı metni (kod çalıştıran komutlar için). */
   warning?: string | null;
+  /** Komut izin listesinde değil — çalıştırmak yalnızca onaya bağlı. */
+  unlisted?: boolean;
   onApprove?: () => void;
   onReject?: () => void;
   /** "Her zaman çalıştır" kutusu işaretlendiğinde çağrılır. */
@@ -27,6 +29,7 @@ export default function ApprovalCard({
   callName,
   detail,
   warning,
+  unlisted = false,
   onApprove,
   onReject,
   onAlways,
@@ -39,8 +42,7 @@ export default function ApprovalCard({
 
   const body = detail.body && detail.body.length > 0 ? detail.body : null;
   // exec gibi kırpılmaması gereken çağrılar `collapsible: false` gelir.
-  const isLong =
-    body !== null && detail.collapsible && body.length > APPROVAL_BODY_PREVIEW_CHARS;
+  const isLong = body !== null && detail.collapsible && body.length > APPROVAL_BODY_PREVIEW_CHARS;
   const shownBody =
     body === null
       ? ''
@@ -52,7 +54,9 @@ export default function ApprovalCard({
   return (
     <div className="approval">
       <div className="approval-head">
-        <Icon name="alert-triangle" size="sm" />
+        <span className="approval-head-icon" aria-hidden="true">
+          <Icon name="alert-triangle" size="sm" />
+        </span>
         {t('approval.pending')}
       </div>
 
@@ -85,6 +89,13 @@ export default function ApprovalCard({
         </div>
       ) : null}
 
+      {unlisted ? (
+        <div className="approval-warn approval-warn-danger">
+          <Icon name="alert-triangle" size="sm" className="approval-warn-ico" />
+          <span>{t('approval.unlistedCommand')}</span>
+        </div>
+      ) : null}
+
       {warning ? (
         <div className="approval-warn">
           <Icon name="alert-triangle" size="sm" className="approval-warn-ico" />
@@ -93,12 +104,6 @@ export default function ApprovalCard({
       ) : null}
 
       <div className="approval-actions">
-        <button className="btn btn-primary btn-sm" onClick={onApprove}>
-          {t('approval.approve')} {showKeys ? <span className="kbd">Enter</span> : null}
-        </button>
-        <button className="btn btn-danger btn-sm" onClick={onReject}>
-          {t('approval.reject')} {showKeys ? <span className="kbd">Esc</span> : null}
-        </button>
         {onAlways ? (
           <label className="chk">
             <input
@@ -111,7 +116,17 @@ export default function ApprovalCard({
             />
             {t('approval.alwaysRun')}
           </label>
-        ) : null}
+        ) : (
+          <span />
+        )}
+        <div className="approval-buttons">
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onReject}>
+            {t('approval.reject')} {showKeys ? <span className="kbd">Esc</span> : null}
+          </button>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onApprove}>
+            {t('approval.approve')} {showKeys ? <span className="kbd">Enter</span> : null}
+          </button>
+        </div>
       </div>
     </div>
   );

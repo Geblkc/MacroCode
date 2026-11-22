@@ -191,6 +191,7 @@ export default memo(MessageLineInner, (a, b) => {
     a.meta === b.meta &&
     a.reasoning === b.reasoning &&
     a.showThinking === b.showThinking &&
+    a.emphasis === b.emphasis &&
     a.images === b.images &&
     a.onCopy === b.onCopy &&
     a.onRetry === b.onRetry &&

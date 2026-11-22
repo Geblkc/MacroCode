@@ -16,12 +16,9 @@ import { COMMIT_SYSTEM_PROMPT, normalizeCommitMessage } from './commitMessage';
 export async function generateCommitMessage(prompt: string): Promise<string> {
   const s = useSettingsStore.getState();
   const model = s.currentModel;
-  const provider =
-    getProviderForModel(model, s.customModels) ?? s.currentProvider;
+  const provider = getProviderForModel(model, s.customModels) ?? s.currentProvider;
   const apiKey =
-    provider === 'ollama'
-      ? s.apiKeys.ollamaUrl || DEFAULT_OLLAMA_URL
-      : (s.apiKeys[provider] ?? '');
+    provider === 'ollama' ? s.apiKeys.ollamaUrl || DEFAULT_OLLAMA_URL : (s.apiKeys[provider] ?? '');
 
   if (providerNeedsKey(provider) && !apiKey.trim()) {
     throw new Error(t('git.ai.noKey', { provider }));

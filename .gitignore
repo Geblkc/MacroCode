@@ -28,3 +28,5 @@ tmp/
 .tmp/
 *.tmp
 *.bak
+# ajan çalışma artefaktları (yedekler, snapshot'lar, araç çıktıları)
+.macrocode/

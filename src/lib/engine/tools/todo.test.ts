@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  applyTodoAction,
-  deriveTodoState,
-  formatTodos,
-  type TodoState,
-} from './todo';
+import { applyTodoAction, deriveTodoState, formatTodos, type TodoState } from './todo';
 
 const EMPTY: TodoState = { items: [] };
 

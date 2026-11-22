@@ -28,10 +28,11 @@ authentication headers sent directly to the provider you configured.
 
 | | |
 |---|---|
-| 🧠 **10 providers** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) and GLM (Zhipu AI). Each provider only appears in the lists once its key (or, for Ollama, a local URL) is set. |
-| 🔮 **Hundreds of models** | A small hand-curated catalog enriched with [models.dev](https://models.dev) metadata: context limits, vision/reasoning capabilities and pricing. |
+| 🧠 **12 providers** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI), GLM (Zhipu AI), NVIDIA and EVREN LLM. Each provider only appears in the lists once its key (or, for Ollama, a local URL) is set. |
+| 🔮 **Hundreds of models** | Live model lists from each provider API (with your key), enriched with [models.dev](https://models.dev) metadata for context limits, vision/reasoning and pricing. Falls back to the built-in catalog when an API list is unavailable. |
 | ⌨️ **Terminal-native UX** | Slash commands (`/model`, `/tokens`, `/compact`, `/help`…), message history with `↑ ↓`, instant token metering for every turn. |
 | 🤖 **Agent mode** | Point it at a project folder with `/root` and it can read files, search the codebase, edit files and run shell commands. Every write/execution goes through an approval card you can accept or reject; `rm` is restricted and system folders are blocked. It also connects to MCP servers (stdio or HTTP) for extra tools. |
+| ⏱️ **Project snapshots** | Take a restore point of the whole project with `/snapshot` (or the Titlebar workspace menu), list them with `/snapshots`, and roll back with `/restore <id>`. Secrets and ignored dirs are excluded, and a safety snapshot is created before every restore. |
 | 🔀 **Git built in** | A docked Git panel and `/git` commands: status, diff, staged/unstaged files, commit (with optional AI message), history, branches and fetch/pull (fast-forward only)/push. Mutations ask for confirmation; the app never stores credentials or force-pushes. |
 | 💸 **Cost control** | Prompt caching (Anthropic cache breakpoints / OpenAI-compatible cache keys) keeps long sessions cheap, and `/tokens` shows exactly what each turn cost, including cache reads. |
 | 🌍 **5 languages** | Fully translated UI: English, Türkçe, Deutsch, Français and Español — switching applies instantly, no restart. |
@@ -41,7 +42,11 @@ authentication headers sent directly to the provider you configured.
 
 Download the package for your platform from the
 [Releases](https://github.com/Geblkc/Macro-Code/releases) page
-(Linux `.deb` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
+(Linux `.deb` / `.rpm` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
+
+> Windows and macOS builds are Authenticode/Developer ID signed **when the
+> release signing secrets are configured**. If a build is unsigned, Windows
+> SmartScreen and macOS Gatekeeper may warn about an unidentified publisher.
 
 Or build from source:
 
@@ -68,8 +73,8 @@ npm run build        # type-check + web build only
 ## Documentation
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how the project is structured, module by module
-- [`docs/MODELS.md`](docs/MODELS.md) — the model catalog and how it merges with models.dev
-- [`docs/PACKAGING.md`](docs/PACKAGING.md) — building `.deb` / `.rpm` / AppImage locally and Windows installers via CI
+- [`docs/MODELS.md`](docs/MODELS.md) — the live API catalog, fallback rules and models.dev metadata merge
+- [`docs/PACKAGING.md`](docs/PACKAGING.md) — building `.deb` / `.rpm` / AppImage locally and Windows/macOS installers via CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — dated record of every change
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — guidelines for pull requests
 

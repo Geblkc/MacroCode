@@ -29,7 +29,11 @@ describe('Faz D — patch', () => {
     const oldCode = 'function hello() {\n  return 1;\n}\n';
     const preview = await toolEditFile(
       '/tmp',
-      { id: 'e1', name: 'edit_file', args: { path: 'test.ts', search: 'return 1;', replace: 'return 2;' } },
+      {
+        id: 'e1',
+        name: 'edit_file',
+        args: { path: 'test.ts', search: 'return 1;', replace: 'return 2;' },
+      },
       async () => oldCode,
     );
     expect(preview).toContain('-   return 1;');
@@ -52,7 +56,11 @@ describe('Faz D — patch', () => {
     await expect(
       toolEditFile(
         '/tmp',
-        { id: 'e3', name: 'edit_file', args: { path: 'test.ts', search: 'const a = 1;', replace: 'const b = 2;' } },
+        {
+          id: 'e3',
+          name: 'edit_file',
+          args: { path: 'test.ts', search: 'const a = 1;', replace: 'const b = 2;' },
+        },
         async () => code,
       ),
     ).rejects.toThrow(/birden fazla kez/);

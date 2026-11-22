@@ -1,0 +1,8 @@
+{
+  "softMaxChars": 12000,
+  "headChars": 4000,
+  "tailChars": 2000,
+  "hardMaxBytes": 131072,
+  "hardMaxLines": 20000,
+  "summaryMaxChars": 500
+}

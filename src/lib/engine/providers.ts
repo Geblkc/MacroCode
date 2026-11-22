@@ -9,7 +9,11 @@ import type { CustomModel, Provider } from '../../types';
 import type { ToolDefinition } from './types';
 
 /** Model bazlı tool desteği; modelId yoksa provider default modeline bakılır. */
-export function supportsTools(provider: Provider, modelId?: string, customs: CustomModel[] = []): boolean {
+export function supportsTools(
+  provider: Provider,
+  modelId?: string,
+  customs: CustomModel[] = [],
+): boolean {
   if (modelId) return supportsToolsForModel(modelId, customs);
   const def = getProviderDef(provider);
   if (!def) return false;

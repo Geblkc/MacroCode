@@ -54,7 +54,9 @@ export async function runSubagent(
   // uygulaması kaldı — eski `runAgent` kopyası silindi).
   const run = createAgentRun([...effHistory, { role: 'user', content: task }], {
     ...deps,
-    maxSteps: Math.min(deps.maxSteps ?? 8, 4),
+    // Ana akış sınırsız olsa da alt-ajan dar görevler için 4 adımda sınırlı
+    // kalır; kullanıcı küçük bir sınır seçtiyse o daha da sıkılaştırır.
+    maxSteps: deps.maxSteps && deps.maxSteps > 0 ? Math.min(deps.maxSteps, 4) : 4,
     disallowTools: [...(deps.disallowTools ?? []), ...SUBAGENT_BLOCKED_TOOLS],
     // Alt-ajanın **metni** ana akışa karışmasın (iki kez akmasın); araç
     // olayları (tool_call/tool_result) geçer — kullanıcı ilerlemeyi görsün.

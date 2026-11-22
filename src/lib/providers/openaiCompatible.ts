@@ -1,5 +1,17 @@
 import type { AIProvider, ProviderConfig } from './common';
-import { MAX_OUTPUT_TOKEN_CAP, ProviderError, feedSSELines, lookupModel, parseDataUrl, parseJsonPayload, systemTextOf, throwIfHttpError, toUsage, toUsageCount, withoutSystemMessages } from './common';
+import {
+  MAX_OUTPUT_TOKEN_CAP,
+  ProviderError,
+  feedSSELines,
+  lookupModel,
+  parseDataUrl,
+  parseJsonPayload,
+  systemTextOf,
+  throwIfHttpError,
+  toUsage,
+  toUsageCount,
+  withoutSystemMessages,
+} from './common';
 import { fetchFor } from './rustFetch';
 import { sanitizeParams } from './params';
 import { reasoningModeForModel } from './effort';
@@ -12,6 +24,8 @@ export interface OpenAICompatibleOptions {
   models: Model[];
   extraHeaders?: (apiKey: string) => Record<string, string>;
   mapRole?: (model: string, role: string) => string;
+  /** İstek gövdesindeki model kimliğini dönüştürür (ör. `evren/` öneğini sıyırır). */
+  mapModel?: (model: string) => string;
   validateUrl?: string;
   /** Model sıcaklık (temperature) kabul ediyor mu? boolean veya model bazlı fonksiyon. */
   supportsTemperature?: boolean | ((model: string) => boolean);
@@ -43,7 +57,9 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
       const base = (config.baseUrl?.trim() || opts.baseUrl).replace(/\/+$/, '');
       // Faz 7 A2: compaction özeti / kalıcı sistem mesajları baştaki system
       // mesajına birleştirilir (konuşma ortasındaki system rolü geçersizdir).
-      const systemText = [systemPrompt?.trim(), systemTextOf(messages)].filter(Boolean).join('\n\n');
+      const systemText = [systemPrompt?.trim(), systemTextOf(messages)]
+        .filter(Boolean)
+        .join('\n\n');
       const apiMessages = [
         ...(systemText ? [{ role: mapRole(model, 'system'), content: systemText }] : []),
         ...withoutSystemMessages(messages).map((m) => {
@@ -79,7 +95,8 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
           };
         }),
       ];
-      const tools = config.tools && config.tools.length > 0 ? toOpenAITools(config.tools) : undefined;
+      const tools =
+        config.tools && config.tools.length > 0 ? toOpenAITools(config.tools) : undefined;
       const p = sanitizeParams(config.params);
       const record = lookupModel(model, config.registry, opts.models);
       const maxTokens = Math.min(
@@ -137,6 +154,9 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
       const limitField =
         reasoning && opts.name === 'openai' ? 'max_completion_tokens' : 'max_tokens';
       const endpoint = `${base}/chat/completions`;
+      // Registry kimliği API kimliğinden farklı olabilir (ör. çakışmayı önlemek
+      // için `evren/` öneği eklenen modeller) → gövdeye API kimliği yazılır.
+      const apiModel = opts.mapModel ? opts.mapModel(model) : model;
       // İş 2: özel uç / baseUrlOverride CSP `connect-src` dışındaysa istek Rust'tan çıkar.
       const res = await fetchFor(endpoint, config.fetchImpl)(endpoint, {
         method: 'POST',
@@ -146,7 +166,7 @@ export function createOpenAICompatibleProvider(opts: OpenAICompatibleOptions): A
           ...(opts.extraHeaders ? opts.extraHeaders(apiKey) : {}),
         },
         body: JSON.stringify({
-          model,
+          model: apiModel,
           messages: apiMessages,
           stream: true,
           [limitField]: maxTokens,

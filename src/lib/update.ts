@@ -70,9 +70,7 @@ export function repoSlug(repoUrl: string = REPO_URL): string | null {
 const SLUG = repoSlug();
 
 /** Son sürümü döndüren GitHub API adresi (yoksa boş string). */
-export const GITHUB_API_LATEST = SLUG
-  ? `https://api.github.com/repos/${SLUG}/releases/latest`
-  : '';
+export const GITHUB_API_LATEST = SLUG ? `https://api.github.com/repos/${SLUG}/releases/latest` : '';
 
 /** Sürüme özel GitHub release sayfası (bilinmiyorsa genel releases sayfası). */
 export function releasePageUrl(version?: string): string {
@@ -384,9 +382,7 @@ export function formatBytes(bytes: number): string {
     i += 1;
   }
   const rounded =
-    i === 0 || value >= 10 || Number.isInteger(value)
-      ? Math.round(value)
-      : value.toFixed(1);
+    i === 0 || value >= 10 || Number.isInteger(value) ? Math.round(value) : value.toFixed(1);
   return `${rounded} ${units[i]}`;
 }
 

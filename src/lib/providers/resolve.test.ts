@@ -29,7 +29,9 @@ describe('resolveModels', () => {
 
   it('çakışmada custom kazanır', () => {
     const target = ALL_MODELS[0].id;
-    const out = resolveModels([custom({ id: target, capabilities: { tools: false, vision: true, reasoning: false } })]);
+    const out = resolveModels([
+      custom({ id: target, capabilities: { tools: false, vision: true, reasoning: false } }),
+    ]);
     expect(out.filter((m) => m.id === target)).toHaveLength(1);
     expect(out.find((m) => m.id === target)?.capabilities.vision).toBe(true);
   });

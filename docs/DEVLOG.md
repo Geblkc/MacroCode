@@ -2,10 +2,148 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-11-05
+> Son güncelleme: 2026-11-22
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
+
+---
+
+## 2026-11-22 — v1.0.0 sürüm hazırlığı
+
+- Sürüm `1.0.0`: `package.json`, `package-lock.json`, `src-tauri/Cargo.toml`,
+  `src-tauri/tauri.conf.json` (+ `Cargo.lock`).
+- **Yedek adlandırması:** `apply_patch` yedekleri artık `sanitize_backup_name`
+  ile `[id]_[ad].bak` biçiminde yazılır. Boşluk/unicode içeren dosya adları
+  `apply_patch`'i kırmıyor; `.test.ts` gibi kaynak uzantıları taşınmadığı için
+  kullanıcı projelerindeki test/lint araçları yedeği toplamıyor.
+- **Araç ignore'ları:** `.macrocode/` `.gitignore`, ESLint, Prettier ve Vitest
+  hariç tutma listelerine eklendi.
+- **Paketleme:** eksik `scripts/build-linux.sh` eklendi (`deb/rpm/appimage`,
+  `--bundles`, `--skip-install`, sistem bağımlılığı kontrolü). `release.sh`
+  `--dry-run` kazandı; dokümanlarıyla (commit/tag/push yapmadığı) hizalandı.
+- **Release notları:** `docs/releases/v1.0.0.md` + `CHANGELOG.md` eklendi.
+  `release.yml` notları artık `bundles/releasenote.md` yerine bu izlenen
+  dosyadan okuyor; release job'una `actions/checkout` eklendi. macOS job'u
+  README/RELEASE_GUIDE ile hizalandı.
+- **CI/format:** `cargo fmt`, `cargo clippy -D warnings` ve Prettier ihlalleri
+  giderildi (`snapshots.rs` sıralama, `fs.rs`/`proxy_probe.rs` biçim,
+  `agent.ts`/`shell.stream.test.ts`).
+- **Dokümantasyon:** eksik `CONTRIBUTING.md` (EN) eklendi, Türkçe README
+  `CONTRIBUTINGtr.md`'ye yönlendirildi; `RELEASE_GUIDE.md` ve
+  `docs/PACKAGING.md` güncel akışa göre düzeltildi.
+- Yeni Rust testleri: güvenli yedek adı + boşluk/unicode dosya adıyla
+  `apply_patch`/`undo_patch` round-trip.
+
+### Doğrulama
+
+- `npm test`: 811/811 (91 dosya) — `.macrocode` artık taranmıyor.
+- `cargo test --lib`: 131/131.
+- `npm run build`, `npm run lint`, `npm run format:check` temiz.
+- `cargo fmt --check`, `cargo clippy --lib -- -D warnings` temiz.
+
+
+## 2026-11-20 — Tauri IPC argüman adları (ağ hatası düzeltmesi)
+
+> Belirti: NVIDIA ve EVREN anahtar testi "ağ hatası" veriyordu.
+> Gerçek neden: `proxy_fetch` çağrısında `on_data` gönderiliyordu; Tauri v2
+> Rust komut argümanlarını JS'e **camelCase** sunar (`onData`). Hata:
+> `invalid args 'onData' for command 'proxy_fetch': missing required key onData`.
+
+- `rustFetch.ts`: `on_data` → `onData`.
+- `rustStream.ts`: `api_key` → `apiKey`, `output_config` → `outputConfig`,
+  `top_p` → `topP`, `max_tokens` → `maxTokens`, `on_chunk` → `onChunk`.
+- `mcp/transports/stdio.ts`: `timeout_ms` → `timeoutMs`.
+- `validate.ts` / `SettingsModal/index.tsx`: ağ hatasında gerçek neden mesajı
+  artık formda gösteriliyor.
+- Regresyon testi: camelCase IPC anahtarları (`rustFetch.test.ts`).
+
+### Doğrulama
+
+- `npx tsc --noEmit` temiz; `npm test`: **739/739** geçti.
+
+---
+
+## 2026-11-20 — NVIDIA canlı modellerinde araççağırma
+
+> Belirti: `nvidia/minimaxai/minimax-m3.1-flash` ajan modunda "tools destekli
+> modele geç" uyarısı veriyordu. Canlı keşifte çekirdek eşleşmesi olmayan
+> modellere `tools: false` varsayılanı atanıyordu.
+
+- `liveCatalog.ts`: NVIDIA için bilinmeyen canlı modellerde `tools` varsayılanı
+  açıldı; diğer sağlayıcılar temkinli varsayımı korur. `MODELS.md` güncellendi.
+
+### Doğrulama
+
+- `npx tsc --noEmit` temiz; `npm test`: **740/740** geçti.
+
+---
+
+## 2026-11-20 — NVIDIA ve EVREN LLM sağlayıcıları
+
+> Kullanıcı talebi: uygulamaya NVIDIA (NIM) ve EVREN (SAYZEK) sağlayıcılarını ekleme.
+
+### A. Frontend / registry
+
+- Yeni `lib/providers/nvidia.ts` (OpenAI uyumlu, `https://integrate.api.nvidia.com/v1`):
+  çekirdek model yok, modeller yalnızca canlı `/v1/models` keşfinden gelir.
+- Yeni `lib/providers/evren.ts` (OpenAI uyumlu, `https://evren-llmapi.ssyz.org.tr/v1`):
+  API'den alınan limitlerle 8 çekirdek model, `evren/` önekli kimlikler.
+- `openaiCompatible.ts` → `mapModel` seçeneği; EVREN'de istek gövdesinde önek sıyrılır.
+- `discovery.ts` → `fetchEvrenModels`: `task` filtresi, `default_max_output_tokens`
+  desteği ve canlı kimliklerin `evren/` öneklenmesi.
+- `types/index.ts`, `providers/index.ts`, `catalog.ts`, `validate.ts`, `settings.ts`,
+  `modelList.ts`, `ProvidersTab.tsx`, `ModelsTab.tsx`: tip/registry/ayar/UI kayıtları.
+- Testler: registry sayısı 10 → 12 (NVIDIA canlı-keşif istisnası), `mapModel` ve
+  EVREN keşfi için yeni testler; sabit `ApiKeys` fixture'ları güncellendi.
+
+### B. Rust backend
+
+- `commands/keystore.rs`: `VALID_PROVIDERS` 10 → 12, `KeyStatus`, `key_status()`,
+  `has_any_key()`, hata mesajı ve birim testleri.
+
+### C. Dokümantasyon
+
+- 5 dilde README, `ARCHITECTURE.md`, `MODELS.md` (uç tablosu + yeni sağlayıcı
+  bölümleri) ve bu kayıt güncellendi. CSP değişmedi — yeni hostlar mevcut
+  Rust `proxy_fetch` üzerinden geçiyor.
+
+### D. Doğrulama
+
+- `npx tsc --noEmit`: temiz. `npm test`: 733/733 geçti.
+- `cargo test --lib keystore`: 3/3 geçti.
+
+---
+
+## 2026-11-20 — Proje anlık görüntüleri (snapshot)
+
+> Kullanıcı talebi: agent modunda tüm projenin anlık görüntüsünü alıp geri yükleme.
+
+### A. Rust backend (`src-tauri/src/commands/snapshots.rs`)
+
+- Yeni modül: `create_snapshot`, `list_snapshots`, `restore_snapshot`,
+  `delete_snapshot`. `mod.rs` / `lib.rs` invoke handler kaydı.
+- Depolama `.macrocode/snapshots/<id>/` + `manifest.json`; jail, symlink reddi,
+  `blocks.json` filtresi, 1 MB/dosya · 50 MB · 5000 dosya limiti.
+- Geri yükleme öncesi otomatik güvenlik snapshot'ı (`before-restore-<id>`);
+  atomik yazma + snapshot sonrası eklenen dosyaların silinmesi. `excluded`
+  listesi kopyalanamayan dosyaları restore'da korur.
+- `fs.rs`: `jailed_macrocode_subdir` → `pub(crate)` (paylaşım için).
+
+### B. Frontend
+
+- `lib/engine/tools/snapshot.ts` invoke köprüsü + saf yardımcılar;
+  `agent.ts` re-export; `create_snapshot` agent aracı (build-only).
+- Slash komutları: `/snapshot [etiket]`, `/snapshots`, `/restore <id>`,
+  `/snapshot-del <id>` (App.tsx handler'ları + ConfirmDialog onayı).
+- Titlebar workspace menüsü → `SnapshotsModal` paneli (oluştur / geri yükle / sil).
+- 5 dilde i18n anahtarları + `styles/settings.css` panel stilleri.
+
+### C. Doğrulama
+
+- `cargo test --lib snapshots`: 4/4 geçti.
+- `npm test`: 730/730 geçti. `npx tsc --noEmit`: temiz.
+- `cargo fmt --check` + `prettier --check` + `eslint`: hata yok.
 
 ---
 

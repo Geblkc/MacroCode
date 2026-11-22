@@ -1,6 +1,6 @@
 # MacroCode — GitHub'a Yeni Sürüm Yükleme Kılavuzu
 
-Bu doküman, MacroCode projesinin yeni bir sürümünü GitHub'a yüklemek için gereken tüm adımları sırayla açıklar. Tüm komutlar proje kök dizininde (`/home/efeb/Masaüstü/MacroCode`) çalıştırılmalıdır.
+Bu doküman, MacroCode projesinin yeni bir sürümünü GitHub'a yüklemek için gereken tüm adımları sırayla açıklar. Tüm komutlar proje kök dizininde çalıştırılmalıdır.
 
 ---
 
@@ -19,32 +19,31 @@ Bu doküman, MacroCode projesinin yeni bir sürümünü GitHub'a yüklemek için
 
 ## 1. Sürüm Bump (Versiyon Güncelleme)
 
-Yeni sürüm numarasını belirleyin (örn. `0.2.3`). Aşağıdaki dosyalarda sürümü güncelleyin:
+Yeni sürüm numarasını belirleyin (örn. `1.0.0`). Aşağıdaki dosyalarda sürümü güncelleyin:
 
 ### 1.1 `package.json` ve `package-lock.json`
 ```json
-"version": "0.2.3"
+"version": "1.0.0"
 ```
-> `npm version 0.2.3 --no-git-tag-version` her iki dosyayı da günceller.
+> `npm version 1.0.0 --no-git-tag-version` her iki dosyayı da günceller.
 
 ### 1.2 `src-tauri/Cargo.toml`
 ```toml
-version = "0.2.3"
+version = "1.0.0"
 ```
 
 ### 1.3 `src-tauri/tauri.conf.json`
 ```json
-"version": "0.2.3"
+"version": "1.0.0"
 ```
 
-### 1.4 `bundles/README.md` (varsa)
-Dosya adlarındaki sürüm referanslarını güncelleyin (örn. `MacroCode_0.2.3_amd64.deb`).
-
-### 1.5 Sürüm bump scripti (opsiyonel)
+### 1.4 Sürüm bump scripti (önerilen)
 ```bash
-bash scripts/release.sh 0.2.3
+bash scripts/release.sh 1.0.0
+# yalnızca ne yapılacağını görmek için:
+bash scripts/release.sh 1.0.0 --dry-run
 ```
-> Bu script sürüm alanlarını günceller; commit/tag/push **yapmaz**. Manuel yapmak isterseniz aşağıdaki adımları izleyin.
+> Bu script sürüm alanlarını ve `Cargo.lock`'u günceller; commit/tag/push **yapmaz**. O adımlar bölüm 5'tedir.
 
 ---
 
@@ -78,12 +77,15 @@ Beklenen: `src-tauri/target/release/bundle/` altında `.deb`, `.rpm`, `.AppImage
 
 ## 3. Bundles Klasörünü Hazırlama
 
-### 3.1 Bundles klasörü oluştur (yoksa)
+### 3.1 Linux paketlerini üret (önerilen)
 ```bash
-mkdir -p bundles
+npm run dist:linux
 ```
+> Betik paketleri `bundles/` altında toplar. Yalnız bir tür için
+> `npm run dist:deb`, `npm run dist:rpm`, `npm run dist:appimage` kullanın.
+> Updater imzası için `TAURI_SIGNING_PRIVATE_KEY` tanımlı olmalıdır (bölüm **6.1**).
 
-### 3.2 Paketleri bundles'a kopyala
+### 3.2 Paketleri elle kopyalama (gerekirse)
 ```bash
 cp src-tauri/target/release/bundle/deb/*.deb      bundles/
 cp src-tauri/target/release/bundle/rpm/*.rpm      bundles/
@@ -91,23 +93,21 @@ cp src-tauri/target/release/bundle/rpm/*.rpm      bundles/
 cp src-tauri/target/release/bundle/appimage/*     bundles/
 ls -lh bundles/
 ```
-> `TAURI_SIGNING_PRIVATE_KEY` tanımlı değilse `tauri build` şu hatayı verir:
-> `A public key has been found, but no private key`. Anahtar üretimi için
-> bölüm **6.1**'e bakın.
 
 ### 3.3 SHA256SUMS oluştur
 ```bash
 cd bundles && sha256sum -- * > SHA256SUMS && cat SHA256SUMS && cd ..
 ```
 
-### 3.4 README.md güncelle (varsa)
-`bundles/README.md` dosyasındaki sürüm referanslarını ve paket boyutlarını güncelleyin.
+### 3.4 Sürüm notlarını hazırla
+`docs/releases/vX.Y.Z.md` dosyasını oluşturun/güncelleyin. Release workflow bu
+dosyayı tag üzerinden okur (dosya commit'lenmiş olmalıdır).
 
 ---
 
 ## 4. Release Notes Yazma
 
-`bundles/releasenote.md` dosyasını oluşturun/güncelleyin. İçerik şunları içermelidir:
+`docs/releases/vX.Y.Z.md` dosyasını oluşturun/güncelleyin. İçerik şunları içermelidir:
 
 - Sürüm numarası ve tarih
 - Önceki sürümden farklar (yeni özellikler, hata düzeltmeleri, güvenlik)
@@ -148,24 +148,23 @@ cd bundles && sha256sum -- * > SHA256SUMS && cat SHA256SUMS && cd ..
 ```bash
 git add -A
 ```
-> **Not:** `Security.md` dosyası kullanıcıya ait untracked dosyadır; commit'e dahil edilmemelidir. Gerekirse:
-> ```bash
-> git reset HEAD Security.md
-> ```
+> `.macrocode/` artık `.gitignore`'da olduğu için ajan yedekleri/snapshot'ları
+> commit'e girmez. Yine de `git status` ile kontrol edin.
 
 ### 5.2 Commit oluştur
 ```bash
-git commit -m "feat: vX.Y.Z — <kısa açıklama>"
+git commit -m "release: vX.Y.Z"
 ```
 
 ### 5.3 Tag oluştur
 ```bash
-git tag vX.Y.Z
+git tag -a vX.Y.Z -m "MacroCode vX.Y.Z"
 ```
 
 ### 5.4 Push (commit + tag)
 ```bash
-git push origin main vX.Y.Z
+git push origin main
+git push origin vX.Y.Z
 ```
 
 > **Dikkat:** Remote'da yeni commit'ler varsa önce `git pull origin main --no-rebase --no-edit` yapın, merge commit oluşturun, sonra push edin.
@@ -185,9 +184,14 @@ Tag push edildiğinde (`.github/workflows/release.yml`) otomatik olarak:
    - Windows paketleri derlenir (NSIS .exe, .msi)
    - Artifact olarak yüklenir
 
-3. **Release job** (linux + windows tamamlandıktan sonra):
+3. **macOS job** (macos-latest):
+   - Universal (.dmg) paket derlenir
+   - Artifact olarak yüklenir
+
+4. **Release job** (üç build tamamlandıktan sonra):
    - Tüm artifact'lar indirilir
-   - `SHA256SUMS` yeniden üretilir (tüm dosyalar dahil)
+   - `latest.json` ve `SHA256SUMS` üretilir
+   - Sürüm notları `docs/releases/vX.Y.Z.md` dosyasından okunur
    - GitHub Release oluşturulur (`softprops/action-gh-release@v2`)
    - Tüm paketler release'e yüklenir
 
@@ -234,7 +238,9 @@ Release job'u aşağıdaki yapıyı üretir ve `bundles/latest.json` olarak yük
   "pub_date": "2026-01-01T00:00:00Z",
   "platforms": {
     "linux-x86_64":   { "signature": "<.AppImage.sig içeriği>", "url": "...AppImage" },
-    "windows-x86_64": { "signature": "<.exe.sig içeriği>",      "url": "...-setup.exe" }
+    "windows-x86_64": { "signature": "<.exe.sig içeriği>",      "url": "...-setup.exe" },
+    "darwin-x86_64":  { "signature": "<.app.tar.gz.sig>",       "url": "...universal.app.tar.gz" },
+    "darwin-aarch64": { "signature": "<.app.tar.gz.sig>",       "url": "...universal.app.tar.gz" }
   }
 }
 ```
@@ -245,12 +251,13 @@ Endpoint: `https://github.com/Geblkc/Macro-Code/releases/latest/download/latest.
   kurulan sürümlerde `/update` kullanıcıyı release sayfasına yönlendirir
   (`update_support` → `kind: "package"`).
 - **Windows:** NSIS `*-setup.exe` otomatik kurulur (`installMode: passive`).
-- **macOS:** kod olarak desteklenir; CI'da macOS build'i yok.
+- **macOS:** universal `.dmg` üretilir; `latest.json` hem `darwin-x86_64`
+  hem `darwin-aarch64` girdisini içerir.
 
 ### 6.1.4 İlk updater sürümü
 
 Updater kodu **bu sürümden önceki** kurulumlarda yoktur. Bu nedenle ilk
-updater'lı sürüm (örn. `v0.3.0`) kullanıcılar tarafından **bir kez elle**
+updater'lı sürüm (örn. `v1.0.0`) kullanıcılar tarafından **bir kez elle**
 kurulmalıdır; sonraki sürümler otomatik güncellenebilir.
 
 ### 6.1.5 Elle (workflow'suz) release'de updater
@@ -286,7 +293,7 @@ Workflow çalışmazsa veya elle release oluşturmak isterseniz:
 ```bash
 gh release create vX.Y.Z \
   --title "MacroCode vX.Y.Z" \
-  --notes-file bundles/releasenote.md \
+  --notes-file docs/releases/vX.Y.Z.md \
   bundles/*
 ```
 
@@ -304,8 +311,10 @@ MacroCode_X.Y.Z_amd64.deb
 MacroCode_X.Y.Z_x64-setup.exe
 MacroCode_X.Y.Z_x64-setup.exe.sig
 MacroCode_X.Y.Z_x64_en-US.msi
+MacroCode_X.Y.Z_universal.dmg
+MacroCode_X.Y.Z_universal.app.tar.gz
+MacroCode_X.Y.Z_universal.app.tar.gz.sig
 latest.json
-releasenote.md
 SHA256SUMS
 ```
 > `latest.json` yoksa uygulama içi otomatik güncelleme çalışmaz; bölüm
@@ -320,13 +329,13 @@ SHA256SUMS
 - [ ] `npm run build` — başarılı
 - [ ] `bundles/` klasöründe güncel paketler var
 - [ ] `bundles/SHA256SUMS` güncellendi
-- [ ] `bundles/releasenote.md` yazıldı
+- [ ] `docs/releases/vX.Y.Z.md` yazıldı
 - [ ] `.sig` dosyaları ve `latest.json` release'de mevcut (updater)
 - [ ] `latest.json` sürümü/URL'leri release ile eşleşiyor
 - [ ] Git commit oluşturuldu
 - [ ] Tag `vX.Y.Z` oluşturuldu ve push'landı
-- [ ] GitHub Actions workflow tamamlandı (linux + windows)
-- [ ] GitHub Release'de tüm paketler (Linux + Windows) var
+- [ ] GitHub Actions workflow tamamlandı (linux + windows + macos)
+- [ ] GitHub Release'de tüm paketler (Linux + Windows + macOS) var
 - [ ] Release notes doğru görünüyor
 
 ---
@@ -380,7 +389,7 @@ git add -A && git commit -m "feat: vX.Y.Z — release" && git tag vX.Y.Z
 git push origin main vX.Y.Z
 
 # 4. Release oluştur (workflow tamamlanana kadar bekle veya manuel)
-gh release create vX.Y.Z --title "MacroCode vX.Y.Z" --notes-file bundles/releasenote.md bundles/*
+gh release create vX.Y.Z --title "MacroCode vX.Y.Z" --notes-file docs/releases/vX.Y.Z.md bundles/*
 ```
 
 ---

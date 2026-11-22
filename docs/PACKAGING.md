@@ -47,27 +47,33 @@ Ek olarak:
 `.rpm` için `bundle.linux.rpm.depends` aynı dosyada tanımlıdır (deb'de
 webkit2gtk + gtk3 Tauri tarafından otomatik eklenir).
 
-## Windows — CI üzerinden
+## Windows ve macOS — CI üzerinden
 
 Linux'tan `.msi`/NSIS `.exe` güvenilir üretilemez (MSVC + WebView2 +
 NSIS araç zinciri). Windows paketleri **GitHub Actions** tarafından üretilir:
 
 ```bash
-bash scripts/release.sh 1.2.0          # sürüm bump + tag + push (tek komut)
-bash scripts/release.sh 1.2.0 --dry-run # ne yapılacağını göster
+bash scripts/release.sh 1.0.0           # yalnız sürüm alanlarını günceller
+bash scripts/release.sh 1.0.0 --dry-run # ne yapılacağını gösterir
 ```
 
 `release.sh` şunları yapar:
 
 1. Versiyonu senkronlar: `package.json`, `package-lock.json`,
    `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml` (+ `Cargo.lock`)
-2. `release: vX.Y.Z` commit'i + `vX.Y.Z` tag'i oluşturur ve push eder
-3. Tag push'u `.github/workflows/release.yml`'i tetikler:
-   - **linux** işi (ubuntu-22.04): deb + rpm + AppImage derler
-   - **windows** işi (windows-latest): NSIS `.exe` + `.msi` derler
-   - **release** işi: `SHA256SUMS` üretir, paketleri GitHub Release'e yükler
+2. Başka bir şey yapmaz — commit, tag ve push **manuel** adımlardır
+   (bkz. `RELEASE_GUIDE.md` bölüm 5).
+
+`vX.Y.Z` tag'i push edildiğinde `.github/workflows/release.yml` tetiklenir:
+
+- **linux** işi (ubuntu-22.04): deb + rpm + AppImage derler
+- **windows** işi (windows-latest): NSIS `.exe` + `.msi` derler
+- **macos** işi (macos-latest): universal `.dmg` derler
+- **release** işi: `latest.json` + `SHA256SUMS` üretir, paketleri GitHub Release'e yükler.
+  Sürüm notları `docs/releases/vX.Y.Z.md` dosyasından okunur.
 
 Yayınlanan sürüm: <https://github.com/Geblkc/Macro-Code/releases>
+
 
 ### Windows kurulum notları
 

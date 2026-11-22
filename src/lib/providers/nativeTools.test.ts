@@ -15,7 +15,9 @@ function sseResponse(lines: string[]): Response {
 
 describe('Yerel (Native) Tool Calling Biçimlendirme', () => {
   it('Anthropic: tool_use ve tool_result blokları yerel formatta gönderilir', async () => {
-    const fetchImpl = vi.fn(async () => sseResponse(['event: message_stop', 'data: {"type":"message_stop"}']));
+    const fetchImpl = vi.fn(async () =>
+      sseResponse(['event: message_stop', 'data: {"type":"message_stop"}']),
+    );
 
     await anthropicProvider.stream({
       apiKey: 'sk-ant-test',
@@ -69,7 +71,9 @@ describe('Yerel (Native) Tool Calling Biçimlendirme', () => {
   });
 
   it('Anthropic: ardışık birden fazla tool_result tek bir user mesajında birleştirilir', async () => {
-    const fetchImpl = vi.fn(async () => sseResponse(['event: message_stop', 'data: {"type":"message_stop"}']));
+    const fetchImpl = vi.fn(async () =>
+      sseResponse(['event: message_stop', 'data: {"type":"message_stop"}']),
+    );
 
     await anthropicProvider.stream({
       apiKey: 'sk-ant-test',
@@ -224,9 +228,7 @@ describe('Yerel (Native) Tool Calling Biçimlendirme', () => {
     expect(body.contents[0]).toEqual({ role: 'user', parts: [{ text: 'devam et' }] });
     expect(body.contents[1]).toEqual({
       role: 'user',
-      parts: [
-        { functionResponse: { name: 'exec', response: { output: 'ok' }, id: 'g_x' } },
-      ],
+      parts: [{ functionResponse: { name: 'exec', response: { output: 'ok' }, id: 'g_x' } }],
     });
   });
 });

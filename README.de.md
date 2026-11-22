@@ -29,10 +29,11 @@ Header, die direkt an den von dir konfigurierten Anbieter gehen.
 
 | | |
 |---|---|
-| 🧠 **10 Anbieter** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI) und GLM (Zhipu AI). Jeder Anbieter erscheint erst in den Listen, wenn sein Schlüssel (bei Ollama: eine lokale URL) hinterlegt ist. |
-| 🔮 **Hunderte Modelle** | Der kleine kuratierte Katalog wird mit Metadaten von [models.dev](https://models.dev) angereichert: Kontextlimits, Vision-/Reasoning-Fähigkeiten und Preise. |
+| 🧠 **12 Anbieter** | Anthropic, OpenAI, Google Gemini, Ollama, OpenRouter, DeepSeek, xAI, MiniMax, Kimi (Moonshot AI), GLM (Zhipu AI), NVIDIA und EVREN LLM. Jeder Anbieter erscheint erst in den Listen, wenn sein Schlüssel (bei Ollama: eine lokale URL) hinterlegt ist. |
+| 🔮 **Hunderte Modelle** | Die Modelllisten kommen live aus der API jedes Anbieters (mit eigenem Schlüssel) und werden mit Metadaten von [models.dev](https://models.dev) angereichert. Ist keine API-Liste verfügbar, greift der eingebaute Katalog. |
 | ⌨️ **Terminal-Bedienung** | Slash-Befehle (`/model`, `/tokens`, `/compact`, `/help` …), Nachrichtenverlauf mit `↑ ↓`, sofortige Token-Messung pro Runde. |
 | 🤖 **Agent-Modus** | Weise mit `/root` einen Projektordner zu: Er kann Dateien lesen, im Code suchen, Dateien bearbeiten und Shell-Befehle ausführen. Jede Schreib- oder Ausführungsaktion läuft über eine Freigabekarte, die du bestätigen oder ablehnen kannst; `rm` ist eingeschränkt und Systemordner sind blockiert. Zusätzlich verbindet er sich mit MCP-Servern (stdio oder HTTP) für weitere Werkzeuge. |
+| ⏱️ **Projekt-Momentaufnahmen** | Erstelle mit `/snapshot` (oder dem Workspace-Menü in der Titelleiste) einen Wiederherstellungspunkt des gesamten Projekts, liste ihn mit `/snapshots` auf und setze mit `/restore <id>` zurück. Geheimnisse und ignorierte Ordner sind ausgeschlossen; vor jeder Wiederherstellung wird eine Sicherung erstellt. |
 | 🔀 **Git integriert** | Ein angedocktes Git-Panel und `/git`-Befehle: Status, Diff, Staging, Commit (optional mit KI-Nachricht), Verlauf, Branches sowie Fetch/Pull (nur Fast-Forward)/Push. Änderungen erfordern Bestätigung; die App speichert keine Zugangsdaten und führt keinen Force-Push aus. |
 | 💸 **Kosten im Blick** | Prompt-Caching (Anthropic-Cache-Breakpoints / OpenAI-kompatible Cache-Keys) hält lange Sessions günstig; `/tokens` zeigt exakt, was jede Runde gekostet hat — Cache-Lesevorgänge eingeschlossen. |
 | 🌍 **5 Sprachen** | Die Oberfläche ist vollständig übersetzt: English, Deutsch, Español, Français und Türkçe; ein Wechsel wirkt sofort, kein Neustart nötig. |
@@ -69,7 +70,7 @@ npm run build        # nur Typprüfung + Web-Build
 ## Dokumentation
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — Projektaufbau, Modul für Modul
-- [`docs/MODELS.md`](docs/MODELS.md) — Modellkatalog und die Verschmelzung mit models.dev
+- [`docs/MODELS.md`](docs/MODELS.md) — Live-API-Katalog, Fallback-Regeln und models.dev-Metadaten
 - [`docs/PACKAGING.md`](docs/PACKAGING.md) — `.deb` / `.rpm` / AppImage lokal bauen, Windows-Installer per CI
 - [`docs/DEVLOG.md`](docs/DEVLOG.md) — datiertes Protokoll jeder Änderung
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — Richtlinien für Pull-Requests

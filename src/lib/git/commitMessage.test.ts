@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  COMMIT_SYSTEM_PROMPT,
-  buildCommitPrompt,
-  normalizeCommitMessage,
-} from './commitMessage';
+import { COMMIT_SYSTEM_PROMPT, buildCommitPrompt, normalizeCommitMessage } from './commitMessage';
 import type { GitFile } from './types';
 
 const file = (over: Partial<GitFile> = {}): GitFile => ({

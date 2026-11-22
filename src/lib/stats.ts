@@ -2,12 +2,12 @@ import type { UsageEvent } from '../types';
 import { readUsageEvents } from './db';
 
 /** Get usage events filtered by criteria */
-export const getUsageEventsWithFilters = async ({ 
-  startDate, 
-  endDate, 
-  project, 
-  model, 
-  provider 
+export const getUsageEventsWithFilters = async ({
+  startDate,
+  endDate,
+  project,
+  model,
+  provider,
 }: {
   startDate?: Date;
   endDate?: Date;
@@ -19,19 +19,19 @@ export const getUsageEventsWithFilters = async ({
   let filteredEvents = allEvents;
 
   if (startDate) {
-    filteredEvents = filteredEvents.filter(e => e.ts >= startDate.getTime());
+    filteredEvents = filteredEvents.filter((e) => e.ts >= startDate.getTime());
   }
   if (endDate) {
-    filteredEvents = filteredEvents.filter(e => e.ts <= endDate.getTime());
+    filteredEvents = filteredEvents.filter((e) => e.ts <= endDate.getTime());
   }
   if (project) {
-    filteredEvents = filteredEvents.filter(e => e.project === project);
+    filteredEvents = filteredEvents.filter((e) => e.project === project);
   }
   if (model) {
-    filteredEvents = filteredEvents.filter(e => e.model === model);
+    filteredEvents = filteredEvents.filter((e) => e.model === model);
   }
   if (provider) {
-    filteredEvents = filteredEvents.filter(e => e.provider === provider);
+    filteredEvents = filteredEvents.filter((e) => e.provider === provider);
   }
 
   return filteredEvents;
@@ -39,29 +39,35 @@ export const getUsageEventsWithFilters = async ({
 
 /** Aggregate time series data for graphing */
 export const aggregateTimeSeries = (events: UsageEvent[]) => {
-  const grouped = events.reduce((acc, event) => {
-    const date = new Date(event.ts);
-    const day = date.toISOString().split('T')[0];
-    const hour = date.getHours();
-    const key = `${day} ${hour}`;
-    if (!acc[key]) {
-      acc[key] = {
-        timestamp: event.ts,
-        cost: 0,
-        tokens: 0,
-        requests: 0,
-      };
-    }
-    acc[key].cost += event.costUsd;
-    acc[key].tokens += event.inputTokens + event.outputTokens;
-    acc[key].requests += 1;
-    return acc;
-  }, {} as Record<string, {
-    timestamp: number;
-    cost: number;
-    tokens: number;
-    requests: number;
-  }>);
+  const grouped = events.reduce(
+    (acc, event) => {
+      const date = new Date(event.ts);
+      const day = date.toISOString().split('T')[0];
+      const hour = date.getHours();
+      const key = `${day} ${hour}`;
+      if (!acc[key]) {
+        acc[key] = {
+          timestamp: event.ts,
+          cost: 0,
+          tokens: 0,
+          requests: 0,
+        };
+      }
+      acc[key].cost += event.costUsd;
+      acc[key].tokens += event.inputTokens + event.outputTokens;
+      acc[key].requests += 1;
+      return acc;
+    },
+    {} as Record<
+      string,
+      {
+        timestamp: number;
+        cost: number;
+        tokens: number;
+        requests: number;
+      }
+    >,
+  );
 
   return Object.values(grouped).sort((a, b) => a.timestamp - b.timestamp);
 };
@@ -94,8 +100,11 @@ export const aggregateByModel = (events: UsageEvent[]): Record<string, UsageBuck
 /** Compute KPI metrics from events */
 export const computeMetrics = (events: UsageEvent[]) => {
   const totalCost = events.reduce((sum, event) => sum + event.costUsd, 0);
-  const totalTokens = events.reduce((sum, event) => sum + event.inputTokens + event.outputTokens, 0);
-  const totalSessions = new Set(events.map(e => e.sessionId)).size;
+  const totalTokens = events.reduce(
+    (sum, event) => sum + event.inputTokens + event.outputTokens,
+    0,
+  );
+  const totalSessions = new Set(events.map((e) => e.sessionId)).size;
   const totalRequests = events.length;
   const cacheSavings = calculateCacheSavings(events);
   const avgCostPerSession = totalSessions > 0 ? totalCost / totalSessions : 0;
@@ -114,7 +123,7 @@ export const computeMetrics = (events: UsageEvent[]) => {
 /** Generate heatmap data for activity visualization */
 export const generateHeatmapData = (events: UsageEvent[]) => {
   const hours: Record<string, number> = {};
-  events.forEach(event => {
+  events.forEach((event) => {
     const date = new Date(event.ts);
     const hour = date.getHours();
     const key = `${date.toISOString().split('T')[0]}T${hour.toString().padStart(2, '0')}`;

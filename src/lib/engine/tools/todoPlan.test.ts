@@ -5,9 +5,7 @@ describe('Faz 8 L2 — plan adımları görev takibine bağlanır', () => {
   it('plan çağrısı adımları görev olarak üretir', () => {
     const state = deriveTodoState([
       {
-        toolCalls: [
-          { name: 'plan', args: { steps: ['dosyayı oku', 'testleri çalıştır'] } },
-        ],
+        toolCalls: [{ name: 'plan', args: { steps: ['dosyayı oku', 'testleri çalıştır'] } }],
       },
     ]);
     expect(state.items).toHaveLength(2);
@@ -24,7 +22,7 @@ describe('Faz 8 L2 — plan adımları görev takibine bağlanır', () => {
     expect(state.items.find((t) => t.id === 'plan-2')?.done).toBe(false);
   });
 
-  it('birden fazla plan çağrısında id\'ler çakışmaz', () => {
+  it("birden fazla plan çağrısında id'ler çakışmaz", () => {
     const state = deriveTodoState([
       { toolCalls: [{ name: 'plan', args: { steps: ['a', 'b'] } }] },
       { toolCalls: [{ name: 'plan', args: { steps: ['c'] } }] },

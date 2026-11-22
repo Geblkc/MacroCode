@@ -133,9 +133,12 @@ export interface McpCallResult {
   isError: boolean;
 }
 
-const MAX_TOOL_TEXT = 4000;
-
-/** tools/call sonucunu metne çevirir (text blokları birleşir, diğerleri yer tutucu). */
+/** tools/call sonucunu metne çevirir (text blokları birleşir, diğerleri yer tutucu).
+ *
+ * Uzun MCP çıktısı burada kırpılmaz: agent katmanındaki ortak output policy
+ * tam çıktıyı artifact'a yazar ve modele uygun head/tail veya file-only
+ * payload'ı üretir.
+ */
 export function parseToolResult(result: unknown): McpCallResult {
   if (!isRecord(result) || !Array.isArray(result.content)) {
     throw new McpError('mcp: tools/call sonucu bozuk');
@@ -149,7 +152,5 @@ export function parseToolResult(result: unknown): McpCallResult {
       parts.push(`[${block.type} içerik — metin değil]`);
     }
   }
-  const text = parts.join('\n');
-  const clipped = text.length > MAX_TOOL_TEXT ? `${text.slice(0, MAX_TOOL_TEXT)}\n…[kesildi]` : text;
-  return { text: clipped, isError: result.isError === true };
+  return { text: parts.join('\n'), isError: result.isError === true };
 }

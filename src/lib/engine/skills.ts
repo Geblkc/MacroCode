@@ -33,9 +33,7 @@ export function clearSkills(): void {
 }
 
 export function skillsPrompt(names: string[]): string {
-  const found = names
-    .map((n) => getSkill(n))
-    .filter((s): s is Skill => !!s);
+  const found = names.map((n) => getSkill(n)).filter((s): s is Skill => !!s);
   if (found.length === 0) return '';
   return found.map((s) => `[skill:${s.name}] ${s.prompt}`).join('\n');
 }
@@ -44,5 +42,6 @@ export function skillsPrompt(names: string[]): string {
 registerSkill({
   name: 'repo-guide',
   description: 'Projeyi değiştirmeden önce ilgili dosyaları oku',
-  prompt: 'Kod değiştirmeden önce read_file/list_dir/grep ile ilgili dosyaları oku. Varsayım yapma.',
+  prompt:
+    'Kod değiştirmeden önce read_file/list_dir/grep ile ilgili dosyaları oku. Varsayım yapma.',
 });

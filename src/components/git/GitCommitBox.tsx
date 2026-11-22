@@ -6,10 +6,7 @@ import { useWorkspaceStore } from '../../store/workspace';
 import { useGitStore } from '../../store/git';
 import { gitApi } from '../../lib/git/api';
 import { asGitError, errorKey } from '../../lib/git/errors';
-import {
-  buildCommitPrompt,
-  normalizeCommitMessage,
-} from '../../lib/git/commitMessage';
+import { buildCommitPrompt, normalizeCommitMessage } from '../../lib/git/commitMessage';
 import { filterDiffForAi, isSecretPath, MAX_COMMIT_MESSAGE } from '../../lib/git/policy';
 import { generateCommitMessage } from '../../lib/git/ai';
 import { Icon } from '../icons';
@@ -31,12 +28,8 @@ export default function GitCommitBox({ confirm }: Props) {
   const [amend, setAmend] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
 
-  const staged = useMemo(
-    () => (status?.files ?? []).filter((f) => f.staged),
-    [status],
-  );
-  const canCommit =
-    (staged.length > 0 || amend) && message.trim().length > 0 && !aiBusy;
+  const staged = useMemo(() => (status?.files ?? []).filter((f) => f.staged), [status]);
+  const canCommit = (staged.length > 0 || amend) && message.trim().length > 0 && !aiBusy;
 
   const fail = (e: unknown) => {
     const err = asGitError(e);
@@ -152,14 +145,14 @@ export default function GitCommitBox({ confirm }: Props) {
       </div>
       <div className="git-commit-row">
         <label className="git-amend">
-          <input
-            type="checkbox"
-            checked={amend}
-            onChange={(e) => setAmend(e.target.checked)}
-          />
+          <input type="checkbox" checked={amend} onChange={(e) => setAmend(e.target.checked)} />
           {t('git.amend')}
         </label>
-        <button className="btn btn-primary btn-sm" disabled={!canCommit} onClick={() => void doCommit()}>
+        <button
+          className="btn btn-primary btn-sm"
+          disabled={!canCommit}
+          onClick={() => void doCommit()}
+        >
           <Icon name="check" size="sm" />
           {t('git.commit')}
         </button>

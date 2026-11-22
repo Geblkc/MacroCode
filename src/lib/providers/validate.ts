@@ -1,14 +1,17 @@
 import type { Provider } from '../../types';
+import { EVREN_BASE_URL, isEvrenTermsError } from './evren';
 import { DEFAULT_OLLAMA_URL } from './ollama';
 import { fetchFor } from './rustFetch';
 
-/** Bağlantı testi sonucu: bağlı / geçersiz (anahtar ya da uç reddetti) / ağ hatası. */
-export type ValidateResult = 'ok' | 'invalid' | 'network';
+/** Bağlantı testi sonucu: bağlı / geçersiz / şartlar kabul edilmemiş / ağ hatası. */
+export type ValidateResult = 'ok' | 'invalid' | 'terms' | 'network';
 
 export interface ValidateOptions {
   fetchImpl?: typeof fetch;
   /** OpenAI-uyumlu sağlayıcılarda varsayılan yerine bu taban URL denenir. */
   baseUrl?: string;
+  /** Ağ hatasının gerçek nedeni (Rust proxy / CORS) UI'da gösterilmek üzere. */
+  onNetworkError?: (error: unknown) => void;
 }
 
 const OPENAI_COMPATIBLE_BASE: Partial<Record<Provider, string>> = {
@@ -19,6 +22,8 @@ const OPENAI_COMPATIBLE_BASE: Partial<Record<Provider, string>> = {
   minimax: 'https://api.minimax.io/v1',
   moonshotai: 'https://api.moonshot.ai/v1',
   zhipuai: 'https://api.z.ai/api/paas/v4',
+  nvidia: 'https://integrate.api.nvidia.com/v1',
+  evren: EVREN_BASE_URL,
 };
 
 /**
@@ -34,6 +39,10 @@ export async function validateDetailed(
 ): Promise<ValidateResult> {
   const f = opts.fetchImpl ?? globalThis.fetch;
   const value = key.trim();
+  const networkError = (e: unknown): ValidateResult => {
+    opts.onNetworkError?.(e);
+    return 'network';
+  };
 
   if (provider === 'ollama') {
     const base = (value || DEFAULT_OLLAMA_URL).replace(/\/+$/, '');
@@ -41,8 +50,8 @@ export async function validateDetailed(
     try {
       const res = await fetchFor(url, opts.fetchImpl)(url);
       return res.ok ? 'ok' : 'invalid';
-    } catch {
-      return 'network';
+    } catch (e) {
+      return networkError(e);
     }
   }
 
@@ -57,8 +66,8 @@ export async function validateDetailed(
         `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(value)}`,
       );
       return res.ok ? 'ok' : 'invalid';
-    } catch {
-      return 'network';
+    } catch (e) {
+      return networkError(e);
     }
   }
 
@@ -70,8 +79,13 @@ export async function validateDetailed(
     const res = await fetchFor(url, opts.fetchImpl)(url, {
       headers: { authorization: `Bearer ${value}` },
     });
-    return res.ok ? 'ok' : 'invalid';
-  } catch {
-    return 'network';
+    if (res.ok) return 'ok';
+    // EVREN yeni anahtarlarda şart kabulüne kadar 403 döner; bu "geçersiz
+    // anahtar" değildir, kullanıcıya portalı göstermek gerekir.
+    if (res.status === 403 && isEvrenTermsError(res.status, await res.text().catch(() => '')))
+      return 'terms';
+    return 'invalid';
+  } catch (e) {
+    return networkError(e);
   }
 }

@@ -57,15 +57,18 @@ describe('pricing', () => {
     expect(
       costForTokens({ input: 1000, output: 500, reasoning: 200 }, { input: 3, output: 15 }),
     ).toBeCloseTo(0.0135, 6);
-    expect(costForMessage({ input: 0, output: 0, reasoning: 100 }, { input: 3, output: 15 })).toBeCloseTo(
-      0.0015,
-      6,
-    );
+    expect(
+      costForMessage({ input: 0, output: 0, reasoning: 100 }, { input: 3, output: 15 }),
+    ).toBeCloseTo(0.0015, 6);
   });
 
   it('Faz 4: sessionCost reasoning dahil toplam verir', () => {
     const messages = [
-      msg({ role: 'assistant', model: 'm1', tokens: { input: 1000, output: 1000, reasoning: 500 } }),
+      msg({
+        role: 'assistant',
+        model: 'm1',
+        tokens: { input: 1000, output: 1000, reasoning: 500 },
+      }),
       msg({ role: 'assistant', model: 'm9', tokens: { input: 1000, output: 1000 } }),
     ];
     const { cost, priced } = sessionCost(messages, { m1: { input: 1, output: 1 } });
@@ -98,17 +101,19 @@ describe('pricing', () => {
   it('cache okuma fiyatı kendi kademesinden hesaplanır', () => {
     // 600 normal girdi × $3 + 400 cache girdi × $0.3 = $0.0018 + $0.00012
     const price = { input: 3, output: 15, cacheRead: 0.3 };
-    expect(
-      costForTokens({ input: 1000, output: 0, cacheRead: 400 }, price),
-    ).toBeCloseTo(0.00192, 8);
+    expect(costForTokens({ input: 1000, output: 0, cacheRead: 400 }, price)).toBeCloseTo(
+      0.00192,
+      8,
+    );
   });
 
   it('cache yazma fiyatı kendi kademesinden hesaplanır', () => {
     const price = { input: 3, output: 15, cacheWrite: 3.75 };
     // 800 normal × $3 + 200 yazma × $3.75 = $0.0024 + $0.00075
-    expect(
-      costForTokens({ input: 1000, output: 0, cacheWrite: 200 }, price),
-    ).toBeCloseTo(0.00315, 8);
+    expect(costForTokens({ input: 1000, output: 0, cacheWrite: 200 }, price)).toBeCloseTo(
+      0.00315,
+      8,
+    );
   });
 
   it('cache fiyatı tanımlı değilse girdi fiyatına düşer', () => {

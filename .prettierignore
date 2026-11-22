@@ -1,0 +1,26 @@
+# Ajan çalışma artefaktları (yedekler, snapshot'lar, araç çıktıları)
+.macrocode/
+**/.macrocode/**
+
+# Build / bağımlılık çıktıları
+dist/
+node_modules/
+bundles/
+coverage/
+src-tauri/target/
+src-tauri/gen/
+
+# Kilit dosyaları (Dependabot yönetir)
+package-lock.json
+src-tauri/Cargo.lock
+
+# İkili varlıklar
+public/fonts/*.woff2
+public/*.svg
+src-tauri/icons/
+
+# Dokümantasyon ve topluluk dosyaları: elle hizalanmış tablolar korunur
+*.md
+docs/
+.github/
+LICENSE

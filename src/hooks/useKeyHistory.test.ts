@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  emptyHistory,
-  historyPush,
-  parseStoredHistory,
-} from './useKeyHistory';
+import { emptyHistory, historyPush, parseStoredHistory } from './useKeyHistory';
 
 describe('parseStoredHistory — localStorage persist ayrıştırma (Faz 3)', () => {
   it('null / bozuk JSON / uygunsuz tip → boş geçmiş', () => {

@@ -20,6 +20,7 @@ export type ToolName =
   | 'propose_patch'
   | 'edit_file'
   | 'write_file'
+  | 'create_snapshot'
   | 'exec'
   | 'todo'
   | 'plan'
@@ -61,6 +62,8 @@ export interface UsageLike {
 }
 
 export type AgentEvent =
+  /** Yeni bir provider/model turu başladı; UI "düşünüyor" durumuna geçebilir. */
+  | { k: 'turn_start' }
   | { k: 'text'; delta: string }
   | { k: 'reasoning'; delta: string }
   | { k: 'thinking'; blocks: Array<{ thinking: string; signature: string }> }
@@ -77,6 +80,8 @@ export type AgentEvent =
   | { k: 'tool_preview'; id: string; output: string }
   /** Tek bir API adımının (isteğin) gerçek kullanımı — bağlam göstergesi için. */
   | { k: 'usage'; usage: UsageLike }
+  /** Kullanıcıya terminalde gösterilecek bilgi/uyarı satırı. */
+  | { k: 'notice'; text: string }
   | { k: 'done'; usage?: UsageLike };
 export type ApprovalMode = 'manual' | 'auto-read' | 'auto-edit';
 
@@ -86,6 +91,11 @@ export interface PolicyDecision {
   reason?: string;
   /** true ise onay sorulmadan geçilebilir (read gibi). */
   autoApproved?: boolean;
+  /**
+   * true ise komut izin listesinde değil (allowlist dışı). Bu durumda komut
+   * onay kartına düşer; kullanıcı onaylarsa çalıştırılır.
+   */
+  unlisted?: boolean;
 }
 
 export interface PendingPatch {

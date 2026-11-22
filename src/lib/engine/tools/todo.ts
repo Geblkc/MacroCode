@@ -18,9 +18,7 @@ export interface TodoState {
 
 export function formatTodos(state: TodoState): string {
   if (state.items.length === 0) return '(todo yok)';
-  return state.items
-    .map((t) => `${t.done ? '[x]' : '[ ]'} ${t.id} ${t.text}`)
-    .join('\n');
+  return state.items.map((t) => `${t.done ? '[x]' : '[ ]'} ${t.id} ${t.text}`).join('\n');
 }
 
 export function applyTodoAction(
@@ -60,7 +58,10 @@ interface HistoryLike {
 }
 
 /** `plan` çağrısının adımları → görev id'leri (geçmiş boyunca sıralı, deterministik). */
-export function planStepIds(call: { args?: Record<string, unknown> }, startIndex: number): string[] {
+export function planStepIds(
+  call: { args?: Record<string, unknown> },
+  startIndex: number,
+): string[] {
   const steps = Array.isArray(call.args?.steps) ? call.args!.steps : [];
   return steps
     .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)

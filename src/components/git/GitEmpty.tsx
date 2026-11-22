@@ -69,9 +69,7 @@ export default function GitEmpty({ root, info, error, onInit }: Props) {
       <div className="git-empty">
         <Icon name="alert-triangle" size="lg" />
         <p className="git-empty-title">{t('git.outsideRepo')}</p>
-        <p className="git-empty-hint">
-          {t('git.outsideRepoHint', { path: info.repoRoot ?? '' })}
-        </p>
+        <p className="git-empty-hint">{t('git.outsideRepoHint', { path: info.repoRoot ?? '' })}</p>
       </div>
     );
   }

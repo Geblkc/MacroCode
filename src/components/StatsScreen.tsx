@@ -32,7 +32,7 @@ type SeriesKey = 'cost' | 'tokens' | 'requests';
 export default function StatsScreen({ open, onClose }: Props) {
   const t = useT();
   const metrics = useStatsStore((s) => s.metrics);
-  const timeSeries = useStatsStore((s) => s.timeSeries) ?? [];
+  const rawTimeSeries = useStatsStore((s) => s.timeSeries);
   const loading = useStatsStore((s) => s.loading);
   const setFilters = useStatsStore((s) => s.setFilters);
   const loadStats = useStatsStore((s) => s.loadStats);
@@ -47,20 +47,18 @@ export default function StatsScreen({ open, onClose }: Props) {
     if (open) void loadStats();
   }, [open, loadStats]);
 
-  const chartData = useMemo(
-    () =>
-      timeSeries.map((p) => ({
-        name: new Date(p.timestamp).toLocaleDateString(),
-        cost: Number(p.cost.toFixed(4)),
-        tokens: Math.round(p.tokens),
-        requests: p.requests,
-      })),
-    [timeSeries],
-  );
+  const chartData = useMemo(() => {
+    const list = rawTimeSeries ?? [];
+    return list.map((p) => ({
+      name: new Date(p.timestamp).toLocaleDateString(),
+      cost: Number(p.cost.toFixed(4)),
+      tokens: Math.round(p.tokens),
+      requests: p.requests,
+    }));
+  }, [rawTimeSeries]);
 
   const byModel = useMemo(
-    () =>
-      Object.entries(metrics?.byModel ?? {}).sort((a, b) => b[1].cost - a[1].cost),
+    () => Object.entries(metrics?.byModel ?? {}).sort((a, b) => b[1].cost - a[1].cost),
     [metrics],
   );
 
@@ -112,7 +110,11 @@ export default function StatsScreen({ open, onClose }: Props) {
         <div className="stats-filters">
           <label>
             {t('stats.filter.days')}
-            <select className="input" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            <select
+              className="input"
+              value={days}
+              onChange={(e) => setDays(Number(e.target.value))}
+            >
               {CHART_PRESETS.map((p) => (
                 <option key={p.days} value={p.days}>
                   {t(p.labelKey)}
@@ -214,7 +216,13 @@ export default function StatsScreen({ open, onClose }: Props) {
                     <XAxis dataKey="name" stroke="var(--text-tertiary)" fontSize={12} />
                     <YAxis stroke="var(--text-tertiary)" fontSize={12} />
                     <Tooltip />
-                    <Line type="monotone" dataKey={seriesKey} stroke="var(--accent)" strokeWidth={2} dot={{ r: 2 }} />
+                    <Line
+                      type="monotone"
+                      dataKey={seriesKey}
+                      stroke="var(--accent)"
+                      strokeWidth={2}
+                      dot={{ r: 2 }}
+                    />
                   </LineChart>
                 </ResponsiveContainer>
               </div>

@@ -1,10 +1,4 @@
-import type {
-  CatalogEntry,
-  Model,
-  ModelPrice,
-  ModelsDevCatalog,
-  Provider,
-} from '../../types';
+import type { CatalogEntry, Model, ModelPrice, ModelsDevCatalog, Provider } from '../../types';
 
 /**
  * models.dev kataloğu → yerleşik model eşleştirme + metadata zenginleştirme.
@@ -234,4 +228,6 @@ export const CATALOG_PROVIDER_LABEL: Record<Provider, string> = {
   minimax: 'MiniMax',
   moonshotai: 'Kimi (Moonshot AI)',
   zhipuai: 'GLM (Zhipu AI)',
+  nvidia: 'NVIDIA',
+  evren: 'EVREN LLM',
 };

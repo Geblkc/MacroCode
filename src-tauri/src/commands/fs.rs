@@ -1,9 +1,14 @@
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::{Component, Path, PathBuf};
 
 const MAX_READ_BYTES: u64 = 64 * 1024;
 const MAX_GREP_FILES: usize = 500;
 const MAX_GREP_HITS: usize = 50;
+/// Bir managed tool-output artifact sayfasındaki kaynak karakter bütçesi.
+const ARTIFACT_PAGE_CHARS: usize = 10_000;
 
 /// Faz 10 (D2c) — blok listelerinin **tek kaynağı**: `src/lib/engine/blocks.json`.
 /// TS tarafı (policy.ts, context.ts) aynı dosyayı import eder → iki tarafın
@@ -213,7 +218,7 @@ fn jailed_macrocode_dir(base: &Path) -> Result<PathBuf, String> {
 /// H1 devamı — `.macrocode/<sub>` dizinini de jail içinde çözer. `apply_patch`
 /// yedeği `backups` altına yazmadan önce bu kapıdan geçer; alt dizin symlink
 /// ile dışarıyı gösteriyorsa yedek/manifest workspace dışına yazılamaz.
-fn jailed_macrocode_subdir(base: &Path, sub: &str) -> Result<PathBuf, String> {
+pub(crate) fn jailed_macrocode_subdir(base: &Path, sub: &str) -> Result<PathBuf, String> {
     let macro_dir = jailed_macrocode_dir(base)?;
     let dir = macro_dir.join(sub);
     match dir.canonicalize() {
@@ -223,6 +228,37 @@ fn jailed_macrocode_subdir(base: &Path, sub: &str) -> Result<PathBuf, String> {
         ))),
         Err(_) => Ok(dir),
     }
+}
+
+/// Yedek dosyasının disk adını güvenli hale getirir.
+///
+/// Orijinal ad okunabilirlik için korunur, ancak `safe_backup_name` ile
+/// uyumlu olmayan karakterler (`boşluk`, unicode, `:`, `?` …) `_` olur.
+/// Sonuna `.bak` eklenir: böylece yedek, kaynak uzantısını (`*.test.ts`,
+/// `*.tsx` …) taşımaz ve kullanıcı projelerindeki test/lint araçları
+/// tarafından kaynak dosya sanılıp toplanmaz.
+fn sanitize_backup_name(name: &str) -> String {
+    let mut out: String = name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if out.trim_matches('.').is_empty() {
+        out = "file".to_string();
+    }
+    // `out` artık yalnızca ASCII olduğundan byte kesme güvenlidir.
+    if out.len() > 80 {
+        out.truncate(80);
+    }
+    if !out.ends_with(".bak") {
+        out.push_str(".bak");
+    }
+    out
 }
 
 /// K1 (Faz 1) — manifest alanı `backup_file` **güvenilmez girdidir**: manifest
@@ -312,10 +348,348 @@ pub async fn list_dir(root: String, path: String) -> Result<Vec<DirEntry>, Strin
     Ok(out)
 }
 
+/// UTF-8 bayt sınırını bir Unicode scalar sınırında keser. Ham bayt
+/// dilimleme geçersiz UTF-8 sınırında panik yapabilir; burada en yakın tam
+/// karakter sınırı seçilir.
+fn truncate_utf8_bytes(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let mut end = max_bytes.min(text.len());
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    text[..end].to_string()
+}
+
 #[derive(Debug, Serialize)]
 pub struct ReadOut {
     pub content: String,
     pub truncated: bool,
+    /// Artifact okumada bir sonraki sayfanın 1-tabanlı başlangıç satırı.
+    #[serde(default)]
+    pub next_offset: Option<usize>,
+    /// Uzun satırın devamı için 1-tabanlı Unicode karakter sütunu.
+    #[serde(default)]
+    pub next_column: Option<usize>,
+    /// Okunan dosyanın toplam satır sayısı (biliniyorsa).
+    #[serde(default)]
+    pub total_lines: Option<usize>,
+    /// Yanıtın yönetilen tool-output artifact'ı olduğunu belirtir.
+    #[serde(default)]
+    pub artifact: bool,
+}
+
+/// UTF-8 baytlarını sabit bellek sınırında Unicode scalar'lara çevirir.
+/// `read_until` gibi davranış uzun bir satırın tamamını belleğe almaz; geçersiz
+/// UTF-8 ise `String::from_utf8_lossy` ile aynı biçimde replacement karaktere
+/// dönüştürülür.
+struct Utf8CharReader<R> {
+    reader: R,
+    pending: Vec<u8>,
+    decoded: VecDeque<char>,
+    pushback: VecDeque<char>,
+    eof: bool,
+}
+
+impl<R: Read> Utf8CharReader<R> {
+    fn new(reader: R) -> Self {
+        Self {
+            reader,
+            pending: Vec::new(),
+            decoded: VecDeque::new(),
+            pushback: VecDeque::new(),
+            eof: false,
+        }
+    }
+
+    fn fill_pending(&mut self) -> std::io::Result<bool> {
+        if self.eof {
+            return Ok(false);
+        }
+        let mut chunk = [0u8; 64 * 1024];
+        let read = self.reader.read(&mut chunk)?;
+        if read == 0 {
+            self.eof = true;
+            return Ok(false);
+        }
+        self.pending.extend_from_slice(&chunk[..read]);
+        Ok(true)
+    }
+
+    fn next_char(&mut self) -> std::io::Result<Option<char>> {
+        if let Some(ch) = self.pushback.pop_front() {
+            return Ok(Some(ch));
+        }
+        if let Some(ch) = self.decoded.pop_front() {
+            return Ok(Some(ch));
+        }
+
+        loop {
+            if self.pending.is_empty() && !self.fill_pending()? {
+                return Ok(None);
+            }
+            match std::str::from_utf8(&self.pending) {
+                Ok(valid) => {
+                    self.decoded.extend(valid.chars());
+                    self.pending.clear();
+                    return Ok(self.decoded.pop_front());
+                }
+                Err(error) => {
+                    let valid_up_to = error.valid_up_to();
+                    if valid_up_to > 0 {
+                        let valid = std::str::from_utf8(&self.pending[..valid_up_to])
+                            .expect("valid UTF-8 prefix");
+                        self.decoded.extend(valid.chars());
+                        self.pending.drain(..valid_up_to);
+                        return Ok(self.decoded.pop_front());
+                    }
+                    match error.error_len() {
+                        Some(invalid_len) => {
+                            self.pending.drain(..invalid_len);
+                            return Ok(Some(char::REPLACEMENT_CHARACTER));
+                        }
+                        None if self.eof => {
+                            self.pending.clear();
+                            return Ok(Some(char::REPLACEMENT_CHARACTER));
+                        }
+                        None => {
+                            if !self.fill_pending()? {
+                                self.pending.clear();
+                                return Ok(Some(char::REPLACEMENT_CHARACTER));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn peek_char(&mut self) -> std::io::Result<Option<char>> {
+        if let Some(ch) = self.pushback.front().copied() {
+            return Ok(Some(ch));
+        }
+        if let Some(ch) = self.decoded.front().copied() {
+            return Ok(Some(ch));
+        }
+        let next = self.next_char()?;
+        if let Some(ch) = next {
+            self.pushback.push_back(ch);
+        }
+        Ok(next)
+    }
+
+    fn unread_char(&mut self, ch: char) {
+        self.pushback.push_front(ch);
+    }
+}
+
+/// Satır sonuna kadar kalan içeriği atlar. CRLF sonlandırıcısının `CR`
+/// karakteri içerik sayılmaz.
+fn skip_line_remainder<R: Read>(reader: &mut Utf8CharReader<R>) -> std::io::Result<()> {
+    loop {
+        let Some(ch) = reader.next_char()? else {
+            return Ok(());
+        };
+        if ch == '\n' {
+            return Ok(());
+        }
+        if ch == '\r' && reader.peek_char()? == Some('\n') {
+            reader.next_char()?;
+            return Ok(());
+        }
+    }
+}
+
+/// Bir satırdan en fazla `max_chars` Unicode scalar alır. `(count, ended)`
+/// döner: `ended`, satır sonu/EOF'nin bu dilim içinde ya da tam sınırda
+/// bulunduğunu belirtir. `capture=false` olduğunda içerik saklanmaz.
+fn take_line_content<R: Read>(
+    reader: &mut Utf8CharReader<R>,
+    max_chars: usize,
+    capture: bool,
+    out: &mut String,
+) -> std::io::Result<(usize, bool)> {
+    let mut count = 0usize;
+    while count < max_chars {
+        let Some(ch) = reader.next_char()? else {
+            return Ok((count, true));
+        };
+        if ch == '\n' {
+            return Ok((count, true));
+        }
+        if ch == '\r' && reader.peek_char()? == Some('\n') {
+            reader.next_char()?;
+            return Ok((count, true));
+        }
+        if capture {
+            out.push(ch);
+        }
+        count += 1;
+    }
+
+    // Bütçe tam bu satırda bitti. Sonraki karakter newline ise satır bitti;
+    // aksi halde aynı satırın devam imleci gerekir.
+    match reader.peek_char()? {
+        None => Ok((count, true)),
+        Some('\n') => {
+            reader.next_char()?;
+            Ok((count, true))
+        }
+        Some('\r') => {
+            let cr = reader
+                .next_char()?
+                .expect("peeked carriage return must exist");
+            if reader.peek_char()? == Some('\n') {
+                reader.next_char()?;
+                Ok((count, true))
+            } else {
+                reader.unread_char(cr);
+                Ok((count, false))
+            }
+        }
+        Some(_) => Ok((count, false)),
+    }
+}
+
+/// Bir artifact dosyasını güvenli biçimde sayfalar. Normal workspace dosyaları
+/// 256KB sınırını korur; artifact'lar bu sınırın ötesinde de okunabilir.
+///
+/// `offset` 1-tabanlı satır, `column` ise aynı satırda 1-tabanlı Unicode
+/// karakter konumudur. Karakter bütçesi UTF-8 baytı değil Unicode scalar
+/// sayar. Bir satır bütçeyi aşarsa satır atlanmaz: aynı `offset` ve
+/// `next_column` ile kaldığı yerden devam edilir.
+fn read_tool_output_page(
+    root: &str,
+    path: &str,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    column: Option<usize>,
+) -> Result<ReadOut, String> {
+    let full = super::tool_output::resolve_tool_output_path(root, path)?;
+    // Exec artifact'ları keyfi bayt içerebilir. NUL ve geçersiz UTF-8'i
+    // reddetmek, hard payload'da verilen `read_file` talimatını kullanılamaz
+    // hâle getirirdi. Dosya ham olarak saklanır; modele verilen sayfa UTF-8
+    // metin projeksiyonudur (geçersiz baytlar replacement character olur).
+    let file = File::open(&full).map_err(|e| err(format!("artifact okunamadı: {e}")))?;
+
+    let max_lines = limit.unwrap_or(200).clamp(1, 1000);
+    let start_line = offset.unwrap_or(1).max(1);
+    let start_column = column.unwrap_or(1).max(1);
+    let mut reader = Utf8CharReader::new(BufReader::new(file));
+    let mut total_lines = 0usize;
+    let mut selected = Vec::<String>::new();
+    let mut selected_line_count = 0usize;
+    let mut body_chars = 0usize;
+    let mut last_selected_line = None;
+    // Bir satırın ortasında kesildiyse aynı satırın devam imleci.
+    let mut split_cursor = None;
+    // Bütçe bir sonraki satıra ayrılamadıysa o satırın başından devam edilir.
+    let mut blocked_line = None;
+
+    loop {
+        if reader
+            .peek_char()
+            .map_err(|e| err(format!("artifact okunamadı: {e}")))?
+            .is_none()
+        {
+            break;
+        }
+        total_lines += 1;
+        let line_number = total_lines;
+
+        if line_number < start_line
+            || split_cursor.is_some()
+            || blocked_line.is_some()
+            || selected_line_count >= max_lines
+        {
+            // Kalan satırlar yalnızca toplam satır sayısını doğrulamak için
+            // okunur; uzun satırlar belleğe alınmaz.
+            skip_line_remainder(&mut reader)
+                .map_err(|e| err(format!("artifact okunamadı: {e}")))?;
+            continue;
+        }
+
+        let separator_chars = usize::from(!selected.is_empty());
+        let used = body_chars.saturating_add(separator_chars);
+        if used > ARTIFACT_PAGE_CHARS {
+            blocked_line = Some(line_number);
+            skip_line_remainder(&mut reader)
+                .map_err(|e| err(format!("artifact okunamadı: {e}")))?;
+            continue;
+        }
+        let available = ARTIFACT_PAGE_CHARS - used;
+
+        let mut piece = String::new();
+        let mut line_ended = false;
+        // `column` yalnızca başlangıç satırına aittir. Sonraki satırlar
+        // her zaman 1. karakterden başlar; aksi halde uzun bir ilk satır
+        // devam edildikten sonra ikinci satırın cursor'ı yanlış hesaplanır.
+        let effective_start_column = if line_number == start_line {
+            start_column
+        } else {
+            1
+        };
+        let start_char = effective_start_column - 1;
+        if start_char > 0 {
+            let (skipped, ended) = take_line_content(&mut reader, start_char, false, &mut piece)
+                .map_err(|e| err(format!("artifact okunamadı: {e}")))?;
+            if skipped < start_char {
+                return Err(err(format!(
+                    "artifact column cursor {start_column} is outside line {line_number}"
+                )));
+            }
+            line_ended = ended;
+        }
+
+        let (taken, ended) = if line_ended {
+            (0, true)
+        } else {
+            take_line_content(&mut reader, available, true, &mut piece)
+                .map_err(|e| err(format!("artifact okunamadı: {e}")))?
+        };
+        body_chars += separator_chars + taken;
+        selected.push(piece);
+        selected_line_count += 1;
+        last_selected_line = Some(line_number);
+
+        if !ended {
+            // Satırın kalanı sonraki sayfaya aynı offset + column ile gider.
+            // Cursor, bu satırın kendi başlangıç sütunundan hesaplanmalıdır;
+            // önceki satırın continuation offset'i taşınmamalıdır.
+            split_cursor = Some((line_number, effective_start_column + taken));
+            skip_line_remainder(&mut reader)
+                .map_err(|e| err(format!("artifact okunamadı: {e}")))?;
+        }
+    }
+
+    let (next_offset, next_column) = if let Some((line, next_column)) = split_cursor {
+        (Some(line), Some(next_column))
+    } else if let Some(line) = blocked_line {
+        (Some(line), None)
+    } else if let Some(line) = last_selected_line {
+        if total_lines > line && selected_line_count >= max_lines {
+            (Some(line + 1), None)
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
+    let truncated = next_offset.is_some();
+    // Modele giden marker tek katmanda TS wrapper tarafından üretilir; backend
+    // yalnızca ham içerik ve yapılandırılmış sayfa imleçlerini döndürür.
+    let content = selected.join("\n");
+
+    Ok(ReadOut {
+        content,
+        truncated,
+        next_offset,
+        next_column,
+        total_lines: Some(total_lines),
+        artifact: true,
+    })
 }
 
 #[tauri::command]
@@ -324,7 +698,11 @@ pub async fn read_file(
     path: String,
     limit: Option<usize>,
     offset: Option<usize>,
+    column: Option<usize>,
 ) -> Result<ReadOut, String> {
+    if super::tool_output::is_tool_output_rel(&path) {
+        return read_tool_output_page(&root, &path, limit, offset, column);
+    }
     let full = resolve_rooted(&root, &path)?;
     let meta = std::fs::metadata(&full).map_err(|e| err(format!("dosya bulunamadı: {e}")))?;
     if meta.is_dir() {
@@ -344,33 +722,54 @@ pub async fn read_file(
     let max_lines = limit.unwrap_or(200).clamp(1, 1000);
     let start = offset.map(|o| o.max(1) - 1).unwrap_or(0);
     let lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
     if start >= lines.len() {
         return Ok(ReadOut {
             content: String::new(),
             truncated: start > 0,
+            next_offset: None,
+            next_column: None,
+            total_lines: Some(total_lines),
+            artifact: false,
         });
     }
     let end = (start + max_lines).min(lines.len());
-    let kept = lines[start..end].join("\n");
-    if end < lines.len() {
-        let truncated_text = format!("{kept}\n…[truncated: {} satır]", lines.len() - end);
-        let bytes: Vec<u8> = truncated_text
-            .bytes()
-            .take(MAX_READ_BYTES as usize)
-            .collect();
+    // Sayfa sonu satırda değilse ham satır içeriğini kullan; tam dosya
+    // döndüğünde mevcut davranışı korlamak için trailing newline'ı koru.
+    let selected = if start == 0 && end == lines.len() {
+        content.clone()
+    } else {
+        lines[start..end].join("\n")
+    };
+
+    if selected.len() as u64 > MAX_READ_BYTES {
+        // Bayt sınırı bir sayfanın devam imleci üretmez: TS yalnızca
+        // next_offset varsa read_more önerir. Yanlış bir satır devamı üretilmez.
         Ok(ReadOut {
-            content: String::from_utf8_lossy(&bytes).to_string(),
+            content: truncate_utf8_bytes(&selected, MAX_READ_BYTES as usize),
             truncated: true,
+            next_offset: None,
+            next_column: None,
+            total_lines: Some(total_lines),
+            artifact: false,
         })
-    } else if content.len() as u64 > MAX_READ_BYTES {
+    } else if end < lines.len() {
         Ok(ReadOut {
-            content: String::from_utf8_lossy(&text[..MAX_READ_BYTES as usize]).to_string(),
+            content: selected,
             truncated: true,
+            next_offset: Some(end + 1),
+            next_column: None,
+            total_lines: Some(total_lines),
+            artifact: false,
         })
     } else {
         Ok(ReadOut {
-            content,
+            content: selected,
             truncated: false,
+            next_offset: None,
+            next_column: None,
+            total_lines: Some(total_lines),
+            artifact: false,
         })
     }
 }
@@ -432,7 +831,7 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
             .unwrap_or(0);
         let id = ts.to_string();
         let safe_name = full.file_name().and_then(|s| s.to_str()).unwrap_or("file");
-        let backup_file = format!("{id}_{safe_name}");
+        let backup_file = format!("{id}_{}", sanitize_backup_name(safe_name));
         // Yedek dosyası ve manifest de symlink olabilir (önceden oluşturulmuş
         // hedef) — ikisi de yazımdan ÖNCE jail'den geçirilir ki kısmi durum
         // oluşmasın.
@@ -895,7 +1294,7 @@ mod tests {
         std::fs::write(kok.join("normal.ts"), "x").unwrap();
         let kok_s = kok.to_str().unwrap().to_string();
 
-        let err = read_file(kok_s.clone(), "sertifika.pem".to_string(), None, None)
+        let err = read_file(kok_s.clone(), "sertifika.pem".to_string(), None, None, None)
             .await
             .err()
             .unwrap();
@@ -904,7 +1303,7 @@ mod tests {
             "beklenmeyen hata: {err}"
         );
 
-        let err = read_file(kok_s.clone(), "veri.db".to_string(), None, None)
+        let err = read_file(kok_s.clone(), "veri.db".to_string(), None, None, None)
             .await
             .err()
             .unwrap();
@@ -914,7 +1313,7 @@ mod tests {
         );
 
         // Normal dosya okunabilir.
-        let ok = read_file(kok_s, "normal.ts".to_string(), None, None)
+        let ok = read_file(kok_s, "normal.ts".to_string(), None, None, None)
             .await
             .unwrap();
         assert_eq!(ok.content, "x");
@@ -933,9 +1332,15 @@ mod tests {
         let kok_s = kok.to_str().unwrap().to_string();
 
         // Standart read_file 1000 satıra kelepçeler ve truncated döner:
-        let standard = read_file(kok_s.clone(), "large.ts".to_string(), Some(1000), None)
-            .await
-            .unwrap();
+        let standard = read_file(
+            kok_s.clone(),
+            "large.ts".to_string(),
+            Some(1000),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         assert!(standard.truncated);
 
         // read_file_full ise 1500 satırın tamamını eksiksiz okur:
@@ -945,6 +1350,321 @@ mod tests {
         assert_eq!(full_out.lines().count(), 1500);
         assert_eq!(full_out, full_text);
 
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_read_file_ile_sayfalanir() {
+        let kok = benzersiz_tmp("artifact-read");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = ".macrocode/tool-outputs/tool-output-test.log";
+        std::fs::write(dir.join("tool-output-test.log"), "line-1\nline-2\nline-3\n").unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let page = read_file(root.clone(), rel.to_string(), Some(2), None, None)
+            .await
+            .unwrap();
+        assert!(page.artifact);
+        assert!(page.truncated);
+        assert_eq!(page.next_offset, Some(3));
+        assert_eq!(page.next_column, None);
+        assert_eq!(page.total_lines, Some(3));
+        assert_eq!(page.content, "line-1\nline-2");
+
+        // Satır bazlı offset önceki sürümle aynı şekilde çalışmaya devam eder.
+        let last = read_file(
+            root.clone(),
+            rel.to_string(),
+            Some(2),
+            page.next_offset,
+            page.next_column,
+        )
+        .await
+        .unwrap();
+        assert!(!last.truncated);
+        assert_eq!(last.next_offset, None);
+        assert_eq!(last.next_column, None);
+        assert_eq!(last.total_lines, Some(3));
+        assert_eq!(last.content, "line-3");
+
+        // Normal .macrocode dosyaları kapalı kalır.
+        assert!(
+            read_file(root, ".macrocode/context.md".to_string(), None, None, None)
+                .await
+                .is_err()
+        );
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_exact_fit_ve_bos_satir_sinirlari_dogru() {
+        let kok = benzersiz_tmp("artifact-boundaries");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        // Bütçeye tam oturan satır kesilmiş sayılmaz; sonraki satır yeni
+        // offset'te başlar ve next_column üretilmez.
+        let exact_rel = ".macrocode/tool-outputs/tool-output-exact.log";
+        let exact_line = "x".repeat(ARTIFACT_PAGE_CHARS);
+        std::fs::write(
+            dir.join("tool-output-exact.log"),
+            format!("{exact_line}\nnext\n"),
+        )
+        .unwrap();
+        let exact = read_file(root.clone(), exact_rel.to_string(), Some(10), None, None)
+            .await
+            .unwrap();
+        assert_eq!(exact.content.chars().count(), ARTIFACT_PAGE_CHARS);
+        assert!(exact.truncated);
+        assert_eq!(exact.next_offset, Some(2));
+        assert_eq!(exact.next_column, None);
+        assert_eq!(exact.total_lines, Some(2));
+        let exact_next = read_file(
+            root.clone(),
+            exact_rel.to_string(),
+            Some(10),
+            exact.next_offset,
+            exact.next_column,
+        )
+        .await
+        .unwrap();
+        assert_eq!(exact_next.content, "next");
+        assert!(!exact_next.truncated);
+
+        // Bütçeyi bir karakter aşan satır aynı offset içinde devam eder.
+        let over_rel = ".macrocode/tool-outputs/tool-output-over.log";
+        std::fs::write(
+            dir.join("tool-output-over.log"),
+            format!("{}\n", "y".repeat(ARTIFACT_PAGE_CHARS + 1)),
+        )
+        .unwrap();
+        let over = read_file(root.clone(), over_rel.to_string(), Some(10), None, None)
+            .await
+            .unwrap();
+        assert!(over.truncated);
+        assert_eq!(over.next_offset, Some(1));
+        assert_eq!(over.next_column, Some(ARTIFACT_PAGE_CHARS + 1));
+        assert_eq!(over.total_lines, Some(1));
+
+        // Sondaki newline ek satır saymaz; boş satırlar ise satır olarak
+        // sayılır ve limit'e karşı sayılır.
+        let empty_rel = ".macrocode/tool-outputs/tool-output-empty.log";
+        std::fs::write(dir.join("tool-output-empty.log"), "\n\nthird\n").unwrap();
+        let empty_first = read_file(root.clone(), empty_rel.to_string(), Some(1), None, None)
+            .await
+            .unwrap();
+        assert_eq!(empty_first.content, "");
+        assert!(empty_first.truncated);
+        assert_eq!(empty_first.next_offset, Some(2));
+        assert_eq!(empty_first.next_column, None);
+        assert_eq!(empty_first.total_lines, Some(3));
+        let empty_second = read_file(
+            root.clone(),
+            empty_rel.to_string(),
+            Some(1),
+            empty_first.next_offset,
+            empty_first.next_column,
+        )
+        .await
+        .unwrap();
+        assert_eq!(empty_second.content, "");
+        assert_eq!(empty_second.next_offset, Some(3));
+        assert_eq!(empty_second.total_lines, Some(3));
+        let empty_last = read_file(
+            root,
+            empty_rel.to_string(),
+            Some(1),
+            empty_second.next_offset,
+            empty_second.next_column,
+        )
+        .await
+        .unwrap();
+        assert_eq!(empty_last.content, "third");
+        assert!(!empty_last.truncated);
+        assert_eq!(empty_last.next_offset, None);
+        assert_eq!(empty_last.total_lines, Some(3));
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_uzun_satir_kesilince_ozel_sutunla_devam_eder() {
+        let kok = benzersiz_tmp("artifact-long-line");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = ".macrocode/tool-outputs/tool-output-long-line.log";
+        // 12.000 Unicode karakter + sonraki satır. UTF-8 bayt sayısı karakter
+        // bütçesinden büyük olduğu için byte tabanlı bir kesme hata verirdi.
+        let long_line = "é😀".repeat(6_000);
+        let source = format!("{long_line}\nTAIL\n");
+        std::fs::write(dir.join("tool-output-long-line.log"), &source).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let first = read_file(root.clone(), rel.to_string(), Some(10), None, None)
+            .await
+            .unwrap();
+        assert!(first.truncated);
+        assert_eq!(first.next_offset, Some(1));
+        assert_eq!(first.next_column, Some(ARTIFACT_PAGE_CHARS + 1));
+        assert_eq!(first.total_lines, Some(2));
+        assert_eq!(first.content.chars().count(), ARTIFACT_PAGE_CHARS);
+        assert!(!first.content.contains('\u{fffd}'));
+
+        let second = read_file(
+            root,
+            rel.to_string(),
+            Some(10),
+            first.next_offset,
+            first.next_column,
+        )
+        .await
+        .unwrap();
+        assert!(!second.truncated);
+        assert_eq!(second.next_offset, None);
+        assert_eq!(second.next_column, None);
+        assert_eq!(second.total_lines, Some(2));
+        assert_eq!(
+            first.content.chars().count() + second.content.chars().count(),
+            long_line.chars().count() + 5
+        );
+        assert_eq!(
+            format!("{}{}", first.content, second.content),
+            format!("{long_line}\nTAIL")
+        );
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_iki_uzun_satir_cursor_offsetini_karıştirmaz() {
+        let kok = benzersiz_tmp("artifact-two-long-lines");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = ".macrocode/tool-outputs/tool-output-two-long-lines.log";
+        let source = format!("{}\n{}\n", "A".repeat(10_001), "B".repeat(10_000));
+        std::fs::write(dir.join("tool-output-two-long-lines.log"), &source).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let first = read_file(root.clone(), rel.to_string(), Some(10), None, None)
+            .await
+            .unwrap();
+        assert_eq!(first.next_offset, Some(1));
+        assert_eq!(first.next_column, Some(10_001));
+
+        // İlk satırın devamı alınırken ikinci satır da bütçeye sığar.
+        // İkinci satırın cursor'ı 1'den başlamalı; ilk satırın 10.001
+        // sütunu ikinci satıra taşınmamalıdır.
+        let second = read_file(
+            root.clone(),
+            rel.to_string(),
+            Some(10),
+            first.next_offset,
+            first.next_column,
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.next_offset, Some(2));
+        assert_eq!(second.next_column, Some(9_999));
+        assert_eq!(second.content.chars().count(), ARTIFACT_PAGE_CHARS);
+
+        let third = read_file(
+            root,
+            rel.to_string(),
+            Some(10),
+            second.next_offset,
+            second.next_column,
+        )
+        .await
+        .unwrap();
+        assert!(!third.truncated);
+        assert_eq!(third.next_offset, None);
+        assert_eq!(third.next_column, None);
+        assert_eq!(third.content, "BB");
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_crlf_ve_bos_satirlari_sayfalar() {
+        let kok = benzersiz_tmp("artifact-crlf");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = ".macrocode/tool-outputs/tool-output-crlf.log";
+        std::fs::write(
+            dir.join("tool-output-crlf.log"),
+            "one\r\ntwo\r\n\r\nlast\r\n",
+        )
+        .unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let first = read_file(root.clone(), rel.to_string(), Some(2), None, None)
+            .await
+            .unwrap();
+        assert_eq!(first.content, "one\ntwo");
+        assert_eq!(first.next_offset, Some(3));
+        assert_eq!(first.next_column, None);
+        assert_eq!(first.total_lines, Some(4));
+
+        let second = read_file(
+            root,
+            rel.to_string(),
+            Some(10),
+            first.next_offset,
+            first.next_column,
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.content, "\nlast");
+        assert!(!second.truncated);
+        assert_eq!(second.total_lines, Some(4));
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_256kb_sinirini_asabilir() {
+        let kok = benzersiz_tmp("artifact-large");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("tool-output-large.log"), "x".repeat(300_000)).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+        let page = read_file(
+            root,
+            ".macrocode/tool-outputs/tool-output-large.log".to_string(),
+            Some(10),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(page.artifact);
+        assert!(page.truncated);
+        assert_eq!(page.next_offset, Some(1));
+        assert_eq!(page.next_column, Some(ARTIFACT_PAGE_CHARS + 1));
+        assert_eq!(page.total_lines, Some(1));
+        assert_eq!(page.content.chars().count(), ARTIFACT_PAGE_CHARS);
+        assert!(page.content.chars().count() <= ARTIFACT_PAGE_CHARS);
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn tool_output_artifact_keyfi_baytlari_metin_projeksiyonu_olarak_okur() {
+        let kok = benzersiz_tmp("artifact-binary");
+        let dir = kok.join(".macrocode/tool-outputs");
+        std::fs::create_dir_all(&dir).unwrap();
+        let rel = ".macrocode/tool-outputs/tool-output-binary.log";
+        let bytes = [b'a', 0, b'b', 0xff, 0xfe, b'\n', b'z'];
+        std::fs::write(dir.join("tool-output-binary.log"), bytes).unwrap();
+        let root = kok.to_str().unwrap().to_string();
+
+        let page = read_file(root, rel.to_string(), Some(10), None, None)
+            .await
+            .unwrap();
+        assert_eq!(page.content, String::from_utf8_lossy(&bytes));
+        assert_eq!(page.total_lines, Some(2));
+        assert!(!page.truncated);
         let _ = std::fs::remove_dir_all(&kok);
     }
 
@@ -1203,9 +1923,11 @@ mod tests {
         std::fs::write(kok.join(".git").join("config"), "token = gizli").unwrap();
 
         // Okuma: doğrudan invoke bile olsa reddedilir.
-        assert!(read_file(r.clone(), ".git/config".to_string(), None, None)
-            .await
-            .is_err_and(|e| e.contains("yasaklı dizin")));
+        assert!(
+            read_file(r.clone(), ".git/config".to_string(), None, None, None)
+                .await
+                .is_err_and(|e| e.contains("yasaklı dizin"))
+        );
         // Grep/glob/liste de reddedilir.
         assert!(
             grep_files(r.clone(), "token".to_string(), Some(".git".into()), None)
@@ -1258,6 +1980,51 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&dosya).unwrap(), "versiyon 1");
 
         let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// Yedek adı, kaynak uzantısını taşımaz ve boşluk/unicode içeren
+    /// dosyalarda da `apply_patch` çalışır.
+    #[tokio::test]
+    async fn yedek_adi_guvenli_ve_kaynak_uzantisiz() {
+        let kok = benzersiz_tmp("kok_yedek_adi");
+        let ad = "rapor sonu şablon.test.ts";
+        let dosya = kok.join(ad);
+        std::fs::write(&dosya, "v1").unwrap();
+
+        apply_patch(
+            kok.to_str().unwrap().to_string(),
+            ad.to_string(),
+            "v2".to_string(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(std::fs::read_to_string(&dosya).unwrap(), "v2");
+
+        let backup_dir = kok.join(".macrocode").join("backups");
+        let manifest = std::fs::read_to_string(backup_dir.join("manifest.json")).unwrap();
+        let entries: Vec<BackupEntry> = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(entries.len(), 1);
+        let name = &entries[0].backup_file;
+        assert!(
+            name.ends_with(".test.ts.bak"),
+            "beklenmeyen yedek adı: {name}"
+        );
+        assert!(safe_backup_name(name).is_ok());
+        assert!(backup_dir.join(name).exists());
+
+        undo_patch(kok.to_str().unwrap().to_string(), None)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read_to_string(&dosya).unwrap(), "v1");
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[test]
+    fn sanitize_backup_name_kontrolleri() {
+        assert_eq!(sanitize_backup_name("a.txt"), "a.txt.bak");
+        assert_eq!(sanitize_backup_name("rapor sonu.txt"), "rapor_sonu.txt.bak");
+        assert_eq!(sanitize_backup_name("şablon.test.ts"), "_ablon.test.ts.bak");
+        assert_eq!(sanitize_backup_name("..."), "file.bak");
     }
 
     /// H1 devamı — `.macrocode` dışarıyı gösteren symlink ise `apply_patch`
@@ -1482,16 +2249,74 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
         std::fs::write(kok.join("b.txt"), icerik).unwrap();
-        let sayfa = read_file(r.clone(), "b.txt".to_string(), Some(3), Some(4))
+        let sayfa = read_file(r.clone(), "b.txt".to_string(), Some(3), Some(4), None)
             .await
             .unwrap();
-        assert!(sayfa.content.starts_with("satır4\nsatır5\nsatır6"));
+        assert_eq!(sayfa.content, "satır4\nsatır5\nsatır6");
         assert!(sayfa.truncated);
-        let son = read_file(r.clone(), "b.txt".to_string(), Some(5), Some(9))
+        assert_eq!(sayfa.next_offset, Some(7));
+        assert_eq!(sayfa.next_column, None);
+        assert_eq!(sayfa.total_lines, Some(10));
+        assert!(!sayfa.artifact);
+        let son = read_file(r.clone(), "b.txt".to_string(), Some(5), Some(9), None)
             .await
             .unwrap();
-        assert!(son.content.contains("satır10"));
+        assert_eq!(son.content, "satır9\nsatır10");
         assert!(!son.truncated);
+        assert_eq!(son.next_offset, None);
+        assert_eq!(son.total_lines, Some(10));
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    #[tokio::test]
+    async fn normal_read_file_byte_limiti_unicode_guvenli_ve_devamsiz() {
+        let kok = benzersiz_tmp("normal-byte-limit");
+        let root = kok.to_str().unwrap().to_string();
+        // 64KB sınırı 4 baytlık emoji'nin içine düşer. Ham bayt dilimleme
+        // panik yapardı; UTF-8 sınırındaki kesim geçerli metin üretmelidir.
+        let prefix = "a".repeat(MAX_READ_BYTES as usize - 1);
+        let source = format!("{prefix}😀tail\nsecond\n");
+        std::fs::write(kok.join("unicode.txt"), &source).unwrap();
+
+        let page = read_file(root.clone(), "unicode.txt".to_string(), Some(1), None, None)
+            .await
+            .unwrap();
+        assert!(page.truncated);
+        assert_eq!(page.next_offset, None);
+        assert_eq!(page.next_column, None);
+        assert_eq!(page.total_lines, Some(2));
+        assert!(!page.artifact);
+        assert_eq!(page.content, prefix);
+        assert!(page.content.len() <= MAX_READ_BYTES as usize);
+        assert!(!page.content.contains('\u{fffd}'));
+
+        // Byte-limited sayfa devam imleci üretmese de offset hâlâ çalışır.
+        let second = read_file(
+            root.clone(),
+            "unicode.txt".to_string(),
+            Some(1),
+            Some(2),
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.content, "second");
+        assert!(!second.truncated);
+        assert_eq!(second.next_offset, None);
+        assert_eq!(second.total_lines, Some(2));
+
+        // 64KB'a tam oturan sayfa byte-limited değildir; satır devamı vardır.
+        let exact = "x".repeat(MAX_READ_BYTES as usize);
+        std::fs::write(kok.join("exact.txt"), format!("{exact}\nsecond\n")).unwrap();
+        let exact_page = read_file(root, "exact.txt".to_string(), Some(1), None, None)
+            .await
+            .unwrap();
+        assert_eq!(exact_page.content.len(), MAX_READ_BYTES as usize);
+        assert!(exact_page.truncated);
+        assert_eq!(exact_page.next_offset, Some(2));
+        assert_eq!(exact_page.next_column, None);
+        assert_eq!(exact_page.total_lines, Some(2));
+
         let _ = std::fs::remove_dir_all(&kok);
     }
 

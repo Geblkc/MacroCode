@@ -5,9 +5,9 @@ describe('Faz 5 — MCP havuzu', () => {
   it('sunucu yoksa boş liste, bilinmeyen çağrı hata verir', async () => {
     configureMcp({ servers: [], secrets: {} });
     await expect(mcpToolsForAgent()).resolves.toEqual([]);
-    await expect(
-      runMcpTool({ id: 'c', name: 'mcp:yok:oku', args: {} }),
-    ).rejects.toThrow(/yok\/kapalı/);
+    await expect(runMcpTool({ id: 'c', name: 'mcp:yok:oku', args: {} })).rejects.toThrow(
+      /yok\/kapalı/,
+    );
     await expect(runMcpTool({ id: 'c', name: 'bozuk-ad', args: {} })).rejects.toThrow(
       /bozuk mcp adı/,
     );
@@ -29,9 +29,9 @@ describe('Faz 5 — MCP havuzu', () => {
       secrets: {},
     });
     await expect(mcpToolsForAgent()).resolves.toEqual([]);
-    await expect(
-      runMcpTool({ id: 'c', name: 'mcp:mcp_kapali:oku', args: {} }),
-    ).rejects.toThrow(/yok\/kapalı/);
+    await expect(runMcpTool({ id: 'c', name: 'mcp:mcp_kapali:oku', args: {} })).rejects.toThrow(
+      /yok\/kapalı/,
+    );
     await closeMcpPool();
   });
 

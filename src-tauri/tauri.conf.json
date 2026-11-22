@@ -1,6 +1,6 @@
 {
   "productName": "MacroCode",
-  "version": "0.2.3",
+  "version": "1.0.0",
   "identifier": "com.macrocode.app",
   "build": {
     "devUrl": "http://localhost:1420",
@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' https://api.anthropic.com https://api.openai.com https://api.x.ai https://api.deepseek.com https://openrouter.ai https://generativelanguage.googleapis.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*; object-src 'none'; frame-src 'none'; base-uri 'self'"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://api.anthropic.com https://api.openai.com https://api.x.ai https://api.deepseek.com https://openrouter.ai https://generativelanguage.googleapis.com http://localhost:* http://127.0.0.1:* ws://localhost:* ws://127.0.0.1:* wss://localhost:* wss://127.0.0.1:*; object-src 'none'; frame-src 'none'; base-uri 'self'"
     }
   },
   "bundle": {
@@ -33,12 +33,7 @@
     "copyright": "GPL-2.0-only · Copyright (C) 2026 Gökhan Efe Balıkçı",
     "shortDescription": "AI terminal desktop app",
     "longDescription": "MacroCode — AI terminal desktop app: local agent with approval-first execution, multi-provider chat, MCP servers and SQLite sessions.",
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.icns", "icons/icon.ico"],
     "linux": {
       "deb": {
         "depends": ["librsvg2-2"]
@@ -62,9 +57,7 @@
     },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEY1RUE3MTg5MzhEM0UwMEIKUldRTDROTTRpWEhxOWNvMlpXWi9vckxNRnRjcTNzNGh0dzZWZHMxblQ2eitwQmVmQVVUTTlPZFQK",
-      "endpoints": [
-        "https://github.com/Geblkc/Macro-Code/releases/latest/download/latest.json"
-      ],
+      "endpoints": ["https://github.com/Geblkc/Macro-Code/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "passive"
       }

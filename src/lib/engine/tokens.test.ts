@@ -71,8 +71,6 @@ describe('Faz 2 — token tahmini', () => {
 
   it('approxHistoryTokens toplar', () => {
     const h = [{ content: 'a'.repeat(400) }, { content: 'b'.repeat(400) }];
-    expect(approxHistoryTokens(h)).toBe(
-      approxMessageTokens(h[0]) + approxMessageTokens(h[1]),
-    );
+    expect(approxHistoryTokens(h)).toBe(approxMessageTokens(h[0]) + approxMessageTokens(h[1]));
   });
 });

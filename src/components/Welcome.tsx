@@ -17,12 +17,7 @@ export default function Welcome({ onRootCommand }: Props) {
   const root = useWorkspaceStore((s) => s.root);
   return (
     <div className="welcome">
-      <svg
-        className="welcome-logo"
-        viewBox="0 0 512 512"
-        aria-hidden="true"
-        role="presentation"
-      >
+      <svg className="welcome-logo" viewBox="0 0 512 512" aria-hidden="true" role="presentation">
         <defs>
           <filter id="welcome-glow" x="-20%" y="-20%" width="140%" height="140%">
             <feGaussianBlur stdDeviation="9" result="b" />

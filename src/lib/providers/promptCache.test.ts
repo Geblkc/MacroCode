@@ -17,7 +17,7 @@ describe('Faz 11 — prompt cache', () => {
     expect(cacheMinTokens('claude-haiku-5-5')).toBe(CACHE_MIN_TOKENS_SMALL);
   });
 
-  it('kısa önek cache\'lenmez (API 400 döner!)', () => {
+  it("kısa önek cache'lenmez (API 400 döner!)", () => {
     // 1024 token eşiğinin altında → cache_control konmaz.
     expect(cacheableBySize(100, 'claude-opus-5-5')).toBe(false);
     expect(cacheableBySize(CACHE_MIN_TOKENS + 500, 'claude-opus-5-5')).toBe(true);

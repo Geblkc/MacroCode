@@ -164,9 +164,7 @@ describe('Tauri updater sözleşmesi', () => {
 
   it('updater public key ve latest.json endpoint tanımlı', () => {
     expect(conf.plugins?.updater?.pubkey?.trim().length ?? 0).toBeGreaterThan(20);
-    expect(conf.plugins?.updater?.endpoints?.some((u) => u.endsWith('/latest.json'))).toBe(
-      true,
-    );
+    expect(conf.plugins?.updater?.endpoints?.some((u) => u.endsWith('/latest.json'))).toBe(true);
     expect(conf.plugins?.updater?.windows?.installMode).toBe('passive');
   });
 

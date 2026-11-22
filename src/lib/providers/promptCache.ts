@@ -30,10 +30,7 @@ export function approxTokens(text: string): number {
 }
 
 /** Eşik + güvenlik payı geçilmiş mi? */
-export function cacheableBySize(
-  approxTokenCount: number,
-  model: string,
-): boolean {
+export function cacheableBySize(approxTokenCount: number, model: string): boolean {
   return approxTokenCount >= cacheMinTokens(model) + CACHE_SAFETY_MARGIN;
 }
 
@@ -60,9 +57,7 @@ export function markCacheControl<T extends { role: string; content: unknown }>(
     if (m.role !== 'user') continue;
     const content = m.content;
     if (typeof content === 'string') {
-      m.content = [
-        { type: 'text', text: content, cache_control: { ...EPHEMERAL } },
-      ];
+      m.content = [{ type: 'text', text: content, cache_control: { ...EPHEMERAL } }];
       return messages;
     }
     if (Array.isArray(content) && content.length > 0) {

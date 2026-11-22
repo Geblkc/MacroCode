@@ -94,7 +94,9 @@ describe('catalog eşleştirme', () => {
 
 describe('catalog zenginleştirme', () => {
   it('limitleri büyütür ama küçültmez', () => {
-    const index = buildCatalogIndex(catalog({ anthropic: [entry({ id: 'x', contextLimit: 500000, outputLimit: 64000 })] }));
+    const index = buildCatalogIndex(
+      catalog({ anthropic: [entry({ id: 'x', contextLimit: 500000, outputLimit: 64000 })] }),
+    );
     const m = model({ id: 'x', provider: 'anthropic', contextWindow: 100000, maxOutput: 4096 });
     const out = enrichModel(m, index);
     expect(out.contextWindow).toBe(500000);
@@ -102,7 +104,9 @@ describe('catalog zenginleştirme', () => {
   });
 
   it('küçük katalog limiti yerleşik değeri bozmaz', () => {
-    const index = buildCatalogIndex(catalog({ anthropic: [entry({ id: 'x', contextLimit: 1000, outputLimit: 0 })] }));
+    const index = buildCatalogIndex(
+      catalog({ anthropic: [entry({ id: 'x', contextLimit: 1000, outputLimit: 0 })] }),
+    );
     const m = model({ id: 'x', provider: 'anthropic', contextWindow: 200000, maxOutput: 8192 });
     const out = enrichModel(m, index);
     expect(out.contextWindow).toBe(200000);
@@ -113,7 +117,12 @@ describe('catalog zenginleştirme', () => {
     const index = buildCatalogIndex(
       catalog({
         anthropic: [
-          entry({ id: 'x', reasoning: false, toolCall: false, modalities: { input: ['text'], output: ['text'] } }),
+          entry({
+            id: 'x',
+            reasoning: false,
+            toolCall: false,
+            modalities: { input: ['text'], output: ['text'] },
+          }),
         ],
       }),
     );
@@ -131,7 +140,13 @@ describe('catalog zenginleştirme', () => {
   it('görsel yeteneği katalogdan gelir ve supportsVision eşitlenir', () => {
     const index = buildCatalogIndex(
       catalog({
-        openai: [entry({ id: 'x', provider: 'openai', modalities: { input: ['text', 'image'], output: ['text'] } })],
+        openai: [
+          entry({
+            id: 'x',
+            provider: 'openai',
+            modalities: { input: ['text', 'image'], output: ['text'] },
+          }),
+        ],
       }),
     );
     const m = model({ id: 'x', provider: 'openai' });
@@ -143,7 +158,14 @@ describe('catalog zenginleştirme', () => {
   it('açıklama, aile ve yayın tarihi katalogdan gelir', () => {
     const index = buildCatalogIndex(
       catalog({
-        anthropic: [entry({ id: 'x', description: 'harika model', family: 'claude', releaseDate: '2026-05-01' })],
+        anthropic: [
+          entry({
+            id: 'x',
+            description: 'harika model',
+            family: 'claude',
+            releaseDate: '2026-05-01',
+          }),
+        ],
       }),
     );
     const out = enrichModel(model({ id: 'x', provider: 'anthropic' }), index);
@@ -159,7 +181,10 @@ describe('catalog zenginleştirme', () => {
   });
 
   it('katalog fiyatı ModelPrice biçimine çevrilir', () => {
-    const e = entry({ id: 'x', cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 } });
+    const e = entry({
+      id: 'x',
+      cost: { input: 3, output: 15, cache_read: 0.3, cache_write: 3.75 },
+    });
     expect(catalogPriceOf(e)).toEqual({ input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 });
     expect(catalogPriceOf(entry({ id: 'y' }))).toBeUndefined();
   });
@@ -177,7 +202,11 @@ describe('catalog zenginleştirme', () => {
 
 describe('aktif katalog (global)', () => {
   it('resolveModels yerleşik modelleri katalogla zenginleştirir', () => {
-    setActiveCatalog(catalog({ anthropic: [entry({ id: 'claude-opus-5-5', family: 'claude', contextLimit: 2000000 })] }));
+    setActiveCatalog(
+      catalog({
+        anthropic: [entry({ id: 'claude-opus-5-5', family: 'claude', contextLimit: 2000000 })],
+      }),
+    );
     const out = resolveModels([]);
     const m = out.find((x) => x.id === 'claude-opus-5-5');
     expect(m?.family).toBe('claude');

@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { PROVIDER_DEFS, PROVIDER_IDS } from '../../lib/providers';
 import { parseEndpointModels } from '../../lib/providers/custom';
+import { EVREN_PORTAL_URL } from '../../lib/providers/evren';
 import { useT } from '../../lib/i18n';
 import { useSettingsStore } from '../../store/settings';
 import type { Provider } from '../../types';
@@ -34,7 +35,17 @@ interface Props {
 const CLOUD_PROVIDERS: Provider[] = PROVIDER_IDS.filter((p) => p !== 'ollama');
 
 /** Base URL override destekleyen sağlayıcılar (yalnız OpenAI-uyumlu olanlar). */
-const OVERRIDABLE: Provider[] = ['openai', 'openrouter', 'deepseek', 'xai', 'minimax', 'moonshotai', 'zhipuai'];
+const OVERRIDABLE: Provider[] = [
+  'openai',
+  'openrouter',
+  'deepseek',
+  'xai',
+  'minimax',
+  'moonshotai',
+  'zhipuai',
+  'nvidia',
+  'evren',
+];
 
 interface SecretRowProps {
   label: string;
@@ -61,32 +72,43 @@ function SecretCard(p: SecretRowProps) {
   const touched = p.secret.value.length > 0;
   const hasKey = touched || p.secret.hint.length > 0;
   const state = p.test;
-  const stClass = state === 'ok' ? 'ok' : state === 'invalid' || state === 'network' ? 'err' : 'no';
+  const stClass =
+    state === 'ok'
+      ? 'ok'
+      : state === 'invalid' || state === 'terms' || state === 'network'
+        ? 'err'
+        : 'no';
   const stLabel =
     state === 'ok'
       ? t('settings.providers.state.connected')
       : state === 'invalid'
         ? t('settings.providers.state.invalid')
-        : state === 'network'
-          ? t('settings.providers.state.network')
-          : p.secret.deleted
-            ? t('settings.providers.state.toDelete')
-            : hasKey
-              ? t('settings.providers.state.saved')
-              : t('settings.providers.state.noKey');
+        : state === 'terms'
+          ? t('settings.providers.state.terms')
+          : state === 'network'
+            ? t('settings.providers.state.network')
+            : p.secret.deleted
+              ? t('settings.providers.state.toDelete')
+              : hasKey
+                ? t('settings.providers.state.saved')
+                : t('settings.providers.state.noKey');
   const stTitle =
     state === 'ok'
       ? t('settings.providers.state.connectedHint')
       : state === 'invalid'
         ? t('settings.providers.state.invalidHint')
-        : state === 'network'
-          ? t('settings.providers.state.networkHint')
-          : '';
+        : state === 'terms'
+          ? t('settings.providers.state.termsHint', { url: EVREN_PORTAL_URL })
+          : state === 'network'
+            ? t('settings.providers.state.networkHint')
+            : '';
 
   return (
     <div className="pcard">
       <div className="pcard-head">
-        <span className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`} />
+        <span
+          className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`}
+        />
         <h4>{p.label}</h4>
         {p.active ? <span className="chip on">{t('settings.providers.activeBadge')}</span> : null}
         <span className={`st ${stClass}`} title={stTitle}>
@@ -201,9 +223,7 @@ export default function ProvidersTab(props: Props) {
                 onToggleShow={() => props.toggleShow(p)}
                 onTest={() => props.onTest(p)}
                 onClear={() =>
-                  s.deleted
-                    ? props.setSecret(p, { deleted: false })
-                    : props.onClearSecret(p)
+                  s.deleted ? props.setSecret(p, { deleted: false }) : props.onClearSecret(p)
                 }
                 clearTitle={t('settings.providers.clearTitle')}
                 clearLabel={t('common.clear')}
@@ -235,7 +255,9 @@ export default function ProvidersTab(props: Props) {
             return (
               <div className="pcard" key={p}>
                 <div className="pcard-head">
-                  <span className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`} />
+                  <span
+                    className={`status-dot${stClass === 'ok' ? '' : stClass === 'err' ? ' warn' : ' off'}`}
+                  />
                   <h4>{def.label}</h4>
                   {activeProvider === p ? (
                     <span className="chip on">{t('settings.providers.activeBadge')}</span>
@@ -288,7 +310,9 @@ export default function ProvidersTab(props: Props) {
                   >
                     <Icon name="download" size="sm" />
                     {t('settings.providers.getKey')}
-                    {def.keyUrlLabel ? <span className="status-dim"> · {def.keyUrlLabel}</span> : null}
+                    {def.keyUrlLabel ? (
+                      <span className="status-dim"> · {def.keyUrlLabel}</span>
+                    ) : null}
                   </a>
                 ) : null}
               </div>
@@ -347,7 +371,10 @@ export default function ProvidersTab(props: Props) {
         {activeEp ? (
           <div className="field-note mb-2">
             <span className="status-ok">
-              {t('settings.providers.activeEndpoint', { name: activeEp.name, model: draft.currentModel })}
+              {t('settings.providers.activeEndpoint', {
+                name: activeEp.name,
+                model: draft.currentModel,
+              })}
             </span>{' '}
             <button className="mini-btn" onClick={props.onBackToBuiltin}>
               {t('settings.providers.backToBuiltin')}
@@ -362,9 +389,7 @@ export default function ProvidersTab(props: Props) {
             return (
               <div key={c.key} className="endpoint-card">
                 <label className="field">
-                  <span className="field-label">
-                    {t('settings.providers.name')}
-                  </span>
+                  <span className="field-label">{t('settings.providers.name')}</span>
                   <input
                     id={`${cardId}-name`}
                     type="text"
@@ -379,9 +404,7 @@ export default function ProvidersTab(props: Props) {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">
-                    {t('settings.providers.baseUrl')}
-                  </span>
+                  <span className="field-label">{t('settings.providers.baseUrl')}</span>
                   <input
                     id={`${cardId}-url`}
                     type="text"
@@ -394,9 +417,7 @@ export default function ProvidersTab(props: Props) {
                   />
                 </label>
                 <label className="field">
-                  <span className="field-label">
-                    {t('settings.providers.modelsLabel')}
-                  </span>
+                  <span className="field-label">{t('settings.providers.modelsLabel')}</span>
                   <textarea
                     id={`${cardId}-models`}
                     className="input input-area"
@@ -415,12 +436,16 @@ export default function ProvidersTab(props: Props) {
                   test={props.tests[c.key] ?? 'idle'}
                   active={false}
                   onInput={(v) =>
-                    props.onPatchCustom(c.key, { secret: { ...c.secret, value: v, deleted: false } })
+                    props.onPatchCustom(c.key, {
+                      secret: { ...c.secret, value: v, deleted: false },
+                    })
                   }
                   onToggleShow={() => props.toggleShow(c.key)}
                   onTest={() => props.onTest(c.key)}
                   onClear={() =>
-                    props.onPatchCustom(c.key, { secret: { ...c.secret, deleted: !c.secret.deleted } })
+                    props.onPatchCustom(c.key, {
+                      secret: { ...c.secret, deleted: !c.secret.deleted },
+                    })
                   }
                   clearTitle={t('settings.providers.clearKeyTitle')}
                   clearLabel={t('settings.providers.removeKey')}
@@ -458,6 +483,9 @@ export default function ProvidersTab(props: Props) {
           </button>
         </div>
         {props.formError ? <div className="form-err">{props.formError}</div> : null}
+        {Object.values(props.tests).includes('terms') ? (
+          <div className="form-err">{t('errors.evrenTerms', { url: EVREN_PORTAL_URL })}</div>
+        ) : null}
 
         <div className="field-note mt-3">{t('settings.providers.storageNote')}</div>
       </div>

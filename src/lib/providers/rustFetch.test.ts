@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import tauriConf from '../../../src-tauri/tauri.conf.json';
 import { CSP_CONNECT_HOSTS, fetchFor, needsProxy } from './rustFetch';
@@ -9,9 +10,7 @@ describe('needsProxy — CSP connect-src ayna kuralı (İş 2)', () => {
     expect(needsProxy('https://openrouter.ai/api/v1/chat/completions')).toBe(false);
     expect(needsProxy('https://api.deepseek.com/v1/chat/completions')).toBe(false);
     expect(needsProxy('https://api.x.ai/v1/chat/completions')).toBe(false);
-    expect(
-      needsProxy('https://generativelanguage.googleapis.com/v1beta/models/x'),
-    ).toBe(false);
+    expect(needsProxy('https://generativelanguage.googleapis.com/v1beta/models/x')).toBe(false);
   });
 
   it('localhost / 127.0.0.1 proxy’den muaf (varsayılan Ollama)', () => {
@@ -25,6 +24,8 @@ describe('needsProxy — CSP connect-src ayna kuralı (İş 2)', () => {
     expect(needsProxy('https://my-res.openai.azure.com/v1/chat/completions')).toBe(true);
     expect(needsProxy('http://192.168.1.5:1234/v1/chat/completions')).toBe(true);
     expect(needsProxy('http://lmstudio.ev.local:1234/v1/models')).toBe(true);
+    // EVREN (ve diğer yeni sağlayıcılar) CSP listesinde değil → proxy gerekli.
+    expect(needsProxy('https://evren-llmapi.ssyz.org.tr/v1/models')).toBe(true);
   });
 
   it('geçersiz / http-dışı URL proxy’ye girmez (fetchFor global’e düşer)', () => {
@@ -42,21 +43,29 @@ describe('needsProxy — CSP connect-src ayna kuralı (İş 2)', () => {
 
 describe('CSP_CONNECT_HOSTS — tauri.conf.json ile senkron', () => {
   it('connect-src içindeki host listesi birebir aynı', () => {
-    const csp = (
-      tauriConf as unknown as { app: { security: { csp: string } } }
-    ).app.security.csp;
+    const csp = (tauriConf as unknown as { app: { security: { csp: string } } }).app.security.csp;
     const match = /connect-src([^;]*)/.exec(csp);
     expect(match, 'CSP içinde connect-src bulunamadı').toBeTruthy();
     const directive = (match as RegExpExecArray)[1];
 
-    const hostsInCsp = [...directive.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map(
-      (m) => m[1],
-    );
+    const hostsInCsp = [...directive.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map((m) => m[1]);
     // localhost/127.0.0.1 joker olarak `:*` ile verilir; listeden çıkar.
     const remoteHosts = hostsInCsp.filter(
       (h) => h !== 'localhost' && h !== '127.0.0.1' && h !== 'self',
     );
     expect([...remoteHosts].sort()).toEqual([...CSP_CONNECT_HOSTS].sort());
+  });
+});
+
+describe('Tauri v2 IPC argüman adları (camelCase)', () => {
+  it('proxy_fetch / stream_anthropic çağrıları camelCase anahtar kullanır', () => {
+    const rustFetch = readFileSync(new URL('./rustFetch.ts', import.meta.url), 'utf8');
+    const rustStream = readFileSync(new URL('./rustStream.ts', import.meta.url), 'utf8');
+    expect(rustFetch).toContain('onData: channel');
+    expect(rustFetch).not.toContain('on_data: channel');
+    expect(rustStream).toContain('apiKey,');
+    expect(rustStream).toContain('onChunk: channel');
+    expect(rustStream).not.toContain('on_chunk: channel');
   });
 });
 

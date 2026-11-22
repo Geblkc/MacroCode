@@ -239,9 +239,7 @@ describe('downloadPercent / formatBytes', () => {
 
 describe('compactNotes', () => {
   it('satırları tek satıra indirir', () => {
-    expect(compactNotes('# Başlık\n\n- madde\r\n- ikinci')).toBe(
-      '# Başlık · - madde · - ikinci',
-    );
+    expect(compactNotes('# Başlık\n\n- madde\r\n- ikinci')).toBe('# Başlık · - madde · - ikinci');
   });
 
   it('uzun notu kısaltır', () => {

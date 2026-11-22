@@ -22,6 +22,8 @@ export function keyedProviders(draft: Draft): ApiKeys {
     minimax: '',
     moonshotai: '',
     zhipuai: '',
+    nvidia: '',
+    evren: '',
   };
   for (const p of Object.keys(draft.secrets) as Provider[]) {
     if (p === 'ollama') continue;
