@@ -34,9 +34,13 @@ kurulum komutunu söyler):
 
 | Dağıtım | Paketler |
 |---|---|
-| Debian/Ubuntu | `libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev build-essential curl wget file` |
-| Fedora | `webkit2gtk4.1-devel gtk3-devel openssl-devel librsvg2-devel` |
-| Arch | `webkit2gtk-4.1 gtk3 openssl librsvg base-devel curl wget file` |
+| Debian/Ubuntu | `libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev librsvg2-dev libdbus-1-dev build-essential curl wget file` |
+| Fedora | `webkit2gtk4.1-devel gtk3-devel openssl-devel librsvg2-devel dbus-devel` |
+| Arch | `webkit2gtk-4.1 gtk3 openssl librsvg dbus base-devel curl wget file` |
+
+`libdbus-1-dev` / `dbus-devel`, API anahtarlarını Linux Secret Service'te saklayan
+`keyring` bağımlılığı için gereklidir. Çalışma zamanında Secret Service yoksa
+anahtarlar `0600` izinli yerel dosyaya yazılır (bkz. `SECURITY.md`).
 
 Ek olarak:
 

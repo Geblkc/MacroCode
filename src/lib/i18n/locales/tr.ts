@@ -301,7 +301,7 @@ export const tr = {
   'settings.providers.test.network': 'ağ hatası',
   'settings.providers.test.testing': 'test ediliyor…',
   'settings.providers.storageNote':
-    'Anahtarlar bu cihazda saklanır (keys.json), cihazdan çıkmaz. Kaydedilen anahtar bir daha tam gösterilmez, yalnızca son 4 karakter (••••a1b2).',
+    'Anahtarlar mümkünse işletim sistemi anahtar zincirinde (değilse yerel dosyada) saklanır ve cihazdan çıkmaz. Kaydedilen anahtar bir daha tam gösterilmez, yalnızca son 4 karakter (••••a1b2).',
   'settings.providers.localSection': 'Yerel sağlayıcı',
   'settings.providers.localNote':
     'Bilgisayarında çalışan model sunucusu — API anahtarı gerekmez, sadece adres yeter.',
@@ -497,7 +497,7 @@ export const tr = {
   /* ── Ayarlar · MCP ── */
   'settings.mcp.section': 'MCP sunucuları',
   'settings.mcp.note':
-    'Araçlar mcp:sunucu:araç adıyla agent’a girer ve her zaman onay ister. Secret’lar bu cihazda saklanır (keys.json).',
+    'Araçlar mcp:sunucu:araç adıyla agent’a girer ve her zaman onay ister. Secret’lar mümkünse işletim sistemi anahtar zincirinde saklanır.',
   'settings.mcp.empty': 'henüz sunucu yok — aşağıdan ekle.',
   'settings.mcp.add': '+ sunucu ekle',
   'settings.mcp.name': 'sunucu adı',
@@ -549,7 +549,7 @@ export const tr = {
   'settings.about.copyVersion': 'Sürüm bilgisini kopyala',
   'settings.about.license': 'Lisans',
   'settings.about.privacy':
-    'API anahtarları cihazında saklanır (keys.json) ve asla dışarı gönderilmez. Oturumlar yerel SQLite veritabanında tutulur. Ağ trafiği yalnızca seçtiğiniz sağlayıcıya gider.',
+    'API anahtarlarınız mümkünse işletim sistemi anahtar zincirinde (yedek: yerel dosya) saklanır ve asla dışarı gönderilmez. Oturumlar yerel SQLite veritabanında tutulur. Ağ trafiği yalnızca seçtiğiniz sağlayıcıya gider.',
   'settings.about.source': 'Kaynak kod',
   'settings.about.modelCount': {
     one: '{count} model · {providers} sağlayıcı',
@@ -560,8 +560,9 @@ export const tr = {
   'settings.about.platform': 'Platform',
   'settings.about.catalog': 'Model kataloğu',
   'settings.about.dataTitle': 'Veri konumları',
-  'settings.about.dataFiles': 'Anahtarlar keys.json, oturumlar sessions.db dosyasında saklanır.',
-  'settings.about.keysFile': 'API anahtarları',
+  'settings.about.dataFiles':
+    'Anahtarlar mümkünse işletim sistemi anahtar zincirinde, oturumlar sessions.db dosyasındadır.',
+  'settings.about.keysFile': 'API anahtarları (yedek dosya)',
   'settings.about.sessionsFile': 'Oturumlar',
   'settings.about.copyPath': 'Yolu kopyala',
 

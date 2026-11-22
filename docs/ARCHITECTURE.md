@@ -93,7 +93,7 @@ açık kaynaklı, masaüstü bir AI terminal uygulamasıdır.
 │   lib/engine (agent/context/policy/toolspec/skills) │       │
 │   lib/db (SQLite debounce)                          │       │
 ├───────────────┬─────────────────────────────────────┼───────┤
-│  invoke(...)  │  tauri-plugin-store (keys.json)     │       │
+│  invoke(...)  │  OS keychain (keyring)              │       │
 │  keystore.rs  │  tauri-plugin-sql  (sessions.db)    │       │
 │               │         ↳ global fetch → AI API'leri ◄─────┘
 └───────────────┴─────────────────────────────────────────────┘
@@ -126,7 +126,7 @@ Frontend:         React 18.3 + TypeScript 5.6 + Vite 5.4
 UI Framework:     Sıfırdan CSS (Tailwind YOK — tam kontrol için)
 Tipografi:        JetBrains Mono (içerik akışı) + Inter (arayüz kabuğu) — Google Fonts, index.html üzerinden
 HTTP/Streaming:   global fetch + ReadableStream (SSE)
-API Key Storage:  tauri-plugin-store → app_data_dir/keys.json
+API Key Storage:  OS keychain (keyring) → app_data_dir/keys.json yalnızca geri dönüşüm
 State:            Zustand 5 (+ persist middleware)
 DB (sessions):    tauri-plugin-sql → SQLite (sessions.db)
 Build:            Vite + tauri-cli (tauri-bundler)
@@ -567,7 +567,7 @@ partialize: (s) => isTauri()
   : s   // tarayıcı-dev'de kolaylık için hepsi saklanır
 ```
 
-- **Tauri'de API anahtarları asla localStorage'a düşmez** → sadece `keys.json` (keystore) ve bellek.
+- **Tauri'de API anahtarları asla localStorage'a düşmez** → sadece OS anahtar zinciri (keychain yoksa `keys.json`) ve bellek.
 - `isTauri()` tek tanımı `lib/tauri.ts`'tedir (buradan re-export edilir).
 - `providerNeedsKey` tek tanımı buradadır (`PROVIDER_DEFS` tabanlı; `useStream` import + re-export eder).
 - `storeKeyOf(provider)` / `fieldOf(provider)` yardımcıları `ollama` ↔ `ollamaUrl` farkını tek yerde çözer.
@@ -625,7 +625,7 @@ META_ID         = '__meta__'   // aktif session id bu satırda tutulur
 ### 6.3 Boot'ta Öncelik Sırası (App.tsx)
 
 ```
-1. useSettingsStore.loadFromStore()   → keys.json'dan anahtarlar + keyStatus
+1. useSettingsStore.loadFromStore()   → OS keychain'den anahtarlar + keyStatus
 2. loadSessionsFromDb()               → başarılı ve doluysa state'i DB ile DEĞİŞTİR
 2b. saveSessionsToDb(...)             → Faz 9 P9.0: mevcut durum DB'ye bir kez yansıtılır
                                        (yazma yalnızca state değişince tetiklendiği için
@@ -1344,7 +1344,7 @@ güvenlik/kapsam dokümanı: `docs/GIT.md`.
 Sıra:
 
 ```
-1. useSettingsStore.loadFromStore()   → keys.json'dan anahtarlar + keyStatus
+1. useSettingsStore.loadFromStore()   → OS keychain'den anahtarlar + keyStatus
 2. loadSessionsFromDb()               → başarılı ve doluysa state'i DB ile DEĞİŞTİR
 2b. saveSessionsToDb(...)             → mevcut durum DB'ye bir kez yansıtılır
 3. Aktif session yoksa createSession()
@@ -1392,14 +1392,18 @@ zenginleştirir ve fiyatları doldurur). Katalog bayatsa (24 saat TTL) arka plan
 
 ### 13.2 `commands/keystore.rs` — API Anahtarı CRUD
 
-Depolama: `app_data_dir/keys.json`. Format: `{ "<provider>": { "key": "<secret-or-url>" } }`.
-İlke: değerler toplu dönmez, sadece var/yok.
+**Birincil depo:** OS anahtar zinciri (`keyring` crate) — Windows Credential
+Manager, macOS Keychain, Linux Secret Service. Servis `com.macrocode.app`,
+hesap `api-key:<provider>`. `app_data_dir/keys.json` yalnızca zincir
+erişilemediğinde kullanılır; eski düz metin kayıtlar açılışta (`setup`) zincire
+taşınır ve dosya silinir. Taşınamayanlar dosyada kalıp sonraki açılışta yeniden
+denenir. İlke: değerler toplu dönmez, sadece var/yok.
 
 | Komut | Davranış |
 |---|---|
-| `set_api_key` | Boş key reddi → `store.set` → `save()` |
-| `get_api_key` | Yoksa boş string |
-| `delete_api_key` | `store.delete` → `save()` |
+| `set_api_key` | Boş key reddi → zincire yaz → başarılıysa yerel kopyayı sil; zincir yoksa `keys.json` (`0600`) |
+| `get_api_key` | Zincir → yerel dosya sırası; zincire erişilebilir ama kayıt dosyadaysa taşı. Yoksa boş string |
+| `delete_api_key` | Zincir + yerel dosyadan sil; zincir erişilemezse yerel kopya silinerek başarı sayılır |
 | `key_status` | 12 alan bool (`anthropic/openai/gemini/ollama_url/openrouter/deepseek/xai/minimax/moonshotai/zhipuai/nvidia/evren`, camelCase) |
 | `has_any_key` | Herhangi biri dolu mu |
 
@@ -1556,7 +1560,7 @@ override'ı — düz renkler, gölge yokluğu, `--fs-2xs/--fs-xs` büyütme. Sis
 20. **Faz 9:** repo bağlamı system prompt'a **her istekte** gider (token maliyeti) → harita modelin context penceresine göre ölçeklidir (pencere × %2, tavan 8k karakter); anahtar dosya 2k, kalıcı not 4k karakter ile sınırlıdır. `.macrocode/context.md` 64KB'da durur (Rust tarafında sınır).
 21. **Faz 9:** `list_tree` yalnızca dosya listesi verir (göreli yol); bloklu dizinler, secret dosyalar ve 256KB üstü dosyalar Rust tarafından elenir.
 22. **Faz 10 O2:** `proxy_fetch` yalnızca http/https + izinli metot/başlık; link-local/metadata IP'leri (169.254/16, fe80::/10, 0.0.0.0/8, 100.64/10) engellenir (alan adı **çözülerek** denetlenir). LAN (`192.168.x`, `10.x`) ve `localhost` serbesttir (Ollama). Timeout 120 sn, yanıt sınırı 32 MB.
-23. **Faz 10 D1:** `keys.json` Unix'te `0600` (yalnızca sahibi okur).
+23. **Faz 10 D1:** Anahtarlar OS anahtar zincirinde (Windows Credential Manager / macOS Keychain / Linux Secret Service); 0.x `keys.json` değerleri açılışta taşınır ve dosya silinir. Zincir yoksa `keys.json` Unix'te `0600` (yalnızca sahibi okur) olarak geri dönüşüm sağlar. `keyring` çağrıları `spawn_blocking` ile çalıştırılır.
 23a. **Ajan yedekleri:** `apply_patch` yedekleri `.macrocode/backups/` altına `<id>_<sanitize>.bak` olarak yazılır. Boşluk/unicode `_`'ye çevrilir; `.bak` uzantısı sayesinde proje test/lint araçları yedeği kaynak sanmaz. Geri alma `manifest.json` üzerinden `safe_backup_name` + jail doğrulamasıyla yapılır.
 24. **Faz 10 D2c:** blok listeleri `engine/blocks.json`'dan gelir (TS import, Rust `include_str!`) → TS/Rust kayması imkânsız; sözleşme testi `tauri-config.test.ts`.
 25. **Faz 10 + L6/L7:** Log kanalı (`lib/logger.ts`) **gizli değerleri redakte eder** (anahtar/token/JWT/URL-kimlik alan ve değer kalıpları) → API anahtarı loglanmaz. `/export`, `/backup` ve `/copy` çıktıları ile kalıcı `audit_log` kayıtları da aynı `redact` fonksiyonundan geçer; transkripte yapıştırılmış anahtarlar dosya/panoya/DB'ye düz metin taşınmaz.
@@ -1638,7 +1642,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 
 | Veri | Konum | Kütüphane |
 |---|---|---|
-| API anahtarları | `app_data_dir/keys.json` | tauri-plugin-store |
+| API anahtarları | OS keychain (zincir yoksa `app_data_dir/keys.json`) | keyring + tauri-plugin-store |
 | Session'lar (birincil) | `app_data_dir/sessions.db` | tauri-plugin-sql |
 | Session'lar (yedek) | `localStorage['macrocode-sessions']` | zustand persist |
 | Ayarlar | `localStorage['macrocode-settings']` (anahtarsız!) | zustand persist |

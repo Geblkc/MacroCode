@@ -303,7 +303,7 @@ export const en: Record<TranslationKey, Message> = {
   'settings.providers.test.network': 'network error',
   'settings.providers.test.testing': 'testing…',
   'settings.providers.storageNote':
-    'Keys are stored on this device (keys.json) and never leave it. A saved key is never shown in full again — only the last 4 characters (••••a1b2).',
+    'Keys are stored in the OS keychain where available (otherwise in a local file) and never leave this device. A saved key is never shown in full again — only the last 4 characters (••••a1b2).',
   'settings.providers.localSection': 'Local provider',
   'settings.providers.localNote':
     'A model server running on your machine — no API key needed, the address is enough.',
@@ -501,7 +501,7 @@ export const en: Record<TranslationKey, Message> = {
   /* ── Settings · MCP ── */
   'settings.mcp.section': 'MCP servers',
   'settings.mcp.note':
-    'Tools enter the agent as mcp:server:tool and always ask for approval. Secrets are stored on this device (keys.json).',
+    'Tools enter the agent as mcp:server:tool and always ask for approval. Secrets are stored in the OS keychain where available.',
   'settings.mcp.empty': 'no servers yet — add one below.',
   'settings.mcp.add': '+ add server',
   'settings.mcp.name': 'server name',
@@ -554,7 +554,7 @@ export const en: Record<TranslationKey, Message> = {
   'settings.about.copyVersion': 'Copy version info',
   'settings.about.license': 'License',
   'settings.about.privacy':
-    'API keys are stored on your device (keys.json) and are never sent anywhere. Sessions are kept in a local SQLite database. Network traffic only goes to the provider you choose.',
+    'API keys are stored in the OS keychain where available (fallback: a local file) and are never sent anywhere. Sessions are kept in a local SQLite database. Network traffic only goes to the provider you choose.',
   'settings.about.source': 'Source code',
   'settings.about.modelCount': {
     one: '{count} model · {providers} providers',
@@ -565,8 +565,9 @@ export const en: Record<TranslationKey, Message> = {
   'settings.about.platform': 'Platform',
   'settings.about.catalog': 'Model catalog',
   'settings.about.dataTitle': 'Data locations',
-  'settings.about.dataFiles': 'Keys are stored in keys.json, sessions in sessions.db.',
-  'settings.about.keysFile': 'API keys',
+  'settings.about.dataFiles':
+    'Keys use the OS keychain where available; sessions are in sessions.db.',
+  'settings.about.keysFile': 'API keys (fallback file)',
   'settings.about.sessionsFile': 'Sessions',
   'settings.about.copyPath': 'Copy path',
 

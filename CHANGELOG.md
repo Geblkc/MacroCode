@@ -25,8 +25,10 @@ First stable release. Full notes: [`docs/releases/v1.0.0.md`](docs/releases/v1.0
 - Release notes are read from tracked `docs/releases/vX.Y.Z.md` files.
 
 ### Security
-- API keys remain local in `keys.json` with `0600` permissions on Unix
-  (plaintext at rest, not yet in the OS keychain).
+- API keys are stored in the OS keychain (Windows Credential Manager, macOS
+  Keychain, Linux Secret Service); plaintext `keys.json` values are migrated on
+  first launch and the file is deleted. A `0600` local file remains as fallback
+  when no keychain is reachable.
 - Signed updates, CSP hardening and approval-gated shell execution.
 
 ### Fixed

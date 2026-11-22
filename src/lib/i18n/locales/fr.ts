@@ -306,7 +306,7 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.providers.test.network': 'erreur réseau',
   'settings.providers.test.testing': 'test en cours…',
   'settings.providers.storageNote':
-    'Les clés restent sur cet appareil (keys.json) et ne le quittent jamais. Une clé enregistrée n’est plus jamais affichée en entier — seulement les 4 derniers caractères (••••a1b2).',
+    'Les clés sont stockées, si disponible, dans le trousseau du système d’exploitation (sinon dans un fichier local) et ne quittent jamais cet appareil. Une clé enregistrée n’est plus jamais affichée en entier — seulement les 4 derniers caractères (••••a1b2).',
   'settings.providers.localSection': 'Fournisseur local',
   'settings.providers.localNote':
     'Un serveur de modèles qui tourne sur ta machine — aucune clé API, l’adresse suffit.',
@@ -508,7 +508,7 @@ export const fr: Record<TranslationKey, Message> = {
   /* ── Paramètres · MCP ── */
   'settings.mcp.section': 'Serveurs MCP',
   'settings.mcp.note':
-    'Les outils entrent dans l’agent sous la forme mcp:serveur:outil et demandent toujours une approbation. Les secrets sont conservés sur cet appareil (keys.json).',
+    'Les outils entrent dans l’agent sous la forme mcp:serveur:outil et demandent toujours une approbation. Les secrets sont conservés, si disponible, dans le trousseau du système d’exploitation.',
   'settings.mcp.empty': 'aucun serveur pour le moment — ajoutez-en un ci-dessous.',
   'settings.mcp.add': '+ ajouter un serveur',
   'settings.mcp.name': 'nom du serveur',
@@ -562,7 +562,7 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.about.copyVersion': 'Copier les informations de version',
   'settings.about.license': 'Licence',
   'settings.about.privacy':
-    'Les clés API sont conservées sur votre appareil (keys.json) et ne sont jamais envoyées ailleurs. Les sessions sont stockées dans une base SQLite locale. Le trafic réseau ne va qu’au fournisseur que vous choisissez.',
+    'Les clés API sont conservées, si disponible, dans le trousseau du système d’exploitation (repli : fichier local) et ne sont jamais envoyées ailleurs. Les sessions sont stockées dans une base SQLite locale. Le trafic réseau ne va qu’au fournisseur que vous choisissez.',
   'settings.about.source': 'Code source',
   'settings.about.modelCount': {
     one: '{count} modèle · {providers} fournisseurs',
@@ -573,8 +573,9 @@ export const fr: Record<TranslationKey, Message> = {
   'settings.about.platform': 'Plateforme',
   'settings.about.catalog': 'Catalogue de modèles',
   'settings.about.dataTitle': 'Emplacements des données',
-  'settings.about.dataFiles': 'Les clés sont dans keys.json, les sessions dans sessions.db.',
-  'settings.about.keysFile': 'Clés API',
+  'settings.about.dataFiles':
+    'Les clés utilisent le trousseau du système d’exploitation si disponible ; les sessions sont dans sessions.db.',
+  'settings.about.keysFile': 'Clés API (fichier de repli)',
   'settings.about.sessionsFile': 'Sessions',
   'settings.about.copyPath': 'Copier le chemin',
 

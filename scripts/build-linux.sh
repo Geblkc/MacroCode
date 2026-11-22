@@ -84,14 +84,14 @@ fail() { printf '\033[31m[build-linux] BAŞARISIZ:\033[0m %s\n' "$*" >&2; exit 1
 # pkg-config ile sistem bağımlılıklarını erkenden kontrol et.
 if command -v pkg-config >/dev/null 2>&1; then
   missing=()
-  for dep in webkit2gtk-4.1 gtk+-3.0 librsvg-2.0; do
+  for dep in webkit2gtk-4.1 gtk+-3.0 librsvg-2.0 dbus-1; do
     pkg-config --exists "$dep" || missing+=("$dep")
   done
   if [[ ${#missing[@]} -gt 0 ]]; then
     fail "eksik sistem bağımlılıkları: ${missing[*]}
-  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev build-essential
-  Fedora:        sudo dnf install webkit2gtk4.1-devel gtk3-devel librsvg2-devel openssl-devel
-  Arch:          sudo pacman -S webkit2gtk-4.1 gtk3 librsvg openssl base-devel"
+  Debian/Ubuntu: sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libssl-dev libdbus-1-dev build-essential
+  Fedora:        sudo dnf install webkit2gtk4.1-devel gtk3-devel librsvg2-devel openssl-devel dbus-devel
+  Arch:          sudo pacman -S webkit2gtk-4.1 gtk3 librsvg openssl dbus base-devel"
   fi
 else
   log "UYARI: pkg-config yok — sistem bağımlılıkları önceden kontrol edilemedi"

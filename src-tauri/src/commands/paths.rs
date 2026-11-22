@@ -3,13 +3,14 @@ use tauri::{AppHandle, Manager};
 
 /// Uygulama veri konumlari (About sekmesi icin).
 ///
-/// Anahtarlar `keys.json`, oturumlar `sessions.db` — ikisi de
-/// `app_data_dir` altindadir ve cihazdan cikmaz.
+/// Anahtarlar OS anahtar zincirinde; `keys.json` yalnızca zincir yoksa kullanılan
+/// geri dönüşüm dosyasıdır. Oturumlar `sessions.db` — ikisi de `app_data_dir`
+/// altindadir ve cihazdan cikmaz.
 #[derive(Serialize, Clone)]
 pub struct AppPaths {
     /// Veri dizini (anahtarlarin ve veritabaninin bulundugu klasor).
     pub data_dir: String,
-    /// API anahtarlari dosyasi (`keys.json`).
+    /// Geri dönüşüm API anahtarlari dosyasi (`keys.json`; normalde mevcut olmaz).
     pub keys_file: String,
     /// Oturum veritabani (`sessions.db`).
     pub sessions_db: String,

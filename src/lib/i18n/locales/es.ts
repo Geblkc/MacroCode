@@ -308,7 +308,7 @@ export const es: Record<TranslationKey, Message> = {
   'settings.providers.test.network': 'error de red',
   'settings.providers.test.testing': 'probando…',
   'settings.providers.storageNote':
-    'Las claves se guardan solo en este dispositivo (keys.json) y nunca salen de él. Una clave guardada no vuelve a mostrarse completa: solo los 4 últimos caracteres (••••a1b2).',
+    'Las claves se guardan, si está disponible, en el llavero del sistema operativo (si no, en un archivo local) y nunca salen de este dispositivo. Una clave guardada no vuelve a mostrarse completa: solo los 4 últimos caracteres (••••a1b2).',
   'settings.providers.localSection': 'Proveedor local',
   'settings.providers.localNote':
     'Un servidor de modelos en tu equipo: no hace falta clave API, basta la dirección.',
@@ -508,7 +508,7 @@ export const es: Record<TranslationKey, Message> = {
   /* ── Ajustes · MCP ── */
   'settings.mcp.section': 'Servidores MCP',
   'settings.mcp.note':
-    'Las herramientas entran al agente como mcp:servidor:herramienta y siempre piden aprobación. Los secretos se guardan en este dispositivo (keys.json).',
+    'Las herramientas entran al agente como mcp:servidor:herramienta y siempre piden aprobación. Los secretos se guardan, si está disponible, en el llavero del sistema operativo.',
   'settings.mcp.empty': 'todavía no hay servidores: añade uno abajo.',
   'settings.mcp.add': '+ añadir servidor',
   'settings.mcp.name': 'nombre del servidor',
@@ -565,7 +565,7 @@ export const es: Record<TranslationKey, Message> = {
   'settings.about.copyVersion': 'Copiar la información de versión',
   'settings.about.license': 'Licencia',
   'settings.about.privacy':
-    'Las claves API se guardan en tu dispositivo (keys.json) y nunca se envían fuera. Las sesiones se guardan en una base de datos SQLite local. El tráfico de red solo va al proveedor que elijas.',
+    'Las claves API se guardan, si está disponible, en el llavero del sistema operativo (alternativa: archivo local) y nunca se envían fuera. Las sesiones se guardan en una base de datos SQLite local. El tráfico de red solo va al proveedor que elijas.',
   'settings.about.source': 'Código fuente',
   'settings.about.modelCount': {
     one: '{count} modelo · {providers} proveedores',
@@ -576,8 +576,9 @@ export const es: Record<TranslationKey, Message> = {
   'settings.about.platform': 'Plataforma',
   'settings.about.catalog': 'Catálogo de modelos',
   'settings.about.dataTitle': 'Ubicaciones de datos',
-  'settings.about.dataFiles': 'Las claves están en keys.json, las sesiones en sessions.db.',
-  'settings.about.keysFile': 'Claves API',
+  'settings.about.dataFiles':
+    'Las claves usan el llavero del sistema operativo si está disponible; las sesiones están en sessions.db.',
+  'settings.about.keysFile': 'Claves API (archivo alternativo)',
   'settings.about.sessionsFile': 'Sesiones',
   'settings.about.copyPath': 'Copiar ruta',
 

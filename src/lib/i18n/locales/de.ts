@@ -309,7 +309,7 @@ export const de: Record<TranslationKey, Message> = {
   'settings.providers.test.network': 'Netzwerkfehler',
   'settings.providers.test.testing': 'wird getestet…',
   'settings.providers.storageNote':
-    'Schlüssel werden nur auf diesem Gerät gespeichert (keys.json) und verlassen es nie. Ein gespeicherter Schlüssel wird nie wieder vollständig angezeigt — nur die letzten 4 Zeichen (••••a1b2).',
+    'Schlüssel werden nach Möglichkeit im Schlüsselbund des Betriebssystems (sonst in einer lokalen Datei) gespeichert und verlassen dieses Gerät nie. Ein gespeicherter Schlüssel wird nie wieder vollständig angezeigt — nur die letzten 4 Zeichen (••••a1b2).',
   'settings.providers.localSection': 'Lokaler Anbieter',
   'settings.providers.localNote':
     'Ein Modellserver auf deinem Rechner — kein API-Schlüssel nötig, die Adresse genügt.',
@@ -509,7 +509,7 @@ export const de: Record<TranslationKey, Message> = {
   /* ── Einstellungen · MCP ── */
   'settings.mcp.section': 'MCP-Server',
   'settings.mcp.note':
-    'Werkzeuge gelangen als mcp:server:werkzeug zum Agenten und fragen immer nach Freigabe. Geheimnisse werden auf diesem Gerät gespeichert (keys.json).',
+    'Werkzeuge gelangen als mcp:server:werkzeug zum Agenten und fragen immer nach Freigabe. Geheimnisse werden nach Möglichkeit im Schlüsselbund des Betriebssystems gespeichert.',
   'settings.mcp.empty': 'noch keine Server — unten hinzufügen.',
   'settings.mcp.add': '+ Server hinzufügen',
   'settings.mcp.name': 'Servername',
@@ -566,7 +566,7 @@ export const de: Record<TranslationKey, Message> = {
   'settings.about.copyVersion': 'Versionsinformation kopieren',
   'settings.about.license': 'Lizenz',
   'settings.about.privacy':
-    'API-Schlüssel werden auf Ihrem Gerät gespeichert (keys.json) und nie nach außen gesendet. Sitzungen liegen in einer lokalen SQLite-Datenbank. Der Netzwerkverkehr geht ausschließlich an den von Ihnen gewählten Anbieter.',
+    'API-Schlüssel werden nach Möglichkeit im Schlüsselbund des Betriebssystems (Fallback: lokale Datei) gespeichert und nie nach außen gesendet. Sitzungen liegen in einer lokalen SQLite-Datenbank. Der Netzwerkverkehr geht ausschließlich an den von Ihnen gewählten Anbieter.',
   'settings.about.source': 'Quellcode',
   'settings.about.modelCount': {
     one: '{count} Modell · {providers} Anbieter',
@@ -577,8 +577,9 @@ export const de: Record<TranslationKey, Message> = {
   'settings.about.platform': 'Plattform',
   'settings.about.catalog': 'Modellkatalog',
   'settings.about.dataTitle': 'Datenorte',
-  'settings.about.dataFiles': 'Schlüssel liegen in keys.json, Sitzungen in sessions.db.',
-  'settings.about.keysFile': 'API-Schlüssel',
+  'settings.about.dataFiles':
+    'Schlüssel liegen nach Möglichkeit im Schlüsselbund des Betriebssystems, Sitzungen in sessions.db.',
+  'settings.about.keysFile': 'API-Schlüssel (Fallback-Datei)',
   'settings.about.sessionsFile': 'Sitzungen',
   'settings.about.copyPath': 'Pfad kopieren',
 

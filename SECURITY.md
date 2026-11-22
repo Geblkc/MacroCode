@@ -60,12 +60,26 @@ for a private channel — do not include exploit details.
 
 | Area | Design |
 |---|---|
-| API keys | Stored locally in the app-data directory (`keys.json`), file mode `0600` on Unix; never synced, never sent anywhere except the configured provider as auth headers. |
+| API keys | Stored in the OS keychain (Windows Credential Manager, macOS Keychain, Linux Secret Service). On first launch, legacy plaintext `keys.json` values are migrated and the file is deleted. If no keychain is reachable, keys fall back to `keys.json` with mode `0600` on Unix. Keys are never sent anywhere except the configured provider as auth headers. |
 | Sessions | Local SQLite database; no server-side storage. |
 | Network | CSP restricts connections; custom endpoints/MCP requests go through the Rust proxy. |
 | Agent tools | Approval-first writes/execs, workspace root jail, blocked/secret path lists, `rm` restricted, system directories denied. |
 | Git | `git` CLI without a shell, repo must equal workspace root, pathspecs after `--`, auth prompts disabled. |
 | Updates | Tauri updater signatures verified against the bundled public key. |
+
+### Key storage details
+
+- The keychain is authoritative. Writes go to the keychain first; a successful
+  write removes any stale plaintext copy from `keys.json`.
+- Migration is idempotent: entries that cannot be moved stay in the local file
+  and are retried on the next launch, so a temporarily unavailable keychain
+  never loses keys.
+- **Fallback limitation:** on a system with no reachable keychain (for example
+  headless Linux without a Secret Service), keys are still stored in plaintext
+  in the app-data file, protected only by Unix `0600` permissions. Enable disk
+  encryption and keep the app-data directory out of cloud sync in that case.
+- Exports, logs, audit records and tool output redact key/token patterns; the
+  frontend receives one provider's key at a time, never a bulk dump.
 
 The Git-specific threat model is documented in [`docs/GIT.md`](docs/GIT.md).
 

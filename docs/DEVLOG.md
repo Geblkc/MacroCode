@@ -42,6 +42,35 @@
 - `npm run build`, `npm run lint`, `npm run format:check` temiz.
 - `cargo fmt --check`, `cargo clippy --lib -- -D warnings` temiz.
 
+## 2026-11-22 — v1.0.0: API anahtarları OS anahtar zincirinde (K2 kapandı)
+
+- `keyring` crate'i platforma özgü özelliklerle eklendi: Windows Credential
+  Manager, macOS Keychain, Linux Secret Service (`sync-secret-service`).
+- `keystore.rs` yeniden yazıldı: zincir birincil depo, `keys.json` yalnızca zincir
+  erişilemediğinde `0600` izinli geri dönüşüm. Servis `com.macrocode.app`,
+  hesap `api-key:<provider>`.
+- Açılışta (`setup`) tek seferlik göç: mevcut düz metin kayıtlar zincire yazılır,
+  dosyadan çıkarılır ve boşsa fiziksel olarak silinir. Başarısız kayıtlar
+  korunur, sonraki açılışta yeniden denenir; veri kaybı yok.
+- `get_api_key` zincir → dosya sırasıyla okur, zincir erişilebilir ama kayıt
+  dosyadaysa kaydı taşır. `set_api_key` önce zincire yazar, başarılıysa düz metin
+  kopyayı siler. `key_status` / `key_hint` birleşik kaynaktan çalışır.
+- Zincir çağrıları `spawn_blocking` ile Tauri async runtime'ını bloklamaz.
+- Saf `migrate_legacy_entries` + `FakeKeychain` ile 4 yeni Rust testi (başarılı
+  göç, hata durumunda kopyanın korunması, geçersiz/boş kayıtlar, maskeli ipucu).
+- IPC sözleşmesi değişmedi; 5 dildeki depolama bilgi metinleri keychain'i
+  yansıtacak şekilde güncellendi (geri dönüşüm dosyası açıkça belirtildi).
+- CI/release/build-linux: `libdbus-1-dev` / `dbus-devel` bağımlılığı eklendi;
+  deb/rpm çalışma zamanı bağımlılıklarına `libdbus-1-3` / `dbus-libs` girdi.
+- **Dokümantasyon:** `SECURITY.md`, `docs/releases/v1.0.0.md`, `CHANGELOG.md`,
+  `docs/ARCHITECTURE.md`, `docs/PACKAGING.md` güncellendi. Düz metin riski artık
+  yalnızca "zincir yoksa" durumunda geçerli ve açıkça belgelenmiş durumda.
+
+### Doğrulama
+
+- `cargo test --lib`: 135/135 (4 yeni keystore testi).
+- `cargo clippy --lib -- -D warnings`, `cargo fmt --check` temiz.
+
 
 ## 2026-11-20 — Tauri IPC argüman adları (ağ hatası düzeltmesi)
 

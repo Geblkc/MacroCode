@@ -51,6 +51,12 @@ pub fn run() {
                 )
                 .build(),
         )
+        .setup(|app| {
+            // 0.x → 1.0: düz metin `keys.json` kayıtlarını OS anahtar zincirine taşı.
+            // Başarısız kayıtlar dosyada kalır, sonraki açılışta yeniden denenir.
+            commands::keystore::migrate_legacy_keys(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             set_api_key,
             db_save_sessions,

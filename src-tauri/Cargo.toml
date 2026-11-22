@@ -31,6 +31,17 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
 
+# API anahtarları işletim sistemi anahtar zincirinde saklanır (BYOK).
+# Her platform yalnızca kendi native deposunu derler; `keys.json` geri dönüşüm.
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["sync-secret-service"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", default-features = false, features = ["apple-native"] }
+
 # P0.2 — iptal/timeout'ta süreç AĞACINI sonlandırma (yalnız doğrudan child değil).
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
