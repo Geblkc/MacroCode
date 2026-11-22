@@ -23,6 +23,7 @@ npx tsc --noEmit          # type-check
 npm run build             # production build (smoke)
 npm run lint              # eslint
 npm run format:check      # prettier
+npm run check:secrets     # secret/API-key scan of tracked files
 cargo test --lib          # Rust unit tests (from src-tauri/)
 cargo fmt --check
 cargo clippy --lib -- -D warnings
@@ -33,7 +34,8 @@ cargo clippy --lib -- -D warnings
 A change is complete only when:
 
 1. All checks are green (`npm test`, `npm run lint`, `npm run format:check`,
-   `cargo fmt --check`, `cargo clippy --lib -- -D warnings`, `cargo test --lib`).
+   `npm run check:secrets`, `cargo fmt --check`,
+   `cargo clippy --lib -- -D warnings`, `cargo test --lib`).
 2. The acceptance criteria for the change are met.
 3. `docs/ARCHITECTURE.md` reflects architectural changes and `docs/DEVLOG.md`
    has a dated entry. Do not bump the version unless the release is intentional.

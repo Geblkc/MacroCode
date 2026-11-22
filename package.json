@@ -16,6 +16,7 @@
     "build": "tsc --noEmit && vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "check:secrets": "bash scripts/check-secrets.sh",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",

@@ -30,3 +30,8 @@ tmp/
 *.bak
 # ajan çalışma artefaktları (yedekler, snapshot'lar, araç çıktıları)
 .macrocode/
+# API anahtarları / yerel ortam dosyaları asla depoya girmez
+keys.json
+.env
+.env.*
+!.env.example

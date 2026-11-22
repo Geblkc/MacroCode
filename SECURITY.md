@@ -80,6 +80,9 @@ for a private channel — do not include exploit details.
   encryption and keep the app-data directory out of cloud sync in that case.
 - Exports, logs, audit records and tool output redact key/token patterns; the
   frontend receives one provider's key at a time, never a bulk dump.
+- CI runs `scripts/check-secrets.sh` (`npm run check:secrets`) on tracked files
+  to reject committed keys. `keys.json` and `.env*` are git-ignored. The scan
+  allowlists short test fixtures; never add a real key to a test file.
 
 The Git-specific threat model is documented in [`docs/GIT.md`](docs/GIT.md).
 

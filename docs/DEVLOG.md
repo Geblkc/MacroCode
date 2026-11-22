@@ -71,6 +71,31 @@
 - `cargo test --lib`: 135/135 (4 yeni keystore testi).
 - `cargo clippy --lib -- -D warnings`, `cargo fmt --check` temiz.
 
+## 2026-11-22 — Yayın öncesi sıfırlama ve secret taraması
+
+- Kullanıcı onayıyla **yedeksiz kalıcı sıfırlama** yapıldı: yerel uygulama
+  verisi (`~/.local/share/com.macrocode.app`, `~/.config/com.macrocode.app`,
+  `~/.local/share/dev.macrocode.desktop`) ve MacroCode istem geçmişi
+  (`~/.local/state/macrocode/prompt-history.jsonl`) silindi. Cihazdaki
+  `keys.json` (openrouter/nvidia/evren/ollamaUrl) geri alınamaz şekilde kalktı.
+- OS keychain'inde `com.macrocode.app` servisi için kayıt bulunamadı
+  (`secret-tool search --all` boş); ek temizlik gerekmedi.
+- Denetim: repo, 3 commit'lik geçmiş, `dist/`, `.macrocode/`, localStorage ve
+  `sessions.db` tarandı — gerçek anahtar değeri yok; yalnızca test/placeholder
+  desenleri ve kesik `sk-ant-te` benzeri artefaktlar mevcut.
+- **Yeni koruma:** `scripts/check-secrets.sh` eklendi (izlenen dosyalarda gerçek
+  anahtar desenleri, özel anahtar blokları ve yasaklı dosya adları; değerleri
+  yazdırmaz, test placeholder'larını allowlist'e alır). `npm run check:secrets`
+  script'i ve CI `check` işine adım eklendi.
+- `.gitignore`: `keys.json`, `.env`, `.env.*` (ve `.env.example` istisnası).
+- `CONTRIBUTING.md` ve `SECURITY.md` yeni kontrolü anlatacak şekilde güncellendi.
+
+### Doğrulama
+
+- `bash scripts/check-secrets.sh` temiz; sentetik uzun `sk-ant-…` ile pozitif
+  test `exit 1` verdi (redaksiyon doğrulandı).
+- Tüm mevcut kontroller (JS + Rust) yeşil.
+
 
 ## 2026-11-20 — Tauri IPC argüman adları (ağ hatası düzeltmesi)
 
