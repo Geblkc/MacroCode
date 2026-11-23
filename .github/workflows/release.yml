@@ -148,8 +148,6 @@ jobs:
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -168,6 +166,38 @@ jobs:
           npm test
           npm run build
 
+      # Apple imza bilgileri yalnızca gerçekten tanımlıysa ortama yazılır.
+      # Boş bir `APPLE_CERTIFICATE` değişkeni Tauri tarafından "sertifika var"
+      # sanılıp keychain'e boş .p12 aktarılmaya çalışılıyor ve macOS build
+      # `SecKeychainItemImport ... not valid` hatasıyla düşüyordu.
+      - name: Apple kimlik bilgilerini hazırla
+        env:
+          APPLE_CERTIFICATE_SECRET: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD_SECRET: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID_SECRET: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD_SECRET: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID_SECRET: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -n "${APPLE_CERTIFICATE_SECRET:-}" ]; then
+            {
+              echo 'APPLE_CERTIFICATE<<__APPLE_CERT__'
+              echo "$APPLE_CERTIFICATE_SECRET"
+              echo '__APPLE_CERT__'
+            } >> "$GITHUB_ENV"
+          fi
+          set_var() {
+            if [ -n "${2:-}" ]; then
+              printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"
+            fi
+          }
+          set_var APPLE_CERTIFICATE_PASSWORD "$APPLE_CERTIFICATE_PASSWORD_SECRET"
+          set_var APPLE_SIGNING_IDENTITY "$APPLE_SIGNING_IDENTITY_SECRET"
+          set_var APPLE_ID "$APPLE_ID_SECRET"
+          set_var APPLE_PASSWORD "$APPLE_PASSWORD_SECRET"
+          set_var APPLE_TEAM_ID "$APPLE_TEAM_ID_SECRET"
+
       # Developer ID sertifikası `APPLE_CERTIFICATE` (base64 .p12) olarak
       # tanımlıysa keychain'e yüklenir. Tanımlı değilse build imzasız çıkar.
       - name: Apple sertifikasını içe aktar
@@ -184,11 +214,6 @@ jobs:
           rm -f certificate.p12
 
       - name: Paketleri derle (universal)
-        env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run tauri build -- --target universal-apple-darwin --bundles dmg,app
 
       - name: Topla

@@ -721,8 +721,10 @@ fn validate_repo_path(raw: &str) -> Result<String, GitError> {
     if p.contains(':') {
         return Err(ge("E_INVALID_PATH", "yol ':' içeremez (pathspec magic)"));
     }
-    // Mutlak yol, baştaki '/' kırpılmadan ÖNCE denetlenir.
-    if Path::new(&p).is_absolute() || p.starts_with("//") {
+    // Mutlak yol, baştaki '/' kırpılmadan ÖNCE denetlenir. Windows'ta
+    // `/etc/passwd` "absolute" sayılmaz (sürücü öneki yok) — bu yüzden
+    // baştaki ayırıcı ayrıca reddedilir.
+    if Path::new(&p).is_absolute() || p.starts_with('/') {
         return Err(ge(
             "E_INVALID_PATH",
             "mutlak yol yasak · repo-göreli yol kullan",

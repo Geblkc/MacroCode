@@ -1099,7 +1099,10 @@ pub async fn glob_files(
         let rel = canon
             .strip_prefix(&base)
             .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| canon.to_string_lossy().to_string());
+            .unwrap_or_else(|_| canon.to_string_lossy().to_string())
+            // Windows ayırıcısı da normalize edilir; aksi hâlde `split('/')`
+            // ara dizin filtresi çalışmaz ve UI'ya `src\\b.ts` döner.
+            .replace('\\', "/");
         // Ara dizinler de ignore listesine takılır (örn. node_modules/…).
         if rel.split('/').any(is_blocked_dir) {
             continue;
@@ -1138,7 +1141,9 @@ pub async fn list_tree(root: String, max_entries: Option<usize>) -> Result<Vec<T
         let rel = p
             .strip_prefix(&base)
             .map(|r| r.to_string_lossy().to_string())
-            .unwrap_or_default();
+            .unwrap_or_default()
+            // Windows'da `\` ayırıcısı göreli yolu bozar (UI `/` bekliyor).
+            .replace('\\', "/");
         if rel.is_empty() {
             continue;
         }
