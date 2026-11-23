@@ -193,8 +193,8 @@ describe('parseGitHubRelease', () => {
 
 describe('repoSlug / releasePageUrl', () => {
   it('GitHub URL’sinden owner/repo çıkarır', () => {
-    expect(repoSlug('https://github.com/Geblkc/Macro-Code')).toBe('Geblkc/Macro-Code');
-    expect(repoSlug('https://github.com/Geblkc/Macro-Code.git')).toBe('Geblkc/Macro-Code');
+    expect(repoSlug('https://github.com/Geblkc/MacroCode')).toBe('Geblkc/MacroCode');
+    expect(repoSlug('https://github.com/Geblkc/MacroCode.git')).toBe('Geblkc/MacroCode');
     expect(repoSlug('git@github.com:owner/repo.git')).toBe('owner/repo');
   });
 

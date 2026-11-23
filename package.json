@@ -6,10 +6,10 @@
   "productName": "MacroCode",
   "description": "MacroCode — AI terminal desktop app (Tauri v2 + React + TypeScript)",
   "license": "GPL-2.0-only",
-  "homepage": "https://github.com/Geblkc/Macro-Code",
+  "homepage": "https://github.com/Geblkc/MacroCode",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Geblkc/Macro-Code"
+    "url": "https://github.com/Geblkc/MacroCode"
   },
   "scripts": {
     "dev": "vite",

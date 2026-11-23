@@ -3,7 +3,7 @@
   <h1>MacroCode</h1>
   <p><strong>Ein KI-Terminal unter deiner Kontrolle — Bring Your Own Key, deine Daten bleiben bei dir.</strong></p>
   <p>
-    <a href="https://github.com/Geblkc/Macro-Code/releases"><img src="https://img.shields.io/github/v/release/Geblkc/Macro-Code?label=release&color=0a7ea4" alt="Release" /></a>
+    <a href="https://github.com/Geblkc/MacroCode/releases"><img src="https://img.shields.io/github/v/release/Geblkc/MacroCode?label=release&color=0a7ea4" alt="Release" /></a>
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-0a7ea4" alt="Plattform" />
     <img src="https://img.shields.io/badge/Tauri-v2-24c8db" alt="Tauri v2" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0--only-blue.svg" alt="Lizenz: GPL-2.0-only" /></a>
@@ -42,7 +42,7 @@ Header, die direkt an den von dir konfigurierten Anbieter gehen.
 ## Installation
 
 Lade ein Paket für deine Plattform von der
-[Releases-Seite](https://github.com/Geblkc/Macro-Code/releases) herunter
+[Releases-Seite](https://github.com/Geblkc/MacroCode/releases) herunter
 (Linux `.deb` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
 
 Oder aus dem Quellcode bauen:

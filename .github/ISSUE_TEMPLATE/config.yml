@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/Geblkc/Macro-Code/security/advisories/new
+    url: https://github.com/Geblkc/MacroCode/security/advisories/new
     about: Please report security issues privately — never in a public issue.
   - name: Documentation
-    url: https://github.com/Geblkc/Macro-Code/tree/main/docs
+    url: https://github.com/Geblkc/MacroCode/tree/main/docs
     about: Architecture, models, Git integration and packaging notes.
   - name: Latest release
-    url: https://github.com/Geblkc/Macro-Code/releases/latest
+    url: https://github.com/Geblkc/MacroCode/releases/latest
     about: Check whether the issue is already fixed in the newest version.

@@ -3,7 +3,7 @@
   <h1>MacroCode</h1>
   <p><strong>An AI terminal you control — bring your own key, keep your own data.</strong></p>
   <p>
-    <a href="https://github.com/Geblkc/Macro-Code/releases"><img src="https://img.shields.io/github/v/release/Geblkc/Macro-Code?label=release&color=0a7ea4" alt="Release" /></a>
+    <a href="https://github.com/Geblkc/MacroCode/releases"><img src="https://img.shields.io/github/v/release/Geblkc/MacroCode?label=release&color=0a7ea4" alt="Release" /></a>
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-0a7ea4" alt="Platform" />
     <img src="https://img.shields.io/badge/Tauri-v2-24c8db" alt="Tauri v2" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0--only-blue.svg" alt="License: GPL-2.0-only" /></a>
@@ -41,7 +41,7 @@ authentication headers sent directly to the provider you configured.
 ## Installation
 
 Download the package for your platform from the
-[Releases](https://github.com/Geblkc/Macro-Code/releases) page
+[Releases](https://github.com/Geblkc/MacroCode/releases) page
 (Linux `.deb` / `.rpm` / `.AppImage`, Windows `.msi` / `.exe`, macOS `.dmg`).
 
 > Windows and macOS builds are Authenticode/Developer ID signed **when the

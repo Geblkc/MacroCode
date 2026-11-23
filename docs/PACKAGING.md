@@ -76,7 +76,7 @@ bash scripts/release.sh 1.0.0 --dry-run # ne yapılacağını gösterir
 - **release** işi: `latest.json` + `SHA256SUMS` üretir, paketleri GitHub Release'e yükler.
   Sürüm notları `docs/releases/vX.Y.Z.md` dosyasından okunur.
 
-Yayınlanan sürüm: <https://github.com/Geblkc/Macro-Code/releases>
+Yayınlanan sürüm: <https://github.com/Geblkc/MacroCode/releases>
 
 
 ### Windows kurulum notları

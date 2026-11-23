@@ -245,7 +245,7 @@ Release job'u aşağıdaki yapıyı üretir ve `bundles/latest.json` olarak yük
 }
 ```
 
-Endpoint: `https://github.com/Geblkc/Macro-Code/releases/latest/download/latest.json`
+Endpoint: `https://github.com/Geblkc/MacroCode/releases/latest/download/latest.json`
 
 - **Linux:** yalnızca **AppImage** otomatik güncellenir. `.deb` / `.rpm` ile
   kurulan sürümlerde `/update` kullanıcıyı release sayfasına yönlendirir

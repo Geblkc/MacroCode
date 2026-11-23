@@ -3,7 +3,7 @@
   <h1>MacroCode</h1>
   <p><strong>Kontrol sende olan bir AI terminali — kendi anahtarını getir, verilerin sende kalsın.</strong></p>
   <p>
-    <a href="https://github.com/Geblkc/Macro-Code/releases"><img src="https://img.shields.io/github/v/release/Geblkc/Macro-Code?label=release&color=0a7ea4" alt="Sürüm" /></a>
+    <a href="https://github.com/Geblkc/MacroCode/releases"><img src="https://img.shields.io/github/v/release/Geblkc/MacroCode?label=release&color=0a7ea4" alt="Sürüm" /></a>
     <img src="https://img.shields.io/badge/platform-Linux%20%7C%20Windows%20%7C%20macOS-0a7ea4" alt="Platform" />
     <img src="https://img.shields.io/badge/Tauri-v2-24c8db" alt="Tauri v2" />
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-GPL--2.0--only-blue.svg" alt="Lisans: GPL-2.0-only" /></a>
@@ -41,7 +41,7 @@ kimlik doğrulama başlıkları olarak çıkar.
 
 ## Kurulum
 
-Platformuna uygun paketi [Releases](https://github.com/Geblkc/Macro-Code/releases)
+Platformuna uygun paketi [Releases](https://github.com/Geblkc/MacroCode/releases)
 sayfasından indir (Linux `.deb` / `.rpm` / `.AppImage`, Windows `.msi` / `.exe`,
 macOS `.dmg`).
 
