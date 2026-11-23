@@ -11,7 +11,8 @@
   <p><strong>English</strong> · <a href="README.tr.md">Türkçe</a> · <a href="README.de.md">Deutsch</a> · <a href="README.fr.md">Français</a> · <a href="README.ru.md">Русский</a></p>
 </div>
 
-<img width="1920" height="1006" alt="MacroCode screenshot" src="https://github.com/user-attachments/assets/f67a19a7-9f72-458f-8236-75bbd31c18cd" />
+<img width="1918" height="1026" alt="Ekran Görüntüsü_20261123_170105" src="https://github.com/user-attachments/assets/1919b6ee-3404-44da-8911-a363838791f0" />
+
 
 ## What is MacroCode?
 
