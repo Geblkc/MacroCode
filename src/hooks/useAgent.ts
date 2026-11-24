@@ -339,31 +339,42 @@ function cleanBlankAssistantMessages(sessionId: string, onlyIds?: string[]): boo
  */
 export function useAgent() {
   const t = useT();
-  const abortRef = useRef<{
-    controller: AbortController;
-    sessionId: string;
-    activityRunId: string;
-  } | null>(null);
+  /**
+   * Oturum başına iptal denetleyicisi.
+   * Oturumlar paralel çalışabildiği için tek bir `abortRef` yeterli değil —
+   * aksi halde 2. oturumda durdurma 1. oturumun akışını da kesiyordu.
+   */
+  const abortRef = useRef<
+    Map<string, { controller: AbortController; sessionId: string; activityRunId: string }>
+  >(new Map());
 
-  const abort = useCallback(() => {
-    const current = abortRef.current;
-    current?.controller.abort();
-
+  /**
+   * `sessionId` verilirse YALNIZ o oturumun akışı durur; verilmezse tüm
+   * oturumlar durdurulur (uygulama kapanırken / global iptal).
+   */
+  const abort = useCallback((sessionId?: string) => {
     const activityStore = useAgentActivityStore.getState();
-    const hadActiveRun = activeRuns.size > 0;
-    // Hazırlık aşamasındaki henüz kayıt edilmemiş run da sahibine doğru temizlenir.
-    if (current) {
-      activityStore.end(current.sessionId, current.activityRunId);
+    const sessionStore = useSessionStore.getState();
+    const targets =
+      sessionId != null
+        ? [sessionId]
+        : [...new Set([...abortRef.current.keys(), ...activeRuns.keys()])];
+    for (const id of targets) {
+      const current = abortRef.current.get(id);
+      current?.controller.abort();
+      // Hazırlık aşamasındaki henüz kayıt edilmemiş run da sahibine doğru temizlenir.
+      if (current) {
+        activityStore.end(current.sessionId, current.activityRunId);
+      }
+      const active = activeRuns.get(id);
+      if (active) {
+        active.run.abort();
+        activityStore.end(id, active.activityRunId);
+        activeRuns.delete(id);
+      }
+      abortRef.current.delete(id);
+      sessionStore.setStreaming(id, false);
     }
-    for (const [sessionId, active] of activeRuns.entries()) {
-      active.run.abort();
-      activityStore.end(sessionId, active.activityRunId);
-      activeRuns.delete(sessionId);
-    }
-    if (current || hadActiveRun) {
-      useSessionStore.getState().setStreaming(false);
-    }
-    abortRef.current = null;
   }, []);
 
   const sendAgent = useCallback(
@@ -377,11 +388,13 @@ export function useAgent() {
     ): Promise<string | null> => {
       const trimmed = text.trim();
       if (!trimmed && (!images || images.length === 0)) return null;
-      if (useSessionStore.getState().isStreaming) return null;
 
       let session = useSessionStore.getState().getActiveSession();
       if (!session) session = useSessionStore.getState().createSession();
       const sessionId = session.id;
+      // Akış kontrolü OTURUM bazlıdır: başka bir konuşma akıyorsa bu
+      // konuşma yine başlatılabilir (yalnız aynı oturum kilitli).
+      if (useSessionStore.getState().isStreamingFor(sessionId)) return null;
       // Aynı oturumda onay bekleyen/çalışan bir run varsa yeni tur başlatma.
       // Bu, restore sonrası aynı oturumda iki run'ın birbirinin durumunu
       // ezip aktivite `runId` eşleşmesini bozmasını engeller.
@@ -417,7 +430,7 @@ export function useAgent() {
       const runId = createId();
       const activityStore = useAgentActivityStore.getState();
       activityStore.begin(sessionId, runId);
-      store().setStreaming(true);
+      store().setStreaming(sessionId, true);
       store().addMessage(sessionId, {
         id: userId,
         role: 'user',
@@ -445,7 +458,7 @@ export function useAgent() {
       const memo = resolveMemo<AgentHistoryItem>(sessionId, session.compaction);
       const history: AgentHistoryItem[] = applyMemo(memo, rawHistory);
       const ctrl = new AbortController();
-      abortRef.current = { controller: ctrl, sessionId, activityRunId: runId };
+      abortRef.current.set(sessionId, { controller: ctrl, sessionId, activityRunId: runId });
       const callNames = new Map<string, string>();
       const emit = (line: AgentToolLine) => onToolLine?.(line);
       const updateActivity = (patch: AgentActivityPatch) => {
@@ -693,11 +706,13 @@ export function useAgent() {
         const activeRunId = activeRuns.get(sessionId)?.activityRunId;
         const stillPending = activeRunId === runId;
         if (!stillPending) {
-          // Aynı oturumda daha yeni bir run başladıysa global streaming
-          // bayrağını ve yeni aktiviteyi bu eski turun temizliği bozmasın.
-          if (!activeRunId) store().setStreaming(false);
+          // Aynı oturumda daha yeni bir run başladıysa akış bayrağını ve yeni
+          // aktiviteyi bu eski turun temizliği bozmasın.
+          if (!activeRunId) store().setStreaming(sessionId, false);
           useAgentActivityStore.getState().end(sessionId, runId);
-          if (abortRef.current?.controller === ctrl) abortRef.current = null;
+          if (abortRef.current.get(sessionId)?.controller === ctrl) {
+            abortRef.current.delete(sessionId);
+          }
         }
         try {
           onRetry?.(null);
@@ -776,7 +791,7 @@ export function useAgent() {
       updateActivity({ phase: 'preparing', tool: null, retry: null });
 
       const store = useSessionStore.getState;
-      store().setStreaming(true);
+      store().setStreaming(sessionId, true);
       const callNames = new Map<string, string>();
       // Karar öncesi kuyruğu düşür.
       for (const d of decisions) {
@@ -862,13 +877,13 @@ export function useAgent() {
         clearActiveRun(sessionId, activityRunId);
         // Onay turu metinsiz bitirse placeholder boş assistant satırı kalmasın.
         cleanBlankAssistantMessages(sessionId);
-        store().setStreaming(false);
+        store().setStreaming(sessionId, false);
         useAgentActivityStore.getState().end(sessionId, activityRunId);
         return null;
       } catch (err) {
         clearActiveRun(sessionId, activityRunId);
         cleanBlankAssistantMessages(sessionId);
-        store().setStreaming(false);
+        store().setStreaming(sessionId, false);
         useAgentActivityStore.getState().end(sessionId, activityRunId);
         return formatProviderError(err);
       } finally {

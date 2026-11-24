@@ -136,7 +136,13 @@ export default function Terminal({
   searchEnabled = true,
 }: Props) {
   const t = useT();
-  const streaming = useSessionStore((s) => s.isStreaming);
+  /**
+   * Akış durumu OTURUM bazlıdır: başka bir konuşma akıyorsa bu konuşmada
+   * "yazıyor" imleci görünmemeli.
+   */
+  const streaming = useSessionStore((s) =>
+    session?.id ? s.streamingSessions[session.id] === true : false,
+  );
   const showThinking = useSettingsStore((s) => s.showThinking);
   /** Kullanıcının ek shell komutları (izin listesi) — "izin listesinde değil"
    *  uyarısını doğru hesaplamak için gerekir. */

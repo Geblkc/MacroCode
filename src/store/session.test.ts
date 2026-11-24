@@ -126,6 +126,59 @@ describe('Faz 7 A3 — agent mesaj bütünlüğü', () => {
   });
 });
 
+describe('Oturum bazlı akış durumu — konuşmalar paralel çalışabilir', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [], activeSessionId: null, streamingSessions: {} });
+  });
+
+  it('bir oturumun akışı diğerini engellemez', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    const b = st.createSession();
+
+    st.setStreaming(a.id, true);
+    expect(st.isStreamingFor(a.id)).toBe(true);
+    expect(st.isStreamingFor(b.id)).toBe(false);
+
+    st.setStreaming(b.id, true);
+    expect(st.isStreamingFor(a.id)).toBe(true);
+    expect(st.isStreamingFor(b.id)).toBe(true);
+  });
+
+  it('bir oturumun akışını kapatmak diğerini etkilemez', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    const b = st.createSession();
+    st.setStreaming(a.id, true);
+    st.setStreaming(b.id, true);
+
+    st.setStreaming(a.id, false);
+    expect(st.isStreamingFor(a.id)).toBe(false);
+    expect(st.isStreamingFor(b.id)).toBe(true);
+    expect(useSessionStore.getState().streamingSessions).toEqual({ [b.id]: true });
+  });
+
+  it('oturum silinince akış bayrağı da kalkar', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    st.setStreaming(a.id, true);
+
+    st.deleteSession(a.id);
+    expect(useSessionStore.getState().streamingSessions).toEqual({});
+    expect(st.isStreamingFor(a.id)).toBe(false);
+  });
+
+  it('boş/bilinmeyen oturum kimliği akış sayılmaz', () => {
+    const st = useSessionStore.getState();
+    expect(st.isStreamingFor(null)).toBe(false);
+    expect(st.isStreamingFor(undefined)).toBe(false);
+    expect(st.isStreamingFor('yok')).toBe(false);
+    // boş kimlik kayıt oluşturmaz
+    st.setStreaming('', true);
+    expect(useSessionStore.getState().streamingSessions).toEqual({});
+  });
+});
+
 describe('Faz 3 — renameSession', () => {
   beforeEach(() => {
     useSessionStore.setState({ sessions: [], activeSessionId: null });

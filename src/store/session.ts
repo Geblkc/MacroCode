@@ -29,7 +29,14 @@ function autoName(content: string): string {
 interface SessionStore {
   sessions: Session[];
   activeSessionId: string | null;
-  isStreaming: boolean;
+  /**
+   * Oturum başına akış durumu.
+   *
+   * Oturumlar PARALEL çalışabilir (1. konuşma agent çalışırken 2. konuşma
+   * da başlatılabilir); bu yüzden "akış var mı" bilgisi tek global bayrak
+   * değil, oturum kimliğiyle tutulur.
+   */
+  streamingSessions: Record<string, boolean>;
 
   createSession: () => Session;
   deleteSession: (id: string) => void;
@@ -85,7 +92,13 @@ interface SessionStore {
     messageId: string,
     blocks: Array<{ thinking: string; signature: string }>,
   ) => void;
-  setStreaming: (value: boolean) => void;
+  /**
+   * Oturumun akış durumunu değiştirir (oturum bazlı).
+   * `false` verildiğinde kayıt tamamen silinir (bayrak şişmez).
+   */
+  setStreaming: (sessionId: string, value: boolean) => void;
+  /** Verilen oturumda akış var mı? (oturum kimliği yoksa false). */
+  isStreamingFor: (sessionId: string | null | undefined) => boolean;
   getActiveSession: () => Session | null;
 }
 
@@ -100,7 +113,7 @@ export const useSessionStore = create<SessionStore>()(
     (set, get) => ({
       sessions: [],
       activeSessionId: null,
-      isStreaming: false,
+      streamingSessions: {},
 
       createSession: () => {
         const settings = useSettingsStore.getState();
@@ -127,7 +140,10 @@ export const useSessionStore = create<SessionStore>()(
           const sessions = s.sessions.filter((sess) => sess.id !== id);
           const activeSessionId =
             s.activeSessionId === id ? (sessions[0]?.id ?? null) : s.activeSessionId;
-          return { sessions, activeSessionId };
+          // Silinen oturumun akış bayrağı da düşsün (bellekte kalıntı olmasın).
+          const streamingSessions = { ...s.streamingSessions };
+          delete streamingSessions[id];
+          return { sessions, activeSessionId, streamingSessions };
         }),
 
       renameSession: (id, name) => {
@@ -387,7 +403,18 @@ export const useSessionStore = create<SessionStore>()(
           ),
         })),
 
-      setStreaming: (value) => set({ isStreaming: value }),
+      setStreaming: (sessionId, value) =>
+        set((s) => {
+          if (!sessionId) return s;
+          const current = s.streamingSessions[sessionId] === true;
+          if (current === value) return s;
+          const streamingSessions = { ...s.streamingSessions };
+          if (value) streamingSessions[sessionId] = true;
+          else delete streamingSessions[sessionId];
+          return { streamingSessions };
+        }),
+
+      isStreamingFor: (sessionId) => !!sessionId && get().streamingSessions[sessionId] === true,
 
       getActiveSession: () => {
         const { sessions, activeSessionId } = get();

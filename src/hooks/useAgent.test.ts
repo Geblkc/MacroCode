@@ -34,7 +34,7 @@ function seed(): void {
       },
     ],
     activeSessionId: SESSION_ID,
-    isStreaming: true,
+    streamingSessions: { [SESSION_ID]: true },
   });
 }
 

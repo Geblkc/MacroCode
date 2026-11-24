@@ -73,10 +73,21 @@ export function resolveFallbackTarget(opts: {
  */
 export function useStream() {
   const t = useT();
-  const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Oturum başına iptal denetleyicisi — oturumlar paralel çalışabildiği için
+   * tek denetleyici yerine oturum kimliğiyle eşleşen bir harita tutulur.
+   */
+  const abortRef = useRef<Map<string, AbortController>>(new Map());
 
-  const abort = useCallback(() => {
-    abortRef.current?.abort();
+  /** `sessionId` verilirse yalnız o oturum, verilmezse tüm oturumlar durur. */
+  const abort = useCallback((sessionId?: string) => {
+    if (sessionId != null) {
+      abortRef.current.get(sessionId)?.abort();
+      abortRef.current.delete(sessionId);
+      return;
+    }
+    for (const ctrl of abortRef.current.values()) ctrl.abort();
+    abortRef.current.clear();
   }, []);
 
   const send = useCallback(
@@ -90,13 +101,15 @@ export function useStream() {
     ): Promise<string | null> => {
       const trimmed = text.trim();
       if (!trimmed && (!images || images.length === 0)) return null;
-      if (useSessionStore.getState().isStreaming) return null;
 
       let session = useSessionStore.getState().getActiveSession();
       if (!session) {
         session = useSessionStore.getState().createSession();
       }
       const sessionId = session.id;
+      // Akış kontrolü OTURUM bazlıdır: başka konuşma akıyorsa bu konuşma
+      // yine başlatılabilir.
+      if (useSessionStore.getState().isStreamingFor(sessionId)) return null;
       const store = useSessionStore.getState;
       const settings = useSettingsStore.getState();
 
@@ -186,7 +199,7 @@ export function useStream() {
       const userId = createId();
       const assistantId = createId();
       const now = Date.now();
-      store().setStreaming(true);
+      store().setStreaming(sessionId, true);
       store().addMessage(sessionId, {
         id: userId,
         role: 'user',
@@ -208,7 +221,9 @@ export function useStream() {
       // Gecmis: sondaki bos placeholder haric tutulur (gorseller korunur).
       // Faz 7: compaction hafızası varsa "özet + o özetten sonraki mesajlar" kullanılır
       // (aynı özet her turda yeniden yapılmaz).
-      const sess = store().getActiveSession();
+      // NOT: Aktif oturum değil, GÖNDERİLEN oturum okunur — oturumlar
+      // paralel akarken aktif oturum değişmiş olabilir.
+      const sess = store().sessions.find((s) => s.id === sessionId);
       // Faz 12 B.6: bellekte yoksa oturumdaki kalıcı kopya (restart sonrası).
       const memo = resolveMemo<ChatItem>(sessionId, sess?.compaction);
       const sessionMessages = sess?.messages ?? [];
@@ -268,7 +283,7 @@ export function useStream() {
       }
 
       const ctrl = new AbortController();
-      abortRef.current = ctrl;
+      abortRef.current.set(sessionId, ctrl);
       let usage: UsageLike | null = null;
       // Text/reasoning/tool çağrısı aktıysa retry aynı içeriği ikinci kez yazar.
       let sawOutput = false;
@@ -358,15 +373,15 @@ export function useStream() {
           return null;
         }
         // Bos kalan assistant placeholder gecmisi kirletmesin.
-        const msgs = store().getActiveSession()?.messages ?? [];
+        const msgs = store().sessions.find((s) => s.id === sessionId)?.messages ?? [];
         const last = msgs[msgs.length - 1];
         if (last && last.id === assistantId && isBlankAssistantMessage(last)) {
           store().removeMessage(sessionId, assistantId);
         }
         return formatProviderError(err);
       } finally {
-        store().setStreaming(false);
-        if (abortRef.current === ctrl) abortRef.current = null;
+        store().setStreaming(sessionId, false);
+        if (abortRef.current.get(sessionId) === ctrl) abortRef.current.delete(sessionId);
         try {
           onRetry?.(null);
         } catch {

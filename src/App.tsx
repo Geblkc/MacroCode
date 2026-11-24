@@ -157,14 +157,22 @@ export default function App() {
   const prevSessionIdsRef = useRef<Set<string>>(new Set());
   const { send, abort: abortStream } = useStream();
   const { sendAgent, resolvePending, restorePendingRuns, abort: abortAgent } = useAgent();
+  /**
+   * İptal ACTIVE oturuma yöneliktir: başka bir konuşma akıyorsa bu konuşmanın
+   * durdurulması o akışı kesmemeli.
+   */
   const abort = useCallback(() => {
-    abortStream();
-    abortAgent();
+    const id = useSessionStore.getState().activeSessionId;
+    abortStream(id ?? undefined);
+    abortAgent(id ?? undefined);
   }, [abortStream, abortAgent]);
 
   const activeId = useSessionStore((s) => s.activeSessionId);
   const sessions = useSessionStore((s) => s.sessions);
-  const streaming = useSessionStore((s) => s.isStreaming);
+  /** Akış durumu OTURUM bazlıdır — başka konuşma akıyorsa burası false kalır. */
+  const streaming = useSessionStore((s) =>
+    activeId ? s.streamingSessions[activeId] === true : false,
+  );
   const fontSize = useSettingsStore((s) => s.fontSize);
   const clockFormat = useSettingsStore((s) => s.clockFormat);
   const showTimestamps = useSettingsStore((s) => s.showTimestamps);
