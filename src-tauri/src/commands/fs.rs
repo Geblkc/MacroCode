@@ -807,6 +807,82 @@ pub struct BackupEntry {
     pub timestamp: u64,
 }
 
+/// B1 — güvenli atomik yazma (tek kaynak: `apply_patch`, `undo_patch`,
+/// `snapshots::write_atomic`, `snapshots::write_manifest`).
+///
+/// Eski desen `full.with_extension("tmp-macrocode")` gibi **öngörülebilir** bir
+/// geçici ad kullanıyordu ve `std::fs::write`/`fs::copy` mevcut bir symlink'i
+/// takip ediyordu: saldırgan repo'ya `README.md.tmp-macrocode -> ~/.bashrc`
+/// symlink'i koyduğunda yazma jail dışına çıkıyor, `rename` sonrası hedef dosya
+/// da symlink'e dönüşüyordu (RCE zinciri).
+///
+/// Yeni desen:
+/// - geçici ad **rastgele** (pid + nanos + sayaç) ve hedefle aynı dizinde,
+/// - `create_new` (O_EXCL) → var olan symlink/dosya asla takip edilmez/ezilmez,
+/// - yazma sonrası `rename` (aynı dosya sistemi → atomik),
+/// - hedef zaten symlink ise açıkça reddedilir.
+pub(crate) fn atomic_write_exclusive(dst: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+
+    // Hedef symlink ise `rename` onu ezer ve anlamı bozulur; net hata verelim.
+    if let Ok(md) = std::fs::symlink_metadata(dst) {
+        if md.file_type().is_symlink() {
+            return Err(err("hedef symlink · üzerine yazma reddedildi"));
+        }
+        if md.is_dir() {
+            return Err(err("hedef bir dizin · üzerine yazılamaz"));
+        }
+    }
+
+    let dir = dst.parent().ok_or_else(|| err("hedef dizin yok"))?;
+    let name = dst
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| err("geçersiz hedef dosya adı"))?;
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+
+    // Çakışma olasılığı ihmal edilebilir; yine de birkaç kez yeniden denenir.
+    for _ in 0..8 {
+        let seq = ATOMIC_WRITE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let cand = dir.join(format!(
+            ".{name}.mc-{:x}-{nanos:x}-{seq:x}",
+            std::process::id()
+        ));
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            opts.mode(0o600);
+        }
+        match opts.open(&cand) {
+            Ok(mut f) => {
+                if let Err(e) = f.write_all(bytes).and_then(|_| f.flush()) {
+                    drop(f);
+                    let _ = std::fs::remove_file(&cand);
+                    return Err(err(format!("yazılamadı: {e}")));
+                }
+                drop(f);
+                if let Err(e) = std::fs::rename(&cand, dst) {
+                    let _ = std::fs::remove_file(&cand);
+                    return Err(err(format!("taşınamadı: {e}")));
+                }
+                return Ok(());
+            }
+            // Aynı ad (çok düşük olasılık) veya artık kalmış dosya → yeni ad.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(err(format!("geçici dosya oluşturulamadı: {e}"))),
+        }
+    }
+    Err(err("geçici dosya adı üretilemedi (çakışma)"))
+}
+
+/// `atomic_write_exclusive` için süreç-içi sayaç (ad çakışmasını engeller).
+static ATOMIC_WRITE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 #[tauri::command]
 pub async fn apply_patch(root: String, path: String, content: String) -> Result<(), String> {
     if content.len() as u64 > 1024 * 1024 {
@@ -837,7 +913,11 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
         // oluşmasın.
         let backup_path = resolve_backup_inside(&base, &backup_dir, &backup_file)?;
         let manifest_path = resolve_backup_inside(&base, &backup_dir, "manifest.json")?;
-        std::fs::copy(&full, &backup_path).map_err(|e| err(format!("yedek alınamadı: {e}")))?;
+        // B1: `std::fs::copy` mevcut bir symlink'i takip eder — yedek de
+        // güvenli atomik yazma ile alınır (hedef symlink ise reddedilir).
+        let original = std::fs::read(&full).map_err(|e| err(format!("yedek alınamadı: {e}")))?;
+        atomic_write_exclusive(&backup_path, &original)
+            .map_err(|e| err(format!("yedek alınamadı: {e}")))?;
         let mut entries: Vec<BackupEntry> = if manifest_path.exists() {
             std::fs::read_to_string(&manifest_path)
                 .ok()
@@ -854,13 +934,12 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
             timestamp: ts,
         });
         if let Ok(json_str) = serde_json::to_string_pretty(&entries) {
-            let _ = std::fs::write(&manifest_path, json_str);
+            // B1: manifest de öngörülebilir ad/symlink takibi ile yazılmamalı.
+            let _ = atomic_write_exclusive(&manifest_path, json_str.as_bytes());
         }
     }
-    // Atomic write: tmp + rename.
-    let tmp = full.with_extension("tmp-macrocode");
-    std::fs::write(&tmp, content).map_err(|e| err(format!("yazılamadı: {e}")))?;
-    std::fs::rename(&tmp, &full).map_err(|e| err(format!("taşınamadı: {e}")))?;
+    // B1 — atomik yazma: rastgele ad + O_EXCL, sonra rename.
+    atomic_write_exclusive(&full, content.as_bytes())?;
     Ok(())
 }
 
@@ -907,15 +986,19 @@ pub async fn undo_patch(root: String, backup_id: Option<String>) -> Result<Strin
     }
 
     let target_file_path = resolve_rooted(&root, &entry.rel_path)?;
-    let tmp = target_file_path.with_extension("tmp-restore");
-    std::fs::copy(&backup_file_path, &tmp).map_err(|e| err(format!("geri yüklenemedi: {e}")))?;
-    std::fs::rename(&tmp, &target_file_path)
+    // B1 — geri yükleme de rastgele ad + O_EXCL ile yazılır; eski
+    // `target.with_extension("tmp-restore")` adı öngörülebilirdi.
+    let bytes =
+        std::fs::read(&backup_file_path).map_err(|e| err(format!("geri yüklenemedi: {e}")))?;
+    atomic_write_exclusive(&target_file_path, &bytes)
         .map_err(|e| err(format!("dosya değiştirilemedi: {e}")))?;
     let _ = std::fs::remove_file(&backup_file_path);
 
-    let _ = std::fs::write(
+    let _ = atomic_write_exclusive(
         &manifest_path,
-        serde_json::to_string_pretty(&entries).unwrap_or_default(),
+        serde_json::to_string_pretty(&entries)
+            .unwrap_or_default()
+            .as_bytes(),
     );
 
     Ok(format!("/// geri alındı: {}", entry.rel_path))
@@ -1984,6 +2067,136 @@ mod tests {
         assert!(res.contains("ornek.txt"));
         assert_eq!(std::fs::read_to_string(&dosya).unwrap(), "versiyon 1");
 
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// B1 — `apply_patch` geçici dosyası artık öngörülebilir DEĞİL: saldırgan
+    /// `README.md.tmp-macrocode` adında bir symlink koysa bile dışarıya yazma
+    /// gerçekleşmemeli, hedef dosya symlink'e dönüşmemeli.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn b1_apply_patch_temp_symlink_ile_disariya_yazmaz() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("b1-patch-kok");
+        let dis = benzersiz_tmp("b1-patch-dis");
+        let dis_file = dis.join("kurban.txt");
+        std::fs::write(&dis_file, "DOKUNULMAMALI").unwrap();
+
+        let hedef = kok.join("README.md");
+        std::fs::write(&hedef, "v1").unwrap();
+        // Eski kodun kullandığı öngörülebilir geçici ad → dışarıyı gösteren symlink.
+        symlink(&dis_file, kok.join("README.tmp-macrocode")).unwrap();
+
+        apply_patch(
+            kok.to_str().unwrap().to_string(),
+            "README.md".to_string(),
+            "v2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        // Dışarıdaki dosya değişmemiş olmalı.
+        assert_eq!(
+            std::fs::read_to_string(&dis_file).unwrap(),
+            "DOKUNULMAMALI",
+            "jail dışına yazıldı"
+        );
+        // Hedef normal dosya olarak kalmış olmalı (symlink'e dönüşmemeli).
+        let md = std::fs::symlink_metadata(&hedef).unwrap();
+        assert!(!md.file_type().is_symlink(), "hedef symlink'e dönüştü");
+        assert_eq!(std::fs::read_to_string(&hedef).unwrap(), "v2");
+
+        // Artık geçici dosya kalmamalı (eski symlink hariç).
+        let artan: Vec<String> = std::fs::read_dir(&kok)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".mc-"))
+            .collect();
+        assert!(artan.is_empty(), "geçici dosya artığı: {artan:?}");
+
+        let _ = std::fs::remove_dir_all(&kok);
+        let _ = std::fs::remove_dir_all(&dis);
+    }
+
+    /// B1 — `undo_patch` eski `tmp-restore` adını kullanmıyor; geçici ad
+    /// symlink'i varsa dışarıya yazma olmamalı.
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn b1_undo_patch_temp_symlink_ile_disariya_yazmaz() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("b1-undo-kok");
+        let dis = benzersiz_tmp("b1-undo-dis");
+        let dis_file = dis.join("kurban.txt");
+        std::fs::write(&dis_file, "DOKUNULMAMALI").unwrap();
+
+        let hedef = kok.join("ornek.txt");
+        std::fs::write(&hedef, "v1").unwrap();
+        apply_patch(
+            kok.to_str().unwrap().to_string(),
+            "ornek.txt".to_string(),
+            "v2".to_string(),
+        )
+        .await
+        .unwrap();
+
+        symlink(&dis_file, kok.join("ornek.tmp-restore")).unwrap();
+        undo_patch(kok.to_str().unwrap().to_string(), None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(&dis_file).unwrap(),
+            "DOKUNULMAMALI",
+            "geri alma jail dışına yazdı"
+        );
+        assert_eq!(std::fs::read_to_string(&hedef).unwrap(), "v1");
+
+        let _ = std::fs::remove_dir_all(&kok);
+        let _ = std::fs::remove_dir_all(&dis);
+    }
+
+    /// B1 — hedef dosya symlink ise üzerine yazma reddedilir (rename symlink'i
+    /// ezmeden önce net hata).
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn b1_hedef_symlink_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let kok = benzersiz_tmp("b1-hedef-kok");
+        let dis = benzersiz_tmp("b1-hedef-dis");
+        let dis_file = dis.join("kurban.txt");
+        std::fs::write(&dis_file, "ORIJINAL").unwrap();
+        symlink(&dis_file, kok.join("bag")).unwrap();
+
+        let res = apply_patch(
+            kok.to_str().unwrap().to_string(),
+            "bag".to_string(),
+            "v2".to_string(),
+        )
+        .await;
+        assert!(res.is_err(), "symlink hedefi kabul edilmemeli");
+        assert_eq!(std::fs::read_to_string(&dis_file).unwrap(), "ORIJINAL");
+
+        let _ = std::fs::remove_dir_all(&kok);
+        let _ = std::fs::remove_dir_all(&dis);
+    }
+
+    /// B1 — `atomic_write_exclusive` art arda yazmalarda tek dosya bırakır,
+    /// geçici artık üretmez ve içeriği doğru yazar.
+    #[test]
+    fn b1_atomic_write_exclusive_tekrar_ve_artik() {
+        let kok = benzersiz_tmp("b1-atomic");
+        let hedef = kok.join("veri.txt");
+        for i in 0..50 {
+            atomic_write_exclusive(&hedef, format!("içerik-{i}").as_bytes()).unwrap();
+        }
+        assert_eq!(std::fs::read_to_string(&hedef).unwrap(), "içerik-49");
+        let dosyalar: Vec<String> = std::fs::read_dir(&kok)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(dosyalar, vec!["veri.txt".to_string()], "{dosyalar:?}");
         let _ = std::fs::remove_dir_all(&kok);
     }
 

@@ -19,8 +19,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use super::fs::{
-    canonical_root, is_blocked_dir, is_blocked_ext, is_blocked_file_name, is_env_prefixed,
-    jailed_macrocode_subdir, resolve_rooted,
+    atomic_write_exclusive, canonical_root, is_blocked_dir, is_blocked_ext, is_blocked_file_name,
+    is_env_prefixed, jailed_macrocode_subdir, resolve_rooted,
 };
 
 const SNAPSHOTS_SUBDIR: &str = "snapshots";
@@ -239,11 +239,11 @@ fn write_manifest(snap_dir: &Path, base: &Path, list: &[SnapshotInfo]) -> Result
         return Err(err("snapshot dizini workspace dışında (symlink?)"));
     }
     let target = canon_dir.join(MANIFEST_FILE);
-    let tmp = canon_dir.join(format!("manifest.tmp-{}", new_id()));
     let json =
         serde_json::to_string_pretty(list).map_err(|e| err(format!("manifest yazılamadı: {e}")))?;
-    fs::write(&tmp, json).map_err(|e| err(format!("manifest yazılamadı: {e}")))?;
-    fs::rename(&tmp, &target).map_err(|e| err(format!("manifest taşınamadı: {e}")))?;
+    // B1: manifest de rastgele ad + O_EXCL ile yazılır (symlink takibi yok).
+    atomic_write_exclusive(&target, json.as_bytes())
+        .map_err(|e| err(format!("manifest yazılamadı: {e}")))?;
     Ok(())
 }
 
@@ -303,7 +303,11 @@ fn build_snapshot(
         }
         for f in &files {
             let target = inside(&dest_canon, &f.rel)?;
-            fs::copy(&f.full, &target)
+            // B1: `fs::copy` symlink'i takip ederdi; snapshot dizinindeki
+            // önceden kurulmuş bir symlink hedefi dışarıya yazdırabilirdi.
+            let bytes =
+                fs::read(&f.full).map_err(|e| err(format!("dosya okunamadı ({}): {e}", f.rel)))?;
+            atomic_write_exclusive(&target, &bytes)
                 .map_err(|e| err(format!("dosya kopyalanamadı ({}): {e}", f.rel)))?;
         }
         Ok(())
@@ -318,15 +322,11 @@ fn build_snapshot(
     Ok(info)
 }
 
+/// B1 — geri yükleme yazımı: tek kaynak `fs::atomic_write_exclusive`
+/// (rastgele ad + O_EXCL + rename). Eski `{name}.tmp-snap-{id}` adı
+/// öngörülebilirdi ve `fs::write` mevcut symlink'i takip ederdi.
 fn write_atomic(dst: &Path, bytes: &[u8]) -> Result<(), String> {
-    let name = dst
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| err("geçersiz hedef dosya adı"))?;
-    let tmp = dst.with_file_name(format!("{name}.tmp-snap-{}", new_id()));
-    fs::write(&tmp, bytes).map_err(|e| err(format!("geri yükleme yazılamadı: {e}")))?;
-    fs::rename(&tmp, dst).map_err(|e| err(format!("geri yükleme taşınamadı: {e}")))?;
-    Ok(())
+    atomic_write_exclusive(dst, bytes).map_err(|e| format!("geri yükleme yazılamadı: {e}"))
 }
 
 /// Yeni anlık görüntü oluşturur.
@@ -615,5 +615,41 @@ mod tests {
         let err = find_snapshot_index(&manifest, "snap-1234").unwrap_err();
         assert!(err.contains("birden fazla"));
         assert!(find_snapshot_index(&manifest, "yok").is_err());
+    }
+
+    /// B1 — `write_atomic` öngörülebilir `.tmp-snap-*` adı kullanmaz ve
+    /// mevcut bir symlink'i takip etmez: dışarıdaki hedef dokunulmadan kalır,
+    /// hedef dosya symlink'e dönüşmez.
+    #[test]
+    #[cfg(unix)]
+    fn b1_write_atomic_symlink_takip_etmez() {
+        use std::os::unix::fs::symlink;
+        let kok = tmp_root("b1-write-atomic");
+        let dis = tmp_root("b1-write-atomic-dis");
+        let dis_file = dis.join("kurban.txt");
+        fs::write(&dis_file, "DOKUNULMAMALI").unwrap();
+
+        let hedef = kok.join("a.ts");
+        fs::write(&hedef, "eski").unwrap();
+        // Eski kodun öngörülebilir geçici adı → dışarıyı gösteren symlink.
+        symlink(&dis_file, kok.join("a.tmp-snap-1")).unwrap();
+
+        write_atomic(&hedef, b"yeni").unwrap();
+        assert_eq!(fs::read_to_string(&dis_file).unwrap(), "DOKUNULMAMALI");
+        let md = fs::symlink_metadata(&hedef).unwrap();
+        assert!(!md.file_type().is_symlink(), "hedef symlink'e dönüştü");
+        assert_eq!(fs::read_to_string(&hedef).unwrap(), "yeni");
+
+        // Geçici artık (`.mc-`) kalmamalı.
+        let artik: Vec<String> = fs::read_dir(&kok)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains(".mc-"))
+            .collect();
+        assert!(artik.is_empty(), "geçici dosya artığı: {artik:?}");
+
+        let _ = fs::remove_dir_all(&kok);
+        let _ = fs::remove_dir_all(&dis);
     }
 }

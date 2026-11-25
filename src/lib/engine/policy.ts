@@ -93,6 +93,9 @@ export const FILE_ARG_CMDS: ReadonlySet<string> = new Set([
   'touch',
   'mkdir',
   'prettier',
+  // B2: allowlist'te serbest argümanlı olup dosya yolu alan komutlar.
+  'eslint',
+  'tsc',
 ]);
 
 /**

@@ -35,8 +35,8 @@ const ALLOWLIST_JSON: &str = include_str!("../../../src/lib/engine/allowlist.jso
 /// `cat /etc/passwd`, `find /`, `cat .env` bu kapıdan geçemez (read_file'daki
 /// koruma exec ile delinemez). Diğer komutlarda argüman jail'i yok — allowlist
 /// "hangi komut"u kısıtlar (bilinçli tasarım; bkz. `_note`).
-const FILE_ARG_CMDS: [&str; 10] = [
-    "cat", "head", "tail", "wc", "find", "rg", "ls", "touch", "mkdir", "prettier",
+const FILE_ARG_CMDS: [&str; 12] = [
+    "cat", "head", "tail", "wc", "find", "rg", "ls", "touch", "mkdir", "prettier", "eslint", "tsc",
 ];
 
 /// Dosya argümanı jail'i: mutlak yol, `..`, bloklu dosya/dizin reddi.
@@ -889,8 +889,49 @@ fn guard_file_args(
             continue;
         }
         let joined = resolve_dir.join(&v);
-        let Ok(canon) = joined.canonicalize() else {
-            continue; // yok — string jail zaten desen/missing yoluna izin verir
+        // B2 — eskiden `let Ok(canon) = joined.canonicalize() else { continue }`
+        // idi: HENÜZ OLMAYAN hedef (touch/mkdir/yeni dosya) hiç denetlenmeden
+        // geçiyordu. `touch kacis/yeni.txt` (kacis → dışarıyı gösteren dizin
+        // symlink'i) jail dışına yazabiliyordu. Artık var olmayan hedefte de
+        // parent canonicalize edilip jail + blok listesi denetlenir.
+        let canon = match joined.canonicalize() {
+            Ok(c) => c,
+            Err(_) => {
+                let parent = joined
+                    .parent()
+                    .ok_or_else(|| err(format!("geçersiz argüman yolu: {a}")))?;
+                // Parent da yoksa en yakın var olan atasına kadar çık (mkdir -p).
+                let mut anc = parent;
+                let canon_anc = loop {
+                    match anc.canonicalize() {
+                        Ok(c) => break c,
+                        Err(_) => {
+                            anc = anc.parent().ok_or_else(|| {
+                                err(format!("argüman yolu çözümlenemedi (jail): {a}"))
+                            })?;
+                        }
+                    }
+                };
+                if !canon_anc.starts_with(jail_base) {
+                    return Err(err(format!(
+                        "argüman workspace dışına çıkıyor (symlink?): {a}"
+                    )));
+                }
+                let rest = parent.strip_prefix(anc).unwrap_or_else(|_| Path::new(""));
+                let file_name = joined
+                    .file_name()
+                    .ok_or_else(|| err(format!("geçersiz dosya adı: {a}")))?;
+                let mut out = canon_anc;
+                for seg in rest.components() {
+                    // Savunma: çözümlenmemiş kuyrukta `..` olamaz (check_file_arg
+                    // zaten reddeder, burası ikinci kapı).
+                    if matches!(seg, std::path::Component::ParentDir) {
+                        return Err(err(format!("argüman jail dışı (../): {a}")));
+                    }
+                    out.push(seg.as_os_str());
+                }
+                out.join(file_name)
+            }
         };
         if !canon.starts_with(jail_base) {
             return Err(err(format!(
@@ -898,6 +939,8 @@ fn guard_file_args(
             )));
         }
         // Çözülen gerçek yoldaki dosya/dizin adları da blok listesinden geçmeli.
+        // B2: `strip_prefix` başarısızsa (jail dışı) `unwrap_or(&canon)` tüm
+        // MUTLAK yolu tarardı; artık yukarıdaki jail kontrolü bunu zaten eler.
         let rel = canon.strip_prefix(jail_base).unwrap_or(&canon);
         for comp in rel.components() {
             let name = comp.as_os_str().to_string_lossy();
@@ -2724,6 +2767,81 @@ mod tests {
         // Desen (var olmayan yol): canonicalize başarısız → jail'e takılmaz.
         let r5 = super::guard_file_args(&ws, &ws, "find", &args(&[".", "-name", "*.ts"]));
         assert!(r5.is_ok());
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// B2 — HENÜZ OLMAYAN hedef de jail'den geçer: `kacis` dışarıyı gösteren
+    /// bir dizin symlink'i ise `touch kacis/yeni.txt` / `mkdir kacis/alt`
+    /// reddedilir (eskiden `canonicalize` hatası `continue` ile atlanıyordu).
+    #[cfg(unix)]
+    #[test]
+    fn b2_var_olmayan_hedef_parent_jail_uygulanir() {
+        use std::os::unix::fs::symlink;
+        let kok = std::env::temp_dir().join(format!("mcode-b2-missing-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&kok);
+        std::fs::create_dir_all(kok.join("ws")).unwrap();
+        std::fs::create_dir_all(kok.join("dis")).unwrap();
+        symlink(kok.join("dis"), kok.join("ws/kacis")).unwrap();
+
+        let ws = kok.join("ws");
+        // Var olmayan hedef + dışarıyı gösteren parent → reddedilir.
+        let r1 = super::guard_file_args(&ws, &ws, "touch", &args(&["kacis/yeni.txt"]));
+        assert!(r1.is_err(), "symlink parent üzerinden yazma engellenmeli");
+        let r2 = super::guard_file_args(&ws, &ws, "mkdir", &args(&["kacis/alt"]));
+        assert!(r2.is_err(), "mkdir da jail'i geçemez");
+
+        // Bloklu ad var olmayan hedefte de düşer.
+        let r3 = super::guard_file_args(&ws, &ws, "touch", &args(&[".env"]));
+        assert!(r3.is_err());
+
+        // Zincir: henüz var olmayan ara dizinler meşru akışta geçer.
+        let r4 = super::guard_file_args(&ws, &ws, "mkdir", &args(&["yeni/alt/dizin"]));
+        assert!(r4.is_ok(), "meşru mkdir -p engellenmemeli: {r4:?}");
+
+        // Var olan normal hedef de geçer.
+        std::fs::write(ws.join("ok.txt"), b"x").unwrap();
+        assert!(super::guard_file_args(&ws, &ws, "touch", &args(&["ok.txt"])).is_ok());
+
+        let _ = std::fs::remove_dir_all(&kok);
+    }
+
+    /// B2 — `eslint` / `tsc` allowlist'te serbest argümanlıydı ve dosya
+    /// argümanı jail'i hiç uygulanmıyordu; artık `FILE_ARG_CMDS` içindeler.
+    #[test]
+    fn b2_eslint_ve_tsc_dosya_argumani_jailine_tabi() {
+        assert!(FILE_ARG_CMDS.contains(&"eslint"));
+        assert!(FILE_ARG_CMDS.contains(&"tsc"));
+
+        // Mutlak yol / `..` / bloklu dosya reddedilir (hem string hem canonical).
+        assert!(check_cmd2("eslint", &args(&["/etc/passwd"])).is_err());
+        assert!(check_cmd2("eslint", &args(&["../dis/x.js"])).is_err());
+        assert!(check_cmd2("eslint", &args(&[".env"])).is_err());
+        assert!(check_cmd2("tsc", &args(&["/tmp/x.ts"])).is_err());
+        assert!(check_cmd2("tsc", &args(&["../../kacis.ts"])).is_err());
+
+        // Meşru kullanım bozulmaz.
+        assert!(check_cmd2("eslint", &args(&["src/**/*.ts"])).is_ok());
+        assert!(check_cmd2("tsc", &args(&["--noEmit"])).is_ok());
+        assert!(check_cmd2("eslint", &args(&["--fix", "src/a.ts"])).is_ok());
+    }
+
+    /// B2 — raporun açık testi: `prettier --write link` (link → dışarı symlink)
+    /// canonical jail tarafından reddedilir.
+    #[cfg(unix)]
+    #[test]
+    fn b2_prettier_write_symlink_reddedilir() {
+        use std::os::unix::fs::symlink;
+        let kok = std::env::temp_dir().join(format!("mcode-b2-prettier-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&kok);
+        std::fs::create_dir_all(kok.join("ws")).unwrap();
+        std::fs::create_dir_all(kok.join("dis")).unwrap();
+        std::fs::write(kok.join("dis/x.ts"), b"x").unwrap();
+        symlink(kok.join("dis/x.ts"), kok.join("ws/link.ts")).unwrap();
+
+        let ws = kok.join("ws");
+        let r = super::guard_file_args(&ws, &ws, "prettier", &args(&["--write", "link.ts"]));
+        assert!(r.is_err(), "symlink hedefi reddedilmeli: {r:?}");
 
         let _ = std::fs::remove_dir_all(&kok);
     }

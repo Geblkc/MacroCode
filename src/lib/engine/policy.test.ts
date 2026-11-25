@@ -4,6 +4,7 @@ import {
   decideTool,
   execApprovalWarning,
   execFileArgViolation,
+  FILE_ARG_CMDS,
   gitPathArgs,
   isBlockedFile,
   isExecAllowed,
@@ -351,6 +352,38 @@ describe('Faz C — policy', () => {
     expect(jail('npm', ['test'])).toBe(true);
   });
 
+  it('B2: eslint/tsc de dosya argümanı jailine tabi (Rust FILE_ARG_CMDS senkron)', () => {
+    const jail = (cmd: string, a: string[]) =>
+      decideTool('exec', { cmd, args: a }, 'manual').allowed;
+    // Rust `FILE_ARG_CMDS` ile birebir aynı olmalı.
+    expect([...FILE_ARG_CMDS].sort()).toEqual(
+      [
+        'cat',
+        'eslint',
+        'find',
+        'head',
+        'ls',
+        'mkdir',
+        'prettier',
+        'rg',
+        'tail',
+        'touch',
+        'tsc',
+        'wc',
+      ].sort(),
+    );
+    // Mutlak yol / ../ / bloklu dosya reddedilir.
+    expect(jail('eslint', ['/etc/passwd'])).toBe(false);
+    expect(jail('eslint', ['../dis/x.js'])).toBe(false);
+    expect(jail('eslint', ['.env'])).toBe(false);
+    expect(jail('eslint', ['.git/config'])).toBe(false);
+    expect(jail('tsc', ['/tmp/x.ts'])).toBe(false);
+    expect(jail('tsc', ['../../kacis.ts'])).toBe(false);
+    // Meşru kullanım bozulmaz.
+    expect(jail('eslint', ['src/**/*.ts'])).toBe(true);
+    expect(jail('eslint', ['--fix', 'src/a.ts'])).toBe(true);
+    expect(jail('tsc', ['--noEmit'])).toBe(true);
+  });
   it('O1 (Faz 4): onay uyarısı — yapı gereği kod çalıştıran komutlar', () => {
     expect(execApprovalWarning('npm', ['run', 'build'])).toMatch(/package\.json/);
     expect(execApprovalWarning('npm', ['test'])).toMatch(/package\.json/);

@@ -63,6 +63,45 @@ const MAX_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
 /// İstek zaman aşımı (saniye).
 const REQUEST_TIMEOUT_SECS: u64 = 120;
 
+/// B3 — IPv6 içine **gömülü IPv4**'ü çıkarır (varsa). Üç biçim kapatılır:
+/// - IPv4-mapped `::ffff:a.b.c.d`
+/// - NAT64 well-known `64:ff9b::/96`
+/// - 6to4 `2002:<v4hi>:<v4lo>::/48`
+///
+/// `Ipv6Addr::to_ipv4()` sürüm bağımlı/deprecated olduğu için segment
+/// aritmetiği elle yapılır.
+fn embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<std::net::Ipv4Addr> {
+    let s = v6.segments();
+    // ::ffff:0:0/96 — IPv4-mapped.
+    if s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0xffff {
+        return Some(std::net::Ipv4Addr::from([
+            (s[6] >> 8) as u8,
+            (s[6] & 0xff) as u8,
+            (s[7] >> 8) as u8,
+            (s[7] & 0xff) as u8,
+        ]));
+    }
+    // 64:ff9b::/96 — NAT64 well-known prefix.
+    if s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0 {
+        return Some(std::net::Ipv4Addr::from([
+            (s[6] >> 8) as u8,
+            (s[6] & 0xff) as u8,
+            (s[7] >> 8) as u8,
+            (s[7] & 0xff) as u8,
+        ]));
+    }
+    // 2002::/16 — 6to4; gömülü v4 ilk iki segmentten sonra.
+    if s[0] == 0x2002 {
+        return Some(std::net::Ipv4Addr::from([
+            (s[1] >> 8) as u8,
+            (s[1] & 0xff) as u8,
+            (s[2] >> 8) as u8,
+            (s[2] & 0xff) as u8,
+        ]));
+    }
+    None
+}
+
 /// Link-local / metadata / belirsiz adresler engellenir.
 /// (LAN'daki Ollama: 192.168.x, 10.x **serbesttir** — meşru kullanım.)
 fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
@@ -74,10 +113,35 @@ fn is_blocked_ip(ip: std::net::IpAddr) -> bool {
                 || o[0] == 0            // 0.0.0.0/8
                 || (o[0] == 100 && (o[1] & 0xC0) == 64) // 100.64.0.0/10 (CGNAT)
         }
+        // B3 — eski kod yalnız `fe80::/10` bakıyordu; `::ffff:169.254.169.254`
+        // (IPv4-mapped), ULA `fc00::/7`, site-local `fec0::/10`, multicast
+        // `ff00::/8`, NAT64 ve 6to4 gömülü v4'leri GEÇİYORDU.
         std::net::IpAddr::V6(v6) => {
-            v6.is_unspecified() || (v6.segments()[0] & 0xfe00) == 0xfe00 // fe80::/10
+            let s = v6.segments();
+            // Önce gömülü IPv4 varsa onun kurallarına devret (mapped/NAT64/6to4).
+            if let Some(v4) = embedded_ipv4(&v6) {
+                return is_blocked_ip(std::net::IpAddr::V4(v4));
+            }
+            v6.is_unspecified()                        // ::
+                // `::1` loopback bilinçli olarak SERBEST (V4'te 127.0.0.1 gibi):
+                // yerel Ollama/yerel uç meşru kullanım. Tutarlılık için engellenmez.
+                || (s[0] & 0xfe00) == 0xfe00           // fe80::/10 link-local
+                || (s[0] & 0xfe00) == 0xfc00           // fc00::/7 unique-local (fc00..fdff)
+                || (s[0] & 0xffc0) == 0xfec0           // fec0::/10 site-local
+                || (s[0] & 0xff00) == 0xff00 // ff00::/8 multicast
         }
     }
+}
+
+/// B3 — `host_str()` IPv6 literallerini köşeli parantezle döndürür
+/// (`"[fe80::1]"`), bu yüzden düz `parse::<IpAddr>()` başarısız oluyordu ve
+/// `check_host_not_metadata` sessizce `Ok(())`'ye düşüyordu (asıl bypass).
+fn parse_ip_literal(host: &str) -> Option<std::net::IpAddr> {
+    host.trim()
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse()
+        .ok()
 }
 
 /// Sadece http/https — `file:`/`data:` gibi şemalar reddedilir.
@@ -99,8 +163,10 @@ async fn check_host_not_metadata(url: &reqwest::Url) -> Result<(), String> {
     let Some(host) = url.host_str() else {
         return Err("gecersiz url: host yok".to_string());
     };
-    // Doğrudan IP adresi → hızlı kontrol.
-    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+    // Doğrudan IP adresi → hızlı kontrol. B3: köşeli parantezli IPv6
+    // (`[::ffff:169.254.169.254]`) `parse::<IpAddr>()` ile ayrıştırılamadığı
+    // için bu kontrol sessizce atlanıyordu; `parse_ip_literal` bunu kapatır.
+    if let Some(ip) = parse_ip_literal(host) {
         if is_blocked_ip(ip) {
             return Err("yasakli hedef: link-local/metadata adresi".to_string());
         }
@@ -134,12 +200,9 @@ fn check_redirect_target(url: &reqwest::Url) -> Result<(), String> {
     if !url.username().is_empty() || url.password().is_some() {
         return Err("gecersiz yonlendirme: kimlik bilgisi iceriyor".to_string());
     }
-    if let Some(ip) = url.host_str().and_then(|h| {
-        h.trim_start_matches('[')
-            .trim_end_matches(']')
-            .parse::<std::net::IpAddr>()
-            .ok()
-    }) {
+    // B3: ayrıştırma tek kaynaktan (`parse_ip_literal`) — köşeli parantez
+    // elle soyulmuyor, mapped/ULA/NAT64/6to4 da `is_blocked_ip` içinde düşüyor.
+    if let Some(ip) = url.host_str().and_then(parse_ip_literal) {
         if is_blocked_ip(ip) {
             return Err("yasakli yonlendirme: link-local/metadata adresi".to_string());
         }
@@ -347,6 +410,104 @@ mod tests {
         assert!(check_redirect_target(&cred).is_err());
         let ftp = reqwest::Url::parse("ftp://ornek.com/x").unwrap();
         assert!(check_redirect_target(&ftp).is_err());
+    }
+
+    /// B3 — IPv6 gömülü/özel aralıklar: eski kod yalnız `fe80::/10` bakıyordu,
+    /// dolayısıyla metadata adresi IPv4-mapped biçimde geçiyordu.
+    #[test]
+    fn b3_gomulu_ve_ozel_ipv6_araliklari_engellenir() {
+        let blocked = [
+            "::ffff:169.254.169.254", // IPv4-mapped metadata
+            "::ffff:127.0.0.1",       // mapped loopback → v4 kuralları (serbest!)
+            "::ffff:100.64.0.1",      // mapped CGNAT
+            "fc00::1",                // ULA
+            "fd12:3456::1",           // ULA
+            "fec0::1",                // site-local
+            "ff02::1",                // multicast
+            "fe80::1",                // link-local
+            "64:ff9b::a9fe:a9fe",     // NAT64 → 169.254.169.254
+            "2002:a9fe:a9fe::1",      // 6to4  → 169.254.169.254
+            "::",                     // unspecified
+        ];
+        for s in blocked {
+            let ip: std::net::IpAddr = s.parse().unwrap();
+            let expect_blocked = s != "::ffff:127.0.0.1"; // mapped loopback v4'te serbest
+            assert_eq!(is_blocked_ip(ip), expect_blocked, "{s}");
+        }
+
+        // Meşru hedefler engellenmemeli (LAN Ollama + genel IPv6).
+        let allowed = [
+            "192.168.1.5",
+            "10.0.0.7",
+            "127.0.0.1",
+            "::1",
+            "2606:4700:4700::1111", // Cloudflare
+            "2001:db8::1",          // dokümantasyon aralığı (engellenmez)
+        ];
+        for s in allowed {
+            let ip: std::net::IpAddr = s.parse().unwrap();
+            assert!(!is_blocked_ip(ip), "{s} serbest kalmalı");
+        }
+    }
+
+    /// B3 — gömülü IPv4 çıkarımı üç biçim için doğru çalışır.
+    #[test]
+    fn b3_embedded_ipv4_cikarimi() {
+        let cases = [
+            ("::ffff:169.254.169.254", "169.254.169.254"),
+            ("64:ff9b::c0a8:105", "192.168.1.5"),
+            ("2002:c0a8:105::1", "192.168.1.5"),
+        ];
+        for (v6, v4) in cases {
+            let a: std::net::Ipv6Addr = v6.parse().unwrap();
+            assert_eq!(
+                embedded_ipv4(&a).map(|x| x.to_string()).as_deref(),
+                Some(v4),
+                "{v6}"
+            );
+        }
+        let plain: std::net::Ipv6Addr = "2606:4700::1111".parse().unwrap();
+        assert_eq!(embedded_ipv4(&plain), None);
+    }
+
+    /// B3 — asıl bypass: köşeli parantezli IPv6 literali `parse::<IpAddr>()` ile
+    /// ayrıştırılamadığı için `check_host_not_metadata` sessizce `Ok(())`
+    /// dönüyordu. `[::ffff:169.254.169.254]` artık reddedilir.
+    #[tokio::test]
+    async fn b3_koseli_parantezli_ipv6_metadata_reddedilir() {
+        for u in [
+            "http://[::ffff:169.254.169.254]/latest/meta-data/",
+            "http://[64:ff9b::a9fe:a9fe]/latest/meta-data/",
+            "http://[2002:a9fe:a9fe::1]/latest/meta-data/",
+            "http://[fd00::1]/x",
+            "http://[fec0::1]/x",
+        ] {
+            let url = reqwest::Url::parse(u).unwrap();
+            assert!(
+                check_host_not_metadata(&url).await.is_err(),
+                "{u} reddedilmeli"
+            );
+            assert!(
+                check_redirect_target(&url).is_err(),
+                "{u} yonlendirmede de reddedilmeli"
+            );
+        }
+        // Meşru IPv6 hedef (LAN/yerel) geçer.
+        for u in ["http://[::1]:11434/api/chat", "http://[2606:4700::1111]/"] {
+            let url = reqwest::Url::parse(u).unwrap();
+            assert!(check_host_not_metadata(&url).await.is_ok(), "{u} serbest");
+            assert!(check_redirect_target(&url).is_ok(), "{u} serbest");
+        }
+    }
+
+    #[test]
+    fn parse_ip_literal_koseli_parantez_soyar() {
+        assert!(parse_ip_literal("[fe80::1]").is_some());
+        assert!(parse_ip_literal("fe80::1").is_some());
+        assert!(parse_ip_literal("[::1]").is_some());
+        assert!(parse_ip_literal("169.254.169.254").is_some());
+        assert!(parse_ip_literal("ornek.com").is_none());
+        assert!(parse_ip_literal("").is_none());
     }
 
     #[test]
