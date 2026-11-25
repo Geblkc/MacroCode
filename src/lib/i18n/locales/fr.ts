@@ -654,6 +654,7 @@ export const fr: Record<TranslationKey, Message> = {
     '  /note <note>   ajoute une note de projet persistante (mémorisée ensuite)',
   'commands.help.log': '  /log [n]        derniers journaux d’événements (n = 30 par défaut)',
   'commands.help.audit': '  /audit [n]     affiche le journal d’audit (20 par défaut)',
+  'commands.help.perf': '  /perf [on|off|reset] rapport de performance (activer la mesure)',
   // Descriptions courtes du menu de suggestions slash (source unique : lib/commands.ts COMMAND_SPECS).
   'commands.desc.help': 'lister toutes les commandes',
   'commands.desc.clear': 'effacer la sortie du terminal',
@@ -706,6 +707,11 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.desc.note': 'note de projet persistante',
   'commands.desc.log': 'derniers journaux d’événements',
   'commands.desc.audit': 'afficher le journal d’audit',
+  'commands.desc.perf': 'mesure de performance / rapport',
+  'commands.perfEnabled': '/// mesure perf activée',
+  'commands.perfDisabled': '/// mesure perf désactivée',
+  'commands.perfReset': '/// compteurs perf réinitialisés',
+  'commands.perfOff': 'désactivé',
   'commands.help.copy':
     '  /copy [md|json] copier la session dans le presse-papiers (md par défaut)',
   'commands.desc.copy': 'copier la session dans le presse-papiers',

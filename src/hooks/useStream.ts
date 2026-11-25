@@ -24,6 +24,7 @@ import { logError, logInfo } from '../lib/logger';
 import { promptCacheKey } from '../lib/providers/promptCache';
 import { useT } from '../lib/i18n';
 import type { UsageLike } from '../lib/engine/types';
+import { createDeltaBatcher } from '../lib/deltaBatch';
 
 export { providerNeedsKey };
 
@@ -289,6 +290,11 @@ export function useStream() {
       let sawOutput = false;
       // Retry satırı, yeniden bağlanılan akıştan ilk veri gelince kaldırılır.
       let pendingRetry = false;
+      // Faz 1: token başına store yazımı yerine 40 ms'lik pencerede birleştir.
+      const batcher = createDeltaBatcher((text, reasoning) => {
+        if (text) store().updateLastMessage(sessionId, text);
+        if (reasoning) store().appendReasoning(sessionId, assistantId, reasoning);
+      });
       const onChunk = (chunk: StreamChunk) => {
         if (pendingRetry) {
           pendingRetry = false;
@@ -304,12 +310,12 @@ export function useStream() {
         }
         if (chunk.text) {
           sawOutput = true;
-          store().updateLastMessage(sessionId, chunk.text);
+          batcher.pushText(chunk.text);
         }
         // Faz 4: reasoning dim blokta birikir (kalıcı mesaj alanında).
         if (chunk.reasoning) {
           sawOutput = true;
-          store().appendReasoning(sessionId, assistantId, chunk.reasoning);
+          batcher.pushReasoning(chunk.reasoning);
         }
         if (chunk.toolCalls && chunk.toolCalls.length > 0) sawOutput = true;
       };
@@ -343,6 +349,8 @@ export function useStream() {
           });
         }
         const doneUsage = currentUsage();
+        // Kuyruktaki son deltalar kullanım yazımından önce kalıcı olsun.
+        batcher.flush();
         if (doneUsage) {
           store().setMessageUsage(sessionId, assistantId, doneUsage);
           store().setMessageLastRequest(sessionId, assistantId, {
@@ -353,6 +361,9 @@ export function useStream() {
         logInfo('stream.done', { provider: providerName, model, usage: doneUsage });
         return null;
       } catch (err) {
+        // Hata/iptal yolunda da bekleyen metin kaybolmasın (boş placeholder
+        // denetiminden ÖNCE yazılmalı).
+        batcher.flush();
         logError('stream.error', {
           provider: providerName,
           model,
@@ -380,6 +391,7 @@ export function useStream() {
         }
         return formatProviderError(err);
       } finally {
+        batcher.flush();
         store().setStreaming(sessionId, false);
         if (abortRef.current.get(sessionId) === ctrl) abortRef.current.delete(sessionId);
         try {

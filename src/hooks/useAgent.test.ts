@@ -63,6 +63,7 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
     h({ k: 'tool_call', call: { id: 'c1', name: 'read_file', args: { path: 'a.ts' } } });
     h({ k: 'tool_result', id: 'c1', ok: true, output: 'içerik' });
     h({ k: 'text', delta: 'nihai cevap' });
+    h.flush();
 
     const all = msgs();
     expect(all.map((m) => m.role)).toEqual(['user', 'assistant', 'system', 'assistant']);
@@ -79,6 +80,7 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
     h({ k: 'tool_call', call: { id: 'c1', name: 'read_file', args: { path: 'a.ts' } } });
     h({ k: 'tool_result', id: 'c1', ok: true, output: 'içerik' });
     h({ k: 'text', delta: 'nihai cevap' });
+    h.flush();
 
     const history = buildAgentHistory(msgs(), 'unused');
     expect(toProviderMessages(history).map((m) => m.role)).toEqual([
@@ -93,6 +95,7 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
     const h = handler();
     h({ k: 'text', delta: 'merhaba ' });
     h({ k: 'text', delta: 'dünya' });
+    h.flush();
 
     expect(msgs()).toHaveLength(2);
     expect(msgs()[1].content).toBe('merhaba dünya');
@@ -107,6 +110,7 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
     h({ k: 'tool_call', call: { id: 'c2', name: 'read_file', args: { path: 'b.ts' } } });
     h({ k: 'tool_result', id: 'c2', ok: true, output: 'B' });
     h({ k: 'text', delta: 'iki' });
+    h.flush();
 
     const all = msgs();
     expect(all.map((m) => m.role)).toEqual([
@@ -130,6 +134,7 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
     h({ k: 'text', delta: 'yanıt' });
     h({ k: 'tool_call', call: { id: 'c1', name: 'read_file', args: { path: 'a.ts' } } });
     h({ k: 'tool_result', id: 'c1', ok: true, output: 'A' });
+    h.flush();
 
     expect(patches.map((p) => p.phase)).toEqual(['thinking', 'writing', 'tool', 'finalizing']);
     expect(patches[2].tool).toEqual({

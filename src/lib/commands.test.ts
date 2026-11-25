@@ -215,6 +215,14 @@ describe('B — slash komutları', () => {
     expect(out[0].messages).toHaveLength(1);
   });
 
+  it('backup roundtrip: arşiv durumu (deletedAt) korunur', () => {
+    const s = sampleSession({ deletedAt: 1234 });
+    const out = parseSessionBackup(buildSessionBackup(s));
+    expect(out[0].deletedAt).toBe(1234);
+    // Eski yedeklerde alan yoksa undefined kalır (arşiv değil).
+    expect(parseSessionBackup(buildSessionBackup(sampleSession()))[0].deletedAt).toBeUndefined();
+  });
+
   it('L6/L7: export JSON ve Markdown bilinen anahtar kalıplarını redakte eder', () => {
     const s = sampleSession({
       messages: [

@@ -34,6 +34,7 @@ import { appendMemory, buildRepoContext, clearRepoContextCache } from './lib/eng
 import { checkRootExists, pickWorkspaceFolder, validateRootInput } from './lib/workspace';
 import { isTauri } from './lib/tauri';
 import { recentLogs } from './lib/logger';
+import { perfDisable, perfEnable, perfMark, perfReportLines, perfReset } from './lib/perf';
 import { compactSessionMessages, shouldCompact } from './lib/engine/compact';
 import { makeSummarizeFn, summarizerConfig } from './lib/summarize';
 import {
@@ -742,6 +743,29 @@ export default function App() {
           type: ok ? 'sys' : 'err',
           content: ok ? t('commands.copyDone') : t('commands.copyFailed'),
         });
+        return;
+      }
+      if (low === '/perf' || low.startsWith('/perf ')) {
+        // Faz 0: baseline ölçüm raporu. `on` bayrağı kalıcı yazar.
+        const action = trimmed.slice(5).trim().toLowerCase();
+        if (action === 'on') {
+          perfEnable();
+          pushExtra(sessionId, { type: 'sys', content: t('commands.perfEnabled') });
+          return;
+        }
+        if (action === 'off') {
+          perfDisable();
+          pushExtra(sessionId, { type: 'sys', content: t('commands.perfDisabled') });
+          return;
+        }
+        if (action === 'reset') {
+          perfReset();
+          pushExtra(sessionId, { type: 'sys', content: t('commands.perfReset') });
+          return;
+        }
+        for (const line of perfReportLines(t('commands.perfOff'))) {
+          pushExtra(sessionId, { type: 'sys', content: line });
+        }
         return;
       }
       if (low === '/log' || low.startsWith('/log ')) {
@@ -1602,6 +1626,11 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty('--font-size', `${fontSize}px`);
   }, [fontSize]);
+
+  // Faz 0: ilk React mount zamanı (açılış ölçümü) — yalnız bir kez.
+  useEffect(() => {
+    perfMark('app:mounted');
+  }, []);
 
   // Dil ayarı -> modül geneli locale + <html lang> (React dışı çağıranlar için).
   useEffect(() => {

@@ -35,6 +35,7 @@ import { isBlankAssistantMessage } from '../lib/message';
 import { getModePrompt } from '../lib/engine/agentModes';
 import { previewArgs, toolTarget } from '../lib/engine/toolPreview';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
+import { createDeltaBatcher } from '../lib/deltaBatch';
 
 export interface AgentToolLine {
   type: 'sys' | 'err' | 'warn';
@@ -51,6 +52,25 @@ interface ActiveAgentRun {
 }
 
 const activeRuns = new Map<string, ActiveAgentRun>();
+
+/**
+ * Faz 1: oturum başına aktif delta tamponunun flush kancası. `resolvePending`
+ * gibi handler referansına sahip olmayan yollar, tur sonu temizliğinden önce
+ * bekleyen metni yazabilsin diye tutulur.
+ */
+const runHandlerFlush = new Map<string, { handler: RunEventHandler; flush: () => void }>();
+
+function registerRunHandler(sessionId: string, handler: RunEventHandler): void {
+  runHandlerFlush.set(sessionId, { handler, flush: handler.flush });
+}
+
+function flushRunDeltas(sessionId: string): void {
+  runHandlerFlush.get(sessionId)?.flush();
+}
+
+function releaseRunHandler(sessionId: string, handler: RunEventHandler): void {
+  if (runHandlerFlush.get(sessionId)?.handler === handler) runHandlerFlush.delete(sessionId);
+}
 
 export function getActiveAgentRun(sessionId: string): AgentRun | undefined {
   return activeRuns.get(sessionId)?.run;
@@ -86,6 +106,8 @@ export interface RunEventHandler {
   (e: AgentEvent): void;
   /** Tur sonunda içeriğin yazıldığı mesaj id'si (boş temizliği için). */
   targetId(): string;
+  /** Faz 1: bekleyen metin/reasoning deltalarını hemen yazar. */
+  flush(): void;
 }
 
 export function makeRunEventHandler(opts: {
@@ -129,22 +151,34 @@ export function makeRunEventHandler(opts: {
     targetId = id;
   };
 
+  // Faz 1: token başına store yazımı yerine 40 ms'lik pencerede birleştir.
+  const batcher = createDeltaBatcher((text, reasoning) => {
+    if (text) {
+      ensureTarget();
+      store().appendToMessage(sessionId, targetId, text);
+    }
+    if (reasoning) {
+      try {
+        ensureTarget();
+        store().appendReasoning(sessionId, targetId, reasoning);
+      } catch {
+        // store hatası akışı durdurmaz
+      }
+    }
+  });
+
   return Object.assign(
     (e: AgentEvent) => {
+      // Araç/sınır olayları çıktı sırasını değiştirir: önce bekleyen metni yaz.
+      if (e.k !== 'text' && e.k !== 'reasoning') batcher.flush();
       if (e.k === 'turn_start') {
         updateActivity?.({ phase: 'thinking', tool: null, retry: null });
       } else if (e.k === 'text' && e.delta) {
         updateActivity?.({ phase: 'writing' });
-        ensureTarget();
-        store().appendToMessage(sessionId, targetId, e.delta);
+        batcher.pushText(e.delta);
       } else if (e.k === 'reasoning' && e.delta) {
         updateActivity?.({ phase: 'thinking' });
-        try {
-          ensureTarget();
-          store().appendReasoning(sessionId, targetId, e.delta);
-        } catch {
-          // store hatası akışı durdurmaz
-        }
+        batcher.pushReasoning(e.delta);
       } else if (e.k === 'thinking' && e.blocks.length > 0) {
         updateActivity?.({ phase: 'thinking' });
         try {
@@ -307,7 +341,7 @@ export function makeRunEventHandler(opts: {
         }
       }
     },
-    { targetId: () => targetId },
+    { targetId: () => targetId, flush: batcher.flush },
   );
 }
 
@@ -473,6 +507,7 @@ export function useAgent() {
         emit,
         activity: { runId, update: updateActivity },
       });
+      registerRunHandler(sessionId, handler);
       /**
        * Tur boyunca açılan (boş kalmış) assistant mesajlarını temizler.
        * `toolCalls` taşıyan mesaj silinmez — tool sonuç eşleşmesi bozulmasın.
@@ -641,6 +676,8 @@ export function useAgent() {
           messages: historyWithUser.length,
         });
         const result = await run.step();
+        // Faz 1: tur bitiminde kuyruktaki son deltalar (cleanup'tan önce).
+        handler.flush();
         if (result.kind === 'needs-approval') {
           const pendingCall = result.pending[0];
           updateActivity({
@@ -693,6 +730,8 @@ export function useAgent() {
         if (cleanEmptyAssistant()) return t('agent.errEmptyReply');
         return null;
       } catch (err) {
+        // Boş mesaj temizliğinden ÖNCE bekleyen metni yaz.
+        handler.flush();
         clearActiveRun(sessionId, runId);
         logError('agent.run.error', {
           provider: providerName,
@@ -703,9 +742,11 @@ export function useAgent() {
         cleanEmptyAssistant();
         return formatProviderError(err);
       } finally {
+        handler.flush();
         const activeRunId = activeRuns.get(sessionId)?.activityRunId;
         const stillPending = activeRunId === runId;
         if (!stillPending) {
+          releaseRunHandler(sessionId, handler);
           // Aynı oturumda daha yeni bir run başladıysa akış bayrağını ve yeni
           // aktiviteyi bu eski turun temizliği bozmasın.
           if (!activeRunId) store().setStreaming(sessionId, false);
@@ -824,6 +865,8 @@ export function useAgent() {
         // resolve içindeki olayları kalıcı katmana yansıtmak için run'ın onEvent'i zaten bağlı;
         // burada ek satırlar için geçici dinleyici yeterli (run içi emit App'e gider).
         const result = await run.resolve(decisions);
+        // Faz 1: onay sonrası turun trailing deltaları (temizlikten önce).
+        flushRunDeltas(sessionId);
         void callNames;
         if (result.kind === 'needs-approval') {
           const pendingCall = result.pending[0];
@@ -876,12 +919,14 @@ export function useAgent() {
         }
         clearActiveRun(sessionId, activityRunId);
         // Onay turu metinsiz bitirse placeholder boş assistant satırı kalmasın.
+        flushRunDeltas(sessionId);
         cleanBlankAssistantMessages(sessionId);
         store().setStreaming(sessionId, false);
         useAgentActivityStore.getState().end(sessionId, activityRunId);
         return null;
       } catch (err) {
         clearActiveRun(sessionId, activityRunId);
+        flushRunDeltas(sessionId);
         cleanBlankAssistantMessages(sessionId);
         store().setStreaming(sessionId, false);
         useAgentActivityStore.getState().end(sessionId, activityRunId);
@@ -986,6 +1031,16 @@ export function useAgent() {
             target: toolTarget(String(a.call.name), a.call.args as Record<string, unknown>),
           },
         });
+        const restoredHandler = makeRunEventHandler({
+          sessionId: a.sessionId,
+          assistantId,
+          provider: providerName,
+          model,
+          callNames,
+          emit: (line) => onNoticeFor?.(a.sessionId, line.content),
+          activity: { runId, update: updateActivity },
+        });
+        registerRunHandler(a.sessionId, restoredHandler);
         const run = createAgentRun(
           state.msgs,
           {
@@ -1024,15 +1079,7 @@ export function useAgent() {
               }
               onRetryFor?.(a.sessionId, info);
             },
-            onEvent: makeRunEventHandler({
-              sessionId: a.sessionId,
-              assistantId,
-              provider: providerName,
-              model,
-              callNames,
-              emit: (line) => onNoticeFor?.(a.sessionId, line.content),
-              activity: { runId, update: updateActivity },
-            }),
+            onEvent: restoredHandler,
           },
           state,
         );

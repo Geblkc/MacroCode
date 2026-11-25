@@ -1,9 +1,10 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
+import { persist } from 'zustand/middleware';
 import type { AgentMode, Message, Provider, Session, SessionCompaction } from '../types';
 import type { UsageLike } from '../lib/engine/types';
 import { t } from '../lib/i18n/core';
 import { DEFAULT_MODELS, useSettingsStore } from './settings';
+import { createDeferredSessionStorage } from './sessionPersist';
 
 export function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -112,11 +113,23 @@ interface SessionStore {
   getActiveSession: () => Session | null;
 }
 
-const noopStorage = {
-  getItem: (_name: string): string | null => null,
-  setItem: (_name: string, _value: string): void => {},
-  removeItem: (_name: string): void => {},
-};
+type PersistedSessionState = Pick<SessionStore, 'sessions' | 'activeSessionId'>;
+
+/**
+ * Faz 1: localStorage yazımı ertelenir (streaming sırasında serialize YOK).
+ * SQLite asıl depo; localStorage yalnız kapanış/yedek güvenlik ağı.
+ */
+const sessionPersist = createDeferredSessionStorage<PersistedSessionState>();
+
+/** Bekleyen localStorage yazmasını hemen uygular (test/kapanış). */
+export function flushSessionPersist(): void {
+  sessionPersist.flush();
+}
+
+/** Test gözlemi: yazılmayı bekleyen state var mı? */
+export function hasPendingSessionPersist(): boolean {
+  return sessionPersist.hasPending();
+}
 
 export const useSessionStore = create<SessionStore>()(
   persist(
@@ -472,10 +485,13 @@ export const useSessionStore = create<SessionStore>()(
     }),
     {
       name: 'macrocode-sessions',
-      storage: createJSONStorage(() =>
-        typeof localStorage !== 'undefined' ? localStorage : noopStorage,
-      ),
-      partialize: (s) => ({ sessions: s.sessions, activeSessionId: s.activeSessionId }),
+      // Faz 1: serialize + localStorage yazımı debounce edilir; her token'da
+      // tüm transkript stringify edilmez.
+      storage: sessionPersist.storage,
+      partialize: (s): PersistedSessionState => ({
+        sessions: s.sessions,
+        activeSessionId: s.activeSessionId,
+      }),
     },
   ),
 );

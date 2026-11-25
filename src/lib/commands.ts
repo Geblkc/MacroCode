@@ -146,6 +146,7 @@ export const COMMAND_SPECS: CommandSpec[] = [
   { name: 'ask', group: 'agent', descKey: 'commands.desc.ask' },
   { name: 'log', group: 'diag', args: '[n]', descKey: 'commands.desc.log' },
   { name: 'audit', group: 'diag', args: '[n]', descKey: 'commands.desc.audit' },
+  { name: 'perf', group: 'diag', args: '[on|off|reset]', descKey: 'commands.desc.perf' },
   {
     name: 'update',
     group: 'diag',

@@ -3,6 +3,7 @@ import { migrateProviderModel, PROVIDER_IDS } from './providers';
 import { isTauri } from './tauri';
 import { logError, redact } from './logger';
 import { errorMessage, isDatabaseBusyError } from './dbErrors';
+import { perfNow, perfRecordDbSave } from './perf';
 
 export const DB_URL = 'sqlite:sessions.db';
 export const SESSIONS_TABLE_SQL =
@@ -245,13 +246,20 @@ export async function loadSessionsFromDb(provided?: SqlDatabase): Promise<Loaded
 async function saveSessionsWithRust(
   sessions: Session[],
   activeSessionId: string | null,
-): Promise<void> {
+): Promise<number> {
   const { invoke } = await import('@tauri-apps/api/core');
+  let bytes = 0;
+  const payload = sessions.map((session) => {
+    const data = JSON.stringify(session);
+    bytes += data.length;
+    return { id: session.id, data };
+  });
   await invoke('db_save_sessions', {
     db: DB_URL,
-    sessions: sessions.map((session) => ({ id: session.id, data: JSON.stringify(session) })),
+    sessions: payload,
     activeSessionId,
   });
+  return bytes;
 }
 
 /**
@@ -303,6 +311,8 @@ export async function saveSessionsToDb(
   activeSessionId: string | null,
   provided?: SqlDatabase,
 ): Promise<boolean> {
+  const t0 = perfNow();
+  let bytes = 0;
   const db = await openDb(provided);
   if (!db) return false;
   try {
@@ -310,7 +320,7 @@ export async function saveSessionsToDb(
       retrySqliteBusy(async () => {
         if (!provided && isTauri()) {
           try {
-            await saveSessionsWithRust(sessions, activeSessionId);
+            bytes = await saveSessionsWithRust(sessions, activeSessionId);
             return;
           } catch (error) {
             // Yeni Rust binary'si yoksa eski yazma yoluna düş; kilit hatası
@@ -329,6 +339,8 @@ export async function saveSessionsToDb(
       }),
     );
     lastDbError = null;
+    // Faz 0: baseline için DB yazma süresi ve gönderilen bayt (aktifken).
+    perfRecordDbSave({ ms: perfNow() - t0, bytes, sessions: sessions.length });
     return true;
   } catch (e) {
     // O7: sessiz hata yolu kapandı — `sqlError()` ile boot uyarısı okunabilir.
