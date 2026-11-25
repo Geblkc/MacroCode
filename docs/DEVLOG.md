@@ -2,12 +2,32 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-11-22
+> Son güncelleme: 2026-11-25
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
 
 ---
+
+## 2026-11-25 — Oturum geçmişi ve geri yükleme
+
+- Sidebar altına **Oturum geçmişi** butonu eklendi; yeni
+  `SessionHistoryModal` tüm oturumları (aktif + arşiv) aranabilir/filtrelenebilir
+  listeyle gösterir.
+- "Geri yükle" aktif oturumu açar, arşivdeki oturumu geri getirip aktif yapar.
+- Sidebar silme işlemi **arşive taşıma**ya dönüştü: `Session.deletedAt` alanı
+  store, SQLite yedeği ve JSON yedek roundtrip'inde korunur. Arşiv satırlarından
+  `purgeSession` ile kalıcı silme (onaylı) yapılabilir.
+- Arşiv oturumları sidebar sayacında/aramasında/F2 ve Ctrl+Tab gezinmesinde
+  yer almaz; aktif oturum arşivlenirse ilk aktif oturuma geçilir. Yeni yedekler
+  aktif oturum yapılmaz.
+- 5 dilde yeni çeviri anahtarları, `session-history.css` stilleri.
+
+### Doğrulama
+
+- `npm test`: 821/821 (91 dosya) — arşivleme/geri yükleme/kalıcı silme ve
+  `deletedAt` yedek roundtrip testleri eklendi.
+- `npm run build`, `npm run lint`, `npm run format:check` temiz.
 
 ## 2026-11-22 — v1.0.0 sürüm hazırlığı
 

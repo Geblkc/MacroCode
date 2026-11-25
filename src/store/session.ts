@@ -26,6 +26,11 @@ function autoName(content: string): string {
   return name || defaultName();
 }
 
+/** Arşivlenmiş (silinmiş sayılan) oturum mu? */
+export function isSessionArchived(session: Session): boolean {
+  return typeof session.deletedAt === 'number';
+}
+
 interface SessionStore {
   sessions: Session[];
   activeSessionId: string | null;
@@ -39,7 +44,12 @@ interface SessionStore {
   streamingSessions: Record<string, boolean>;
 
   createSession: () => Session;
+  /** Oturumu arşive taşır (kalıcı silmez; geçmişten geri yüklenebilir). */
   deleteSession: (id: string) => void;
+  /** Arşivdeki oturumu geri getirir ve aktif oturum yapar. */
+  restoreSession: (id: string) => void;
+  /** Arşivdeki oturumu kalıcı olarak siler (geri alınamaz). */
+  purgeSession: (id: string) => void;
   /** Faz 3: oturumu yeniden adlandır (boş ad yok sayılır, 60 karakterde kesilir). */
   renameSession: (id: string, name: string) => void;
   setActiveSession: (id: string) => void;
@@ -137,10 +147,43 @@ export const useSessionStore = create<SessionStore>()(
 
       deleteSession: (id) =>
         set((s) => {
+          const target = s.sessions.find((sess) => sess.id === id);
+          if (!target || isSessionArchived(target)) return s;
+          // Kalıcı silme yerine arşivleme: veri korunur, geçmişten geri
+          // yüklenebilir. updatedAt'e dokunmayız (boot tazelik karşılaştırması
+          // bozulmasın diye); yalnızca deletedAt yazılır.
+          const sessions = s.sessions.map((sess) =>
+            sess.id === id ? { ...sess, deletedAt: Date.now() } : sess,
+          );
+          const activeSessionId =
+            s.activeSessionId === id
+              ? (sessions.find((sess) => !isSessionArchived(sess))?.id ?? null)
+              : s.activeSessionId;
+          // Arşivlenen oturumun akış bayrağı da düşsün (bellekte kalıntı olmasın).
+          const streamingSessions = { ...s.streamingSessions };
+          delete streamingSessions[id];
+          return { sessions, activeSessionId, streamingSessions };
+        }),
+
+      restoreSession: (id) =>
+        set((s) => {
+          const target = s.sessions.find((sess) => sess.id === id);
+          if (!target) return s;
+          const sessions = s.sessions.map((sess) => {
+            if (sess.id !== id) return sess;
+            const { deletedAt: _drop, ...rest } = sess;
+            return rest;
+          });
+          return { sessions, activeSessionId: id };
+        }),
+
+      purgeSession: (id) =>
+        set((s) => {
           const sessions = s.sessions.filter((sess) => sess.id !== id);
           const activeSessionId =
-            s.activeSessionId === id ? (sessions[0]?.id ?? null) : s.activeSessionId;
-          // Silinen oturumun akış bayrağı da düşsün (bellekte kalıntı olmasın).
+            s.activeSessionId === id
+              ? (sessions.find((sess) => !isSessionArchived(sess))?.id ?? null)
+              : s.activeSessionId;
           const streamingSessions = { ...s.streamingSessions };
           delete streamingSessions[id];
           return { sessions, activeSessionId, streamingSessions };
@@ -157,7 +200,11 @@ export const useSessionStore = create<SessionStore>()(
       },
 
       setActiveSession: (id) =>
-        set((s) => (s.sessions.some((sess) => sess.id === id) ? { activeSessionId: id } : {})),
+        set((s) =>
+          s.sessions.some((sess) => sess.id === id && !isSessionArchived(sess))
+            ? { activeSessionId: id }
+            : {},
+        ),
 
       addMessage: (sessionId, message) =>
         set((s) => ({
@@ -418,7 +465,9 @@ export const useSessionStore = create<SessionStore>()(
 
       getActiveSession: () => {
         const { sessions, activeSessionId } = get();
-        return sessions.find((sess) => sess.id === activeSessionId) ?? null;
+        return (
+          sessions.find((sess) => sess.id === activeSessionId && !isSessionArchived(sess)) ?? null
+        );
       },
     }),
     {

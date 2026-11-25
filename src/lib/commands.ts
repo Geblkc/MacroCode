@@ -417,6 +417,8 @@ function normalizeSession(raw: unknown): Session {
     v.agentMode === 'build' || v.agentMode === 'plan' || v.agentMode === 'ask'
       ? v.agentMode
       : undefined;
+  // Arşiv durumu yedekle birlikte taşınır; eski yedeklerde alan yoksa undefined.
+  const deletedAt = typeof v.deletedAt === 'number' ? v.deletedAt : undefined;
   return {
     id: v.id,
     name: typeof v.name === 'string' && v.name ? v.name : t('errors.importSessionName'),
@@ -428,6 +430,7 @@ function normalizeSession(raw: unknown): Session {
     systemPrompt: typeof v.systemPrompt === 'string' ? v.systemPrompt : '',
     ...(agentMode ? { agentMode } : {}),
     ...(compaction ? { compaction } : {}),
+    ...(deletedAt !== undefined ? { deletedAt } : {}),
   };
 }
 

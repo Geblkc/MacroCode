@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSessionStore } from '../store/session';
+import { isSessionArchived, useSessionStore } from '../store/session';
 import { useSettingsStore, clampSidebarWidth } from '../store/settings';
 import { getModel } from '../lib/providers';
 import { showToast } from '../lib/toast';
@@ -11,6 +11,7 @@ import { Icon, type IconName } from './icons';
 interface Props {
   onOpenSettings: () => void;
   onOpenStats: () => void;
+  onOpenHistory: () => void;
   onClear: () => void;
   onExportJson: () => void;
   onImportFile: (file: File) => void;
@@ -114,6 +115,7 @@ const store = useSessionStore.getState;
 export default function Sidebar({
   onOpenSettings,
   onOpenStats,
+  onOpenHistory,
   onClear,
   onExportJson,
   onImportFile,
@@ -131,6 +133,9 @@ export default function Sidebar({
   const [query, setQuery] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const resizeRef = useRef<{ startX: number; startW: number } | null>(null);
+
+  // Arşivlenmiş oturumlar sidebar'da gösterilmez; Oturum geçmişinde durur.
+  const activeSessions = useMemo(() => sessions.filter((s) => !isSessionArchived(s)), [sessions]);
 
   // ── Faz 3: satır içi yeniden adlandırma (çift tık veya kalem butonu) ──
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -177,20 +182,20 @@ export default function Sidebar({
       if (e.key !== 'F2' || e.defaultPrevented || editingId) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest('input, textarea, [contenteditable="true"]')) return;
-      const active = sessions.find((s) => s.id === activeId);
+      const active = activeSessions.find((s) => s.id === activeId);
       if (!active) return;
       e.preventDefault();
       startRename(active.id, active.name);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [activeId, sessions, editingId, startRename]);
+  }, [activeId, activeSessions, editingId, startRename]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLocaleLowerCase('tr');
-    if (!q) return sessions;
-    return sessions.filter((s) => s.name.toLocaleLowerCase('tr').includes(q));
-  }, [sessions, query]);
+    if (!q) return activeSessions;
+    return activeSessions.filter((s) => s.name.toLocaleLowerCase('tr').includes(q));
+  }, [activeSessions, query]);
 
   const groups = useMemo(() => groupSessions(filtered), [filtered]);
 
@@ -227,7 +232,7 @@ export default function Sidebar({
     >
       <div className="side-head">
         <span className="side-label">{t('sidebar.title')}</span>
-        <span className="count-chip">{sessions.length}</span>
+        <span className="count-chip">{activeSessions.length}</span>
         <button
           className="icon-btn accent"
           title={t('sidebar.newSession')}
@@ -256,7 +261,7 @@ export default function Sidebar({
       <div className="side-list">
         {groups.length === 0 && (
           <div className="sidebar-empty">
-            {sessions.length === 0 ? t('sidebar.empty') : t('sidebar.noMatch')}
+            {activeSessions.length === 0 ? t('sidebar.empty') : t('sidebar.noMatch')}
           </div>
         )}
         {groups.map((g) => (
@@ -370,8 +375,8 @@ export default function Sidebar({
                     <button
                       type="button"
                       className="icon-btn danger"
-                      title={t('sidebar.deleteSession')}
-                      aria-label={t('sidebar.deleteSessionAria', { name: s.name })}
+                      title={t('sidebar.archiveSession')}
+                      aria-label={t('sidebar.archiveSessionAria', { name: s.name })}
                       onClick={(e) => {
                         e.stopPropagation();
                         onRequestDelete(s.id, s.name);
@@ -403,6 +408,10 @@ export default function Sidebar({
         <button className="btn" onClick={onOpenStats}>
           <Icon name="bar-chart" size="sm" />
           <span>{t('sidebar.stats')}</span>
+        </button>
+        <button className="btn" onClick={onOpenHistory} title={t('sidebar.history')}>
+          <Icon name="clock" size="sm" />
+          <span>{t('sidebar.history')}</span>
         </button>
         <div className="row">
           <button

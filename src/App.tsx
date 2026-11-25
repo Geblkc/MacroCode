@@ -6,6 +6,7 @@ import InputBar from './components/InputBar';
 import StatusBar from './components/StatusBar';
 import SettingsModal from './components/SettingsModal';
 import StatsScreen from './components/StatsScreen';
+import SessionHistoryModal from './components/SessionHistoryModal';
 import ConfirmDialog from './components/ConfirmDialog';
 import SnapshotsModal from './components/SnapshotsModal';
 import GitPanel from './components/git/GitPanel';
@@ -55,7 +56,7 @@ import {
 } from './lib/db';
 import type { AgentMode, ExtraLine, Provider } from './types';
 import type { RetryInfo } from './lib/providers/common';
-import { createId, useSessionStore } from './store/session';
+import { createId, isSessionArchived, useSessionStore } from './store/session';
 import { DEFAULT_MODELS, useSettingsStore } from './store/settings';
 import { APP_VERSION } from './lib/appInfo';
 import {
@@ -123,6 +124,7 @@ export default function App() {
   const t = useT();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [snapshotsOpen, setSnapshotsOpen] = useState(false);
   const [extrasBySession, setExtrasBySession] = useState<Record<string, ExtraLine[]>>({});
   const [retryState, setRetryState] = useState<RetryState | null>(null);
@@ -1700,9 +1702,12 @@ export default function App() {
         existing.add(s.id);
         return s;
       });
+      const lastImported = fresh[fresh.length - 1];
       useSessionStore.setState((s) => ({
         sessions: [...s.sessions, ...fresh],
-        activeSessionId: fresh[fresh.length - 1]?.id ?? s.activeSessionId,
+        // Arşivlenmiş yedek aktif oturum yapılmaz.
+        activeSessionId:
+          lastImported && !isSessionArchived(lastImported) ? lastImported.id : s.activeSessionId,
       }));
       pushExtra(sessionId, {
         type: 'sys',
@@ -1747,7 +1752,7 @@ export default function App() {
   // Modifier'lı olduğu için IME'den bağımsız; modallar açıkken pasif.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (settingsOpen || statsOpen || snapshotsOpen) return;
+      if (settingsOpen || statsOpen || historyOpen || snapshotsOpen) return;
       // IME bestesi sırasında kısayollar tetiklenmez (Faz 4).
       if (e.isComposing) return;
       const mod = e.ctrlKey || e.metaKey;
@@ -1763,17 +1768,19 @@ export default function App() {
       }
       if (e.key === 'Tab') {
         const { sessions, activeSessionId, setActiveSession } = useSessionStore.getState();
-        if (sessions.length < 2) return;
+        // Arşivdeki oturumlarda gezinme durmaz (sidebar'da da gösterilmezler).
+        const available = sessions.filter((s) => !isSessionArchived(s));
+        if (available.length < 2) return;
         e.preventDefault();
-        const idx = sessions.findIndex((s) => s.id === activeSessionId);
+        const idx = available.findIndex((s) => s.id === activeSessionId);
         const next = e.shiftKey
           ? idx <= 0
-            ? sessions.length - 1
+            ? available.length - 1
             : idx - 1
-          : idx === -1 || idx === sessions.length - 1
+          : idx === -1 || idx === available.length - 1
             ? 0
             : idx + 1;
-        setActiveSession(sessions[next].id);
+        setActiveSession(available[next].id);
         return;
       }
       if (e.key.toLowerCase() === 'n' && !e.shiftKey) {
@@ -1783,7 +1790,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [settingsOpen, statsOpen, snapshotsOpen, streaming, abort]);
+  }, [settingsOpen, statsOpen, historyOpen, snapshotsOpen, streaming, abort]);
 
   return (
     <div className="app">
@@ -1796,6 +1803,7 @@ export default function App() {
         <Sidebar
           onOpenSettings={() => setSettingsOpen(true)}
           onOpenStats={() => setStatsOpen(true)}
+          onOpenHistory={() => setHistoryOpen(true)}
           onClear={() => {
             if (activeId) clearView(activeId);
           }}
@@ -1803,9 +1811,9 @@ export default function App() {
           onImportFile={importBackupFile}
           onRequestDelete={(id, name) =>
             setConfirmReq({
-              title: t('sidebar.confirmDeleteTitle'),
-              message: t('sidebar.confirmDeleteMessage', { name }),
-              confirmLabel: t('sidebar.confirmDeleteOk'),
+              title: t('sidebar.confirmArchiveTitle'),
+              message: t('sidebar.confirmArchiveMessage', { name }),
+              confirmLabel: t('sidebar.confirmArchiveOk'),
               cancelLabel: t('common.cancel'),
               danger: true,
               // Silme gibi geri alınamaz işlemde odak güvenli tarafa.
@@ -1839,7 +1847,7 @@ export default function App() {
             }}
             onRootCommand={(arg) => void runRootCommand(arg)}
             onFocusInput={() => inputFocus.current?.()}
-            searchEnabled={!settingsOpen && !statsOpen && !snapshotsOpen}
+            searchEnabled={!settingsOpen && !statsOpen && !historyOpen && !snapshotsOpen}
           />
           <InputBar
             onSend={(t, imgs) => void handleSend(t, imgs)}
@@ -1882,6 +1890,7 @@ export default function App() {
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <StatsScreen open={statsOpen} onClose={() => setStatsOpen(false)} />
+      <SessionHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <SnapshotsModal
         open={snapshotsOpen}
         root={wsRoot}

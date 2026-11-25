@@ -147,6 +147,11 @@ export type Session = {
   agentMode?: AgentMode;
   /** Faz 12 B.6: kalıcı compaction özeti (yoksa otomatik compaction yok). */
   compaction?: SessionCompaction;
+  /**
+   * Arşivleme zamanı (epoch ms). Varlığında oturum arşivdedir: sidebar'da
+   * gösterilmez, aktif olamaz; Oturum geçmişi ekranından geri yüklenebilir.
+   */
+  deletedAt?: number;
 };
 
 export type ApiKeys = {

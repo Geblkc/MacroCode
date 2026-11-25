@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { useSessionStore } from './session';
+import { isSessionArchived, useSessionStore } from './session';
 import type { Message } from '../types';
 
 function msg(
@@ -213,5 +213,76 @@ describe('Faz 3 — renameSession', () => {
     useSessionStore.getState().renameSession('yok-boyle-bir-id', 'ad');
     expect(useSessionStore.getState().sessions).toHaveLength(before);
     expect(useSessionStore.getState().sessions.find((x) => x.id === a.id)!.name).not.toBe('ad');
+  });
+});
+
+describe('Oturum geçmişi — arşivleme / geri yükleme', () => {
+  beforeEach(() => {
+    useSessionStore.setState({ sessions: [], activeSessionId: null });
+  });
+
+  it('silme oturumu arşive taşır, veriyi korur ve aktif oturumu değiştirir', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    const b = st.createSession();
+    st.addMessage(a.id, msg({ id: 'm1', role: 'user', content: 'merhaba' }));
+    const updatedAt = useSessionStore.getState().sessions.find((s) => s.id === a.id)!.updatedAt;
+
+    st.deleteSession(a.id);
+
+    const archived = useSessionStore.getState().sessions.find((s) => s.id === a.id)!;
+    expect(archived.deletedAt).toBeTypeOf('number');
+    expect(archived.updatedAt).toBe(updatedAt);
+    expect(archived.messages).toHaveLength(1);
+    expect(isSessionArchived(archived)).toBe(true);
+    expect(useSessionStore.getState().activeSessionId).toBe(b.id);
+  });
+
+  it('arşivlenmiş oturum aktif yapılamaz ve getActiveSession ile döndürülmez', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    const b = st.createSession();
+    st.deleteSession(a.id);
+
+    st.setActiveSession(a.id);
+    expect(useSessionStore.getState().activeSessionId).toBe(b.id);
+    expect(st.getActiveSession()?.id).toBe(b.id);
+  });
+
+  it('restoreSession arşivden çıkarır ve aktif oturum yapar', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    st.createSession();
+    st.deleteSession(a.id);
+    st.addMessage(a.id, msg({ id: 'm1', role: 'user', content: 'korunur' }));
+
+    st.restoreSession(a.id);
+
+    const restored = useSessionStore.getState().sessions.find((s) => s.id === a.id)!;
+    expect(restored.deletedAt).toBeUndefined();
+    expect(restored.messages).toHaveLength(1);
+    expect(isSessionArchived(restored)).toBe(false);
+    expect(useSessionStore.getState().activeSessionId).toBe(a.id);
+    expect(st.getActiveSession()?.id).toBe(a.id);
+  });
+
+  it('purgeSession arşivdeki oturumu kalıcı siler', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    st.deleteSession(a.id);
+
+    st.purgeSession(a.id);
+
+    expect(useSessionStore.getState().sessions.some((s) => s.id === a.id)).toBe(false);
+    expect(st.getActiveSession()).toBeNull();
+  });
+
+  it('bilinmeyen oturum geri yüklenemez', () => {
+    const st = useSessionStore.getState();
+    const a = st.createSession();
+    st.deleteSession(a.id);
+    st.restoreSession('yok-boyle-bir-id');
+    expect(useSessionStore.getState().activeSessionId).not.toBe('yok-boyle-bir-id');
+    expect(isSessionArchived(useSessionStore.getState().sessions[0])).toBe(true);
   });
 });
