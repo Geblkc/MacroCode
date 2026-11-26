@@ -1159,6 +1159,7 @@ export const tr = {
   'git.error.invalidRoot': 'Geçersiz workspace yolu',
   'git.error.invalidPath': 'Geçersiz dosya yolu',
   'git.error.invalidBranch': 'Geçersiz branch adı',
+  'git.error.invalidRemote': 'Geçersiz remote adı',
   'git.error.invalidMessage': 'Geçersiz commit mesajı',
   'git.error.invalidSha': 'Geçersiz commit SHA',
   'git.error.nothingStaged': 'Stage edilmiş değişiklik yok',

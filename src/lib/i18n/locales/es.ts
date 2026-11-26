@@ -1203,6 +1203,7 @@ export const es: Record<TranslationKey, Message> = {
   'git.error.invalidRoot': 'Ruta de workspace no válida',
   'git.error.invalidPath': 'Ruta de archivo no válida',
   'git.error.invalidBranch': 'Nombre de rama no válido',
+  'git.error.invalidRemote': 'Nombre de remote no válido',
   'git.error.invalidMessage': 'Mensaje de commit no válido',
   'git.error.invalidSha': 'SHA de commit no válido',
   'git.error.nothingStaged': 'No hay cambios preparados',

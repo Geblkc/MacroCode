@@ -1202,6 +1202,7 @@ export const fr: Record<TranslationKey, Message> = {
   'git.error.invalidRoot': 'Chemin de workspace invalide',
   'git.error.invalidPath': 'Chemin de fichier invalide',
   'git.error.invalidBranch': 'Nom de branche invalide',
+  'git.error.invalidRemote': 'Nom de remote invalide',
   'git.error.invalidMessage': 'Message de commit invalide',
   'git.error.invalidSha': 'SHA de commit invalide',
   'git.error.nothingStaged': 'Rien d’indexé',

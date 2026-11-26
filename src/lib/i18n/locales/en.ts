@@ -1173,6 +1173,7 @@ export const en: Record<TranslationKey, Message> = {
   'git.error.invalidRoot': 'Invalid workspace path',
   'git.error.invalidPath': 'Invalid file path',
   'git.error.invalidBranch': 'Invalid branch name',
+  'git.error.invalidRemote': 'Invalid remote name',
   'git.error.invalidMessage': 'Invalid commit message',
   'git.error.invalidSha': 'Invalid commit SHA',
   'git.error.nothingStaged': 'Nothing staged',

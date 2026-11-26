@@ -807,6 +807,27 @@ fn quick_branch_check(name: &str) -> Result<(), GitError> {
     Ok(())
 }
 
+/// B4 — remote adı `.git/config`'ten gelir; `-` ile başlarsa `git push`
+/// argümanı olarak seçenek sanılabilir (`--receive-pack=...`). `--` ayırıcısı
+/// zaten eklendi; bu ikinci kapı.
+fn validate_remote_name(name: &str) -> Result<(), GitError> {
+    if name.is_empty() || name.len() > 255 {
+        return Err(ge("E_INVALID_REMOTE", "geçersiz remote adı"));
+    }
+    if name.starts_with('-') {
+        return Err(ge("E_INVALID_REMOTE", "remote adı '-' ile başlayamaz"));
+    }
+    for ch in name.chars() {
+        // Remote adı `origin`, `upstream`, `team/fork` gibi biçimleri alabilir;
+        // `/` ve `.` meşru. Yalnız denetim/boşluk ve git'in reddettiği
+        // karakterler elenir. Option injection'ı asıl `--` ayırıcısı kapatır.
+        if ch.is_control() || ch == ' ' || matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\') {
+            return Err(ge("E_INVALID_REMOTE", "remote adında yasak karakter"));
+        }
+    }
+    Ok(())
+}
+
 async fn validate_branch(root: &Path, name: &str) -> Result<(), GitError> {
     quick_branch_check(name)?;
     let out = run_git(
@@ -1465,10 +1486,16 @@ pub async fn git_switch(
     let ws = ensure_repo(&root).await?;
     validate_branch(&ws, &branch).await?;
     let create = create.unwrap_or(false);
+    // B4 — ikinci savunma: `quick_branch_check` leading `-`'yi zaten reddediyor,
+    // ama `switch` için `--` ayırıcısı option injection'ı yapısal olarak da
+    // kapatır. DİKKAT: `switch -c` adı hemen beklediği için orada `--`
+    // kullanılamaz; `checkout` fallback'inde ise `--` **pathspec** anlamına
+    // gelir (`git checkout -- foo` = dosyayı geri al) → oraya da eklenmez.
+    // O iki dalda güvence `quick_branch_check`'tir.
     let args: Vec<&str> = if create {
         vec!["switch", "-c", &branch]
     } else {
-        vec!["switch", &branch]
+        vec!["switch", "--", &branch]
     };
     let out = run_git(&ws, &args, None, GitOpts::write()).await?;
     if !out.ok() {
@@ -1619,9 +1646,19 @@ pub async fn git_push(root: String, set_upstream: Option<bool>) -> Result<GitSta
             .find(|r| r.name == "origin")
             .map(|r| r.name.clone())
             .unwrap_or_else(|| remotes[0].name.clone());
+        // B4 — `branch` .git/HEAD'den gelir (saldırgan kontrollü olabilir) ve
+        // eskiden doğrulanmadan argv'ye ekleniyordu: `--receive-pack=/tmp/payload`
+        // gibi bir ad `git push -u origin --receive-pack=...` üretip yerel kod
+        // çalıştırıyordu. String kontrolü + `check-ref-format` + tam refspec.
+        quick_branch_check(&branch)?;
+        validate_branch(&ws, &branch).await?;
+        validate_remote_name(&remote)?;
         args.push("-u".into());
+        args.push("--".into());
         args.push(remote);
-        args.push(branch);
+        // Tam refspec: sol taraf `HEAD`, sağ taraf `refs/heads/<branch>` olduğu
+        // için değer asla `-` ile başlayamaz (option injection kapalı).
+        args.push(format!("HEAD:refs/heads/{branch}"));
     }
     let refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let out = run_git(&ws, &refs, None, GitOpts::network()).await?;
@@ -1776,6 +1813,50 @@ mod tests {
         assert!(quick_branch_check("a//b").is_err());
     }
 
+    /// B4 — remote adı doğrulaması: leading dash (option injection) reddedilir,
+    /// meşru adlar (`origin`, `upstream`, `team/fork`) geçer.
+    #[test]
+    fn b4_remote_name_dogrulama() {
+        assert!(validate_remote_name("origin").is_ok());
+        assert!(validate_remote_name("upstream").is_ok());
+        assert!(validate_remote_name("team/fork").is_ok());
+        assert!(validate_remote_name("fork.2").is_ok());
+
+        // Option injection vektörleri.
+        assert!(validate_remote_name("--receive-pack=/tmp/payload").is_err());
+        assert!(validate_remote_name("-o").is_err());
+        assert!(validate_remote_name("--exec=sh").is_err());
+
+        assert!(validate_remote_name("").is_err());
+        assert!(validate_remote_name("a b").is_err());
+        assert!(validate_remote_name("a:b").is_err());
+        assert!(validate_remote_name("a\\b").is_err());
+        assert!(validate_remote_name("a\nb").is_err());
+        assert!(validate_remote_name(&"x".repeat(300)).is_err());
+    }
+
+    /// B4 — `git_push`'in ürettiği argv option injection'a kapalı olmalı:
+    /// `-u -- <remote> HEAD:refs/heads/<branch>`. `-` ile başlayan branch adı
+    /// push'a girmeden `quick_branch_check`'te düşer.
+    #[test]
+    fn b4_push_argv_ve_branch_reddi() {
+        // Saldırgan kontrollü `.git/HEAD` adları reddedilir.
+        for bad in [
+            "--receive-pack=/tmp/payload",
+            "--exec=sh",
+            "-f",
+            "--upload-pack=/tmp/x",
+        ] {
+            assert!(quick_branch_check(bad).is_err(), "{bad} reddedilmeli");
+        }
+        // Tam refspec biçimi `-` ile başlayamaz → argv güvenli.
+        let branch = "feature/x";
+        quick_branch_check(branch).unwrap();
+        let refspec = format!("HEAD:refs/heads/{branch}");
+        assert!(!refspec.starts_with('-'));
+        assert_eq!(refspec, "HEAD:refs/heads/feature/x");
+    }
+
     #[test]
     fn message_validation() {
         assert!(validate_message("  fix: bir şey  ").is_ok());
@@ -1817,5 +1898,122 @@ mod tests {
             truncated: false,
         };
         assert_eq!(fail(&out).code, "E_GIT_FAILED");
+    }
+
+    /// B4 — uçtan uca: `.git/HEAD` saldırgan kontrollü bir ad taşıyorsa
+    /// `git_push` **reddetmeli**, payload çalıştırılmamalı.
+    /// (Gerçek git + gerçek repo; yalnızca git varsa çalışır.)
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn b4_push_saldirgan_head_reddedilir() {
+        let tmp = std::env::temp_dir().join(format!("mcode-b4-push-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let marker = tmp.join("PAYLOAD_CALISTI");
+        let ws = tmp.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+
+        let run = |args: &[&str], cwd: &std::path::Path| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(cwd)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t.t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t.t")
+                .output()
+        };
+
+        // git yoksa testi atla.
+        if run(&["--version"], &ws).is_err() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return;
+        }
+
+        let bare = tmp.join("bare.git");
+        run(&["init", "-q", "--bare", bare.to_str().unwrap()], &tmp).unwrap();
+        run(&["init", "-q"], &ws).unwrap();
+        std::fs::write(ws.join("f.txt"), "x").unwrap();
+        run(&["add", "f.txt"], &ws).unwrap();
+        run(&["commit", "-qm", "ilk"], &ws).unwrap();
+        run(&["remote", "add", "origin", bare.to_str().unwrap()], &ws).unwrap();
+
+        // Saldırgan: HEAD'i option-injection adına çevir + payload yaz.
+        let payload = tmp.join("payload.sh");
+        std::fs::write(
+            &payload,
+            format!("#!/bin/sh\ntouch '{}'\n", marker.display()),
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&payload, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        std::fs::write(
+            ws.join(".git/HEAD"),
+            format!("ref: refs/heads/--receive-pack={}\n", payload.display()),
+        )
+        .unwrap();
+
+        let res = git_push(ws.to_str().unwrap().to_string(), Some(true)).await;
+
+        // Push reddedilmeli ve red **bizim kapımızdan** gelmeli
+        // (`E_INVALID_BRANCH`) — git'in tesadüfi reddi yeterli değil, aksi
+        // hâlde test düzeltmeyi değil git sürümünü ölçer.
+        let err = res.expect_err("saldırgan HEAD ile push kabul edilmemeli");
+        assert_eq!(
+            err.code, "E_INVALID_BRANCH",
+            "bizim branch kapımız devreye girmeli"
+        );
+        assert!(!marker.exists(), "PAYLOAD ÇALIŞTI — option injection açık!");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// B4 — `git switch --` eklentisi normal branch geçişini bozmamalı.
+    /// Aynı zamanda leading-dash adı hâlâ reddedilmeli.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn b4_switch_dash_eklentisi_gecisi_bozmaz() {
+        let tmp = std::env::temp_dir().join(format!("mcode-b4-sw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        let ws = tmp.join("ws");
+        std::fs::create_dir_all(&ws).unwrap();
+
+        let run = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&ws)
+                .env("GIT_AUTHOR_NAME", "t")
+                .env("GIT_AUTHOR_EMAIL", "t@t.t")
+                .env("GIT_COMMITTER_NAME", "t")
+                .env("GIT_COMMITTER_EMAIL", "t@t.t")
+                .output()
+        };
+        if run(&["--version"]).is_err() {
+            let _ = std::fs::remove_dir_all(&tmp);
+            return;
+        }
+
+        run(&["init", "-q"]).unwrap();
+        std::fs::write(ws.join("f.txt"), "x").unwrap();
+        run(&["add", "f.txt"]).unwrap();
+        run(&["commit", "-qm", "ilk"]).unwrap();
+        run(&["branch", "hedef"]).unwrap();
+
+        // Normal geçiş `switch -- hedef` ile çalışır.
+        let root = ws.to_str().unwrap().to_string();
+        let st = git_switch(root.clone(), "hedef".into(), None)
+            .await
+            .expect("switch -- ile geçiş çalışmalı");
+        assert_eq!(st.branch, "hedef");
+
+        // Saldırgan adlar reddedilir.
+        for bad in ["--orphan", "-f", "--detach"] {
+            let e = git_switch(root.clone(), bad.into(), None)
+                .await
+                .expect_err(&format!("{bad} reddedilmeli"));
+            assert_eq!(e.code, "E_INVALID_BRANCH", "{bad}");
+        }
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

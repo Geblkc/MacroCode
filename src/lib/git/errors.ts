@@ -15,6 +15,7 @@ const KEYS: Record<string, TranslationKey> = {
   E_INVALID_ROOT: 'git.error.invalidRoot',
   E_INVALID_PATH: 'git.error.invalidPath',
   E_INVALID_BRANCH: 'git.error.invalidBranch',
+  E_INVALID_REMOTE: 'git.error.invalidRemote',
   E_INVALID_MESSAGE: 'git.error.invalidMessage',
   E_INVALID_SHA: 'git.error.invalidSha',
   E_NOTHING_STAGED: 'git.error.nothingStaged',
