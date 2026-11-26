@@ -44,6 +44,13 @@ export interface AgentToolLine {
   tool?: ToolEvent;
 }
 
+/**
+ * Faz 3: canlı araç çıktısı (`tool_stream`) için birleştirme penceresi.
+ * Her stdout parçası App'te ayrı bir extras güncellemesi + timeline hesabı
+ * tetikliyordu; 100 ms'lik pencere bunu saniyede ~10 yazmaya indirir.
+ */
+export const TOOL_LINE_FLUSH_MS = 100;
+
 /** Faz 1 G2/G5: oturum başına aktif run (onayda durur, resolve ile devam eder). */
 interface ActiveAgentRun {
   run: AgentRun;
@@ -166,11 +173,40 @@ export function makeRunEventHandler(opts: {
       }
     }
   });
+  // Faz 3: araç başına son canlı çıktı satırı; pencerede birleştirilir.
+  const pendingToolLines = new Map<string, AgentToolLine>();
+  let toolTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearToolTimer = () => {
+    if (toolTimer !== null) {
+      clearTimeout(toolTimer);
+      toolTimer = null;
+    }
+  };
+
+  const flushToolLines = () => {
+    clearToolTimer();
+    if (pendingToolLines.size === 0) return;
+    const lines = [...pendingToolLines.values()];
+    pendingToolLines.clear();
+    for (const line of lines) emit(line);
+  };
+
+  const scheduleToolFlush = () => {
+    if (toolTimer !== null) return;
+    toolTimer = setTimeout(() => {
+      toolTimer = null;
+      flushToolLines();
+    }, TOOL_LINE_FLUSH_MS);
+  };
 
   return Object.assign(
     (e: AgentEvent) => {
       // Araç/sınır olayları çıktı sırasını değiştirir: önce bekleyen metni yaz.
       if (e.k !== 'text' && e.k !== 'reasoning') batcher.flush();
+      // Canlı araç çıktısı dışındaki her olay bekleyen kart güncellemesini
+      // hemen yazar (araç sonucu/sıra değişimi beklemez).
+      if (e.k !== 'tool_stream') flushToolLines();
       if (e.k === 'turn_start') {
         updateActivity?.({ phase: 'thinking', tool: null, retry: null });
       } else if (e.k === 'text' && e.delta) {
@@ -283,7 +319,8 @@ export function makeRunEventHandler(opts: {
         const toolName = callNames.get(e.id) ?? 'exec';
         const next = `${streamBuf.get(e.id) ?? ''}${e.data}`.slice(-8000);
         streamBuf.set(e.id, next);
-        emit({
+        // Faz 3: parça başına App güncellemesi yerine pencere sonunda tek satır.
+        pendingToolLines.set(String(e.id), {
           type: 'sys',
           content: `/// tool ▸ ${toolName}`,
           tool: {
@@ -294,6 +331,7 @@ export function makeRunEventHandler(opts: {
             output: next,
           },
         });
+        scheduleToolFlush();
       } else if (e.k === 'tool_preview') {
         emit({
           type: 'sys',
@@ -341,7 +379,13 @@ export function makeRunEventHandler(opts: {
         }
       }
     },
-    { targetId: () => targetId, flush: batcher.flush },
+    {
+      targetId: () => targetId,
+      flush: () => {
+        batcher.flush();
+        flushToolLines();
+      },
+    },
   );
 }
 

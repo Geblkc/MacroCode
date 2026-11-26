@@ -5,7 +5,9 @@ import {
   perfEnable,
   perfEnabled,
   perfRecordDbSave,
+  perfRecordTerminal,
   perfReportLines,
+  perfReset,
   perfSnapshot,
 } from './perf';
 
@@ -36,9 +38,11 @@ describe('Faz 0 — perf ölçüm altyapısı', () => {
   it('varsayılan olarak kapalıdır ve kapalıyken sayaç tutmaz', () => {
     expect(perfEnabled()).toBe(false);
     perfRecordDbSave({ ms: 5, bytes: 100, sessions: 2 });
+    perfRecordTerminal({ ms: 3, lines: 10, optimized: true });
     const snap = perfSnapshot();
     expect(snap.enabled).toBe(false);
     expect(snap.db.saves).toBe(0);
+    expect(snap.terminal.renders).toBe(0);
   });
 
   it('perfEnable bayrağı yazar ve DB sayaçlarını toplar', () => {
@@ -57,6 +61,28 @@ describe('Faz 0 — perf ölçüm altyapısı', () => {
     expect(snap.db.sessions).toBe(3);
   });
 
+  it('terminal render süresini ve satır sayısını toplar', () => {
+    perfEnable();
+    perfRecordTerminal({ ms: 4, lines: 120, optimized: true });
+    perfRecordTerminal({ ms: 9, lines: 240, optimized: true });
+    perfRecordTerminal({ ms: 2, lines: 30, optimized: false });
+
+    const snap = perfSnapshot();
+    expect(snap.terminal.renders).toBe(3);
+    expect(snap.terminal.lastMs).toBe(2);
+    expect(snap.terminal.maxMs).toBe(9);
+    expect(snap.terminal.lines).toBe(30);
+    expect(snap.terminal.maxLines).toBe(240);
+    expect(snap.terminal.optimized).toBe(false);
+  });
+
+  it('perfReset terminal sayaçlarını sıfırlar', () => {
+    perfEnable();
+    perfRecordTerminal({ ms: 7, lines: 500, optimized: true });
+    perfReset();
+    expect(perfSnapshot().terminal).toMatchObject({ renders: 0, maxLines: 0 });
+  });
+
   it('perfDisable bayrağı siler ve ölçümü durdurur', () => {
     perfEnable();
     perfDisable();
@@ -67,9 +93,11 @@ describe('Faz 0 — perf ölçüm altyapısı', () => {
   it('rapor kapalıyken tek yönlendirme satırı, açıkken baseline başlığı üretir', () => {
     expect(perfReportLines('kapalı')).toEqual(['/// perf: kapalı · /perf on']);
     perfEnable();
+    perfRecordTerminal({ ms: 6, lines: 150, optimized: true });
     const lines = perfReportLines('kapalı');
     expect(lines[0]).toContain('perf baseline');
     expect(lines.some((l) => l.includes('store:'))).toBe(true);
     expect(lines.some((l) => l.includes('db:'))).toBe(true);
+    expect(lines.some((l) => l.includes('terminal:') && l.includes('cv on'))).toBe(true);
   });
 });

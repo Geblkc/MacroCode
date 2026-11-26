@@ -28,7 +28,7 @@ function autoName(content: string): string {
 }
 
 /** Arşivlenmiş (silinmiş sayılan) oturum mu? */
-export function isSessionArchived(session: Session): boolean {
+export function isSessionArchived(session: { deletedAt?: number }): boolean {
   return typeof session.deletedAt === 'number';
 }
 
@@ -43,6 +43,12 @@ interface SessionStore {
    * değil, oturum kimliğiyle tutulur.
    */
   streamingSessions: Record<string, boolean>;
+  /**
+   * Faz 2: token/bağlam/maliyet türevlerinin sürümü. Yalnızca bu değerler
+   * değiştiğinde artar; streaming metin deltaları artırmaz. StatusBar gibi
+   * tüketiciler O(mesaj) hesaplarını bu sürüme bağlar.
+   */
+  usageRevision: number;
 
   createSession: () => Session;
   /** Oturumu arşive taşır (kalıcı silmez; geçmişten geri yüklenebilir). */
@@ -137,6 +143,7 @@ export const useSessionStore = create<SessionStore>()(
       sessions: [],
       activeSessionId: null,
       streamingSessions: {},
+      usageRevision: 0,
 
       createSession: () => {
         const settings = useSettingsStore.getState();
@@ -221,6 +228,7 @@ export const useSessionStore = create<SessionStore>()(
 
       addMessage: (sessionId, message) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) => {
             if (sess.id !== sessionId) return sess;
             const hasUser = sess.messages.some((m) => m.role === 'user');
@@ -237,6 +245,7 @@ export const useSessionStore = create<SessionStore>()(
 
       addToolMessages: (sessionId, items) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) => {
             if (sess.id !== sessionId) return sess;
             const now = Date.now();
@@ -344,6 +353,7 @@ export const useSessionStore = create<SessionStore>()(
 
       clearSession: (sessionId) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) => {
             if (sess.id !== sessionId) return sess;
             // Faz 12 B.6: sıfırlamada özet de düşer (eski bağlamın izi kalmasın).
@@ -354,6 +364,7 @@ export const useSessionStore = create<SessionStore>()(
 
       removeMessage: (sessionId, messageId) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) =>
             sess.id === sessionId
               ? {
@@ -394,6 +405,7 @@ export const useSessionStore = create<SessionStore>()(
 
       setMessageUsage: (sessionId, messageId, usage) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) =>
             sess.id === sessionId
               ? {
@@ -409,6 +421,7 @@ export const useSessionStore = create<SessionStore>()(
 
       setMessageLastRequest: (sessionId, messageId, usage) =>
         set((s) => ({
+          usageRevision: s.usageRevision + 1,
           sessions: s.sessions.map((sess) =>
             sess.id === sessionId
               ? {
@@ -471,7 +484,10 @@ export const useSessionStore = create<SessionStore>()(
           const streamingSessions = { ...s.streamingSessions };
           if (value) streamingSessions[sessionId] = true;
           else delete streamingSessions[sessionId];
-          return { streamingSessions };
+          // Akış bitince yaklaşık bağlam/token göstergesi tazelensin.
+          return value
+            ? { streamingSessions }
+            : { streamingSessions, usageRevision: s.usageRevision + 1 };
         }),
 
       isStreamingFor: (sessionId) => !!sessionId && get().streamingSessions[sessionId] === true,

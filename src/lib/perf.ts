@@ -12,6 +12,7 @@
  * - DB: `saveSessionsToDb` çağrı sayısı, süre, gönderilen bayt
  * - streaming: oturum sayısı/süresi + rAF frame dağılımı (p50/p95/max)
  * - long tasks: 50 ms üstü görev sayısı/süresi
+ * - terminal: render süresi, DOM satır sayısı, content-visibility deneyi durumu
  * - bellek: `performance.memory` varsa JS heap
  *
  * Etkinleştirme: dev derlemesinde otomatik; release'te `localStorage`
@@ -74,6 +75,15 @@ const stats = {
   streams: { count: 0, totalMs: 0, lastMs: 0 },
   frames: [] as number[],
   longTasks: { count: 0, maxMs: 0, totalMs: 0 },
+  terminal: {
+    renders: 0,
+    lastMs: 0,
+    totalMs: 0,
+    maxMs: 0,
+    lines: 0,
+    maxLines: 0,
+    optimized: false,
+  },
 };
 
 let wasStreaming = false;
@@ -218,6 +228,19 @@ export function perfRecordDbSave(info: { ms: number; bytes: number; sessions: nu
   if (info.ms > stats.db.maxMs) stats.db.maxMs = info.ms;
 }
 
+/** Terminal render'ı tamamlandığında çağrılır (DOM satır sayısı + süre). */
+export function perfRecordTerminal(info: { ms: number; lines: number; optimized: boolean }): void {
+  if (!active.value) return;
+  const t = stats.terminal;
+  t.renders += 1;
+  t.lastMs = info.ms;
+  t.totalMs += info.ms;
+  if (info.ms > t.maxMs) t.maxMs = info.ms;
+  t.lines = info.lines;
+  if (info.lines > t.maxLines) t.maxLines = info.lines;
+  t.optimized = info.optimized;
+}
+
 /** Açılış işaretleri (performance.mark + dahili tablo). */
 export function perfMark(name: string): void {
   if (!active.value && !devBuild()) return;
@@ -279,6 +302,15 @@ export function perfReset(): void {
   stats.streams = { count: 0, totalMs: 0, lastMs: 0 };
   stats.frames = [];
   stats.longTasks = { count: 0, maxMs: 0, totalMs: 0 };
+  stats.terminal = {
+    renders: 0,
+    lastMs: 0,
+    totalMs: 0,
+    maxMs: 0,
+    lines: 0,
+    maxLines: 0,
+    optimized: false,
+  };
   updatesAtStreamStart = stats.storeUpdates;
   streamStartedAt = perfNow();
   stopFrameSampling();
@@ -299,6 +331,15 @@ export interface PerfSnapshot {
   streams: { count: number; totalMs: number; lastMs: number };
   frames: { samples: number; p50: number; p95: number; max: number; over50: number };
   longTasks: { count: number; maxMs: number; totalMs: number };
+  terminal: {
+    renders: number;
+    lastMs: number;
+    totalMs: number;
+    maxMs: number;
+    lines: number;
+    maxLines: number;
+    optimized: boolean;
+  };
   memory: { usedBytes: number; totalBytes: number } | null;
   marks: Record<string, number>;
   fcpMs: number | null;
@@ -347,6 +388,7 @@ export function perfSnapshot(): PerfSnapshot {
       over50: sorted.filter((x) => x > 50).length,
     },
     longTasks: { ...stats.longTasks },
+    terminal: { ...stats.terminal },
     memory: readMemory(),
     marks: Object.fromEntries(marks),
     fcpMs: fcp && fcp.startTime > 0 ? fcp.startTime : null,
@@ -423,6 +465,13 @@ export function perfReportLines(offLabel: string): string[] {
   lines.push(
     `  longtasks: ${s.longTasks.count} · total ${fmtMs(s.longTasks.totalMs)} · max ${fmtMs(s.longTasks.maxMs)}`,
   );
+  if (s.terminal.renders > 0) {
+    lines.push(
+      `  terminal: ${s.terminal.renders} renders · last ${fmtMs(s.terminal.lastMs)} · ` +
+        `max ${fmtMs(s.terminal.maxMs)} · ${s.terminal.lines} lines (max ${s.terminal.maxLines}) · ` +
+        `cv ${s.terminal.optimized ? 'on' : 'off'}`,
+    );
+  }
   if (s.memory) {
     lines.push(
       `  heap: ${fmtBytes(s.memory.usedBytes)} used / ${fmtBytes(s.memory.totalBytes)} total`,

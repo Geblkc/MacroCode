@@ -70,6 +70,17 @@
   animation: msg-rise var(--dur-3) var(--ease-out) both;
 }
 
+/* Faz 5 deneyi — yalnızca uzun oturumlarda (Terminal 120+ satır ekler):
+   ekran dışı satırların düzen/paint işini tarayıcı atlar. `auto` desteği
+   olmayan webview'lerde sabit tahmin geçerli olur; `content-visibility`
+   desteklenmiyorsa kural tümüyle yok sayılır (davranış değişmez). */
+.terminal-view-cv > .msg {
+  content-visibility: auto;
+  contain-intrinsic-size: 88px;
+  contain-intrinsic-size: auto 88px;
+  animation: none;
+}
+
 @keyframes msg-rise {
   from {
     transform: translateY(3px);

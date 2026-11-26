@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { makeRunEventHandler } from './useAgent';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { makeRunEventHandler, TOOL_LINE_FLUSH_MS, type AgentToolLine } from './useAgent';
 import { useSessionStore } from '../store/session';
 import type { AgentActivityPatch } from '../store/agentActivity';
 import { buildAgentHistory, toProviderMessages } from '../lib/engine/agent';
@@ -142,5 +142,73 @@ describe('v1.0 — nihai cevap araç çıktılarının altında', () => {
       name: 'read_file',
       target: 'a.ts',
     });
+  });
+});
+
+describe('Faz 3 — canlı araç çıktısı birleştirme', () => {
+  beforeEach(seed);
+
+  function collectingHandler() {
+    const lines: AgentToolLine[] = [];
+    const h = makeRunEventHandler({
+      sessionId: SESSION_ID,
+      assistantId: ASSISTANT_ID,
+      provider: 'anthropic',
+      model: 'x',
+      callNames: new Map(),
+      emit: (line) => lines.push(line),
+    });
+    return { h, lines };
+  }
+
+  it('pencere içindeki parçaları tek satırda birleştirir', () => {
+    vi.useFakeTimers();
+    try {
+      const { h, lines } = collectingHandler();
+      h({ k: 'tool_call', call: { id: 'c1', name: 'exec', args: { cmd: 'ls' } } });
+      const afterCall = lines.length;
+
+      h({ k: 'tool_stream', id: 'c1', stream: 'stdout', data: 'a' });
+      h({ k: 'tool_stream', id: 'c1', stream: 'stdout', data: 'b' });
+      expect(lines.length).toBe(afterCall); // pencere dolmadı
+
+      vi.advanceTimersByTime(TOOL_LINE_FLUSH_MS);
+      expect(lines.length).toBe(afterCall + 1);
+      const tool = lines[lines.length - 1].tool;
+      expect(tool?.output).toBe('ab');
+      expect(tool?.status).toBe('run');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('tool_result öncesinde bekleyen çıktıyı hemen yazar', () => {
+    vi.useFakeTimers();
+    try {
+      const { h, lines } = collectingHandler();
+      h({ k: 'tool_call', call: { id: 'c1', name: 'exec', args: { cmd: 'ls' } } });
+      h({ k: 'tool_stream', id: 'c1', stream: 'stdout', data: 'canlı' });
+      h({ k: 'tool_result', id: 'c1', ok: true, output: 'canlı bitti' });
+
+      // Sonuç beklemeden önce canlı satır, hemen ardından sonuç satırı.
+      expect(lines.map((l) => l.tool?.status)).toEqual(['run', 'run', 'ok']);
+      expect(lines[1].tool?.output).toBe('canlı');
+      expect(lines[2].tool?.output).toBe('canlı bitti');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('flush bekleyen canlı çıktıyı kaybetmez', () => {
+    vi.useFakeTimers();
+    try {
+      const { h, lines } = collectingHandler();
+      h({ k: 'tool_call', call: { id: 'c1', name: 'exec', args: { cmd: 'ls' } } });
+      h({ k: 'tool_stream', id: 'c1', stream: 'stdout', data: 'x' });
+      h.flush();
+      expect(lines[lines.length - 1].tool?.output).toBe('x');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

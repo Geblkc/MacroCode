@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import MessageLine from './MessageLine';
 import ToolCallCard from './ToolCallCard';
 import ApprovalCard from './ApprovalCard';
 import TaskPanel from './TaskPanel';
 import Welcome from './Welcome';
 import type { ExtraLine, Message, Session, TerminalLine, ToolEvent } from '../types';
-import { buildTimeline } from '../lib/timeline';
+import { createTimelineModel } from '../lib/timelineModel';
 import type { PendingApproval } from '../lib/engine/approvals';
 import { formatApprovalDetail } from '../lib/engine/approvalDetail';
 import { execApprovalWarning, isExecAllowed, parseCustomAllowList } from '../lib/engine/policy';
@@ -15,6 +15,7 @@ import { deriveTodoState } from '../lib/engine/tools/todo';
 import { findHits, stepHit } from '../lib/search';
 import { useCopy } from '../hooks/useCopy';
 import { useT } from '../lib/i18n';
+import { perfEnabled, perfNow, perfRecordTerminal } from '../lib/perf';
 import { Icon } from './icons';
 
 interface Props {
@@ -59,6 +60,35 @@ interface ViewLine {
   retry?: () => void;
   /** /help grup başlığı gibi vurgulu satırlar. */
   emphasis?: boolean;
+}
+
+/**
+ * Faz 3: mesaj → görünüm satırı önbelleği. Mesaj nesnesi ve akış bayrakları
+ * değişmedikçe aynı `ViewLine` referansı döner; `MessageLine` memo'su böylece
+ * tamamlanmış mesajların markdown'ını yeniden üretmez.
+ */
+interface CachedMessageView {
+  message: Message;
+  streaming: boolean;
+  thinking: boolean;
+  clockFormat: '24h' | '12h';
+  showTimestamps: boolean;
+  line: ViewLine;
+}
+
+/**
+ * Faz 5 deneyi: bu satır sayısından sonra ekran dışı satırlarda
+ * `content-visibility: auto` uygulanır. A/B ölçümü için `localStorage`
+ * `macrocode-cv=0` ayarı deneyi kapatır (uygulamayı yeniden başlatmak gerekir).
+ */
+const CV_MIN_LINES = 120;
+
+function cvExperimentEnabled(): boolean {
+  try {
+    return typeof localStorage === 'undefined' || localStorage.getItem('macrocode-cv') !== '0';
+  } catch {
+    return true;
+  }
 }
 
 function formatClock(ts: number, fmt: '24h' | '12h'): string {
@@ -158,6 +188,13 @@ export default function Terminal({
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
+  // Faz 3: iskelet ve ViewLine önbellekleri render'lar arasında yaşar.
+  const timelineModel = useRef(createTimelineModel()).current;
+  const messageViewCache = useRef(new Map<string, CachedMessageView>()).current;
+  const renderStartRef = useRef(0);
+  // Ölçüm açıkken render başlangıcını yakala (commit sonrası useEffect'te okunur).
+  if (perfEnabled()) renderStartRef.current = perfNow();
+  const [cvEnabled] = useState(cvExperimentEnabled);
 
   const view = useMemo<ViewLine[]>(() => {
     if (!session) return [];
@@ -166,17 +203,48 @@ export default function Terminal({
         ? session.messages
         : session.messages.filter((m) => m.timestamp >= clearedBefore);
     const lastId = msgs[msgs.length - 1]?.id;
-    const timeline = buildTimeline({ messages: session.messages, extras, clearedBefore });
+    // Faz 3: mesaj iskeleti son mesaj içerik değişiminde O(1) güncellenir;
+    // geçici satırlar hafif birleştirme adımında eklenir.
+    const timeline = timelineModel.build({
+      messages: session.messages,
+      extras,
+      clearedBefore,
+    });
+
+    // Silinen/compaction ile geride kalan kayıtları ara sıra temizle.
+    if (messageViewCache.size > session.messages.length + 64) {
+      const live = new Set(session.messages.map((m) => m.id));
+      for (const id of messageViewCache.keys()) if (!live.has(id)) messageViewCache.delete(id);
+    }
 
     return timeline.map((item): ViewLine => {
       if (item.kind === 'message') {
-        return toViewLine(
-          item.message,
-          streaming,
-          item.message.id === lastId,
+        const m = item.message;
+        const isLast = m.id === lastId;
+        const assistant = m.role === 'assistant';
+        const willStream = streaming && isLast && assistant && m.content !== '';
+        const willThink = streaming && isLast && assistant && m.content === '';
+        const cached = messageViewCache.get(m.id);
+        if (
+          cached &&
+          cached.message === m &&
+          cached.streaming === willStream &&
+          cached.thinking === willThink &&
+          cached.clockFormat === clockFormat &&
+          cached.showTimestamps === showTimestamps
+        ) {
+          return cached.line;
+        }
+        const line = toViewLine(m, streaming, isLast, clockFormat, showTimestamps);
+        messageViewCache.set(m.id, {
+          message: m,
+          streaming: willStream,
+          thinking: willThink,
           clockFormat,
           showTimestamps,
-        );
+          line,
+        });
+        return line;
       }
       if (item.kind === 'tool') {
         const tool =
@@ -207,7 +275,28 @@ export default function Terminal({
             : undefined,
       };
     });
-  }, [session, extras, clearedBefore, streaming, clockFormat, showTimestamps, pendingIds]);
+  }, [
+    session,
+    extras,
+    clearedBefore,
+    streaming,
+    clockFormat,
+    showTimestamps,
+    pendingIds,
+    timelineModel,
+    messageViewCache,
+  ]);
+
+  // Faz 5: render → commit süresi ve görünüm satırı sayısı `/perf` raporuna girer.
+  useLayoutEffect(() => {
+    if (renderStartRef.current <= 0) return;
+    perfRecordTerminal({
+      ms: perfNow() - renderStartRef.current,
+      lines: view.length,
+      optimized: cvEnabled && view.length >= CV_MIN_LINES,
+    });
+    renderStartRef.current = 0;
+  });
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -226,20 +315,41 @@ export default function Terminal({
   };
 
   // Satırlar değiştikçe (streaming/yeni mesaj) alta yapışmayı korur.
+  // Faz 3: kare başına en fazla bir kez ölç/scroll (her delta'da zorunlu
+  // layout yerine rAF'a birleştirilir).
+  const scrollRafRef = useRef<number | null>(null);
   useEffect(() => {
-    const el = scrollRef.current;
-    if (el && stickRef.current) {
-      el.scrollTop = el.scrollHeight;
-    } else if (el) {
-      const shouldShow = el.scrollHeight > el.clientHeight + 40;
-      setShowJump((prev) => (prev === shouldShow ? prev : shouldShow));
-    }
+    if (scrollRafRef.current !== null) return;
+    scrollRafRef.current = window.requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const el = scrollRef.current;
+      if (!el) return;
+      if (stickRef.current) {
+        el.scrollTop = el.scrollHeight;
+      } else {
+        const shouldShow = el.scrollHeight > el.clientHeight + 40;
+        setShowJump((prev) => (prev === shouldShow ? prev : shouldShow));
+      }
+    });
   }, [view]);
+
+  useEffect(
+    () => () => {
+      if (scrollRafRef.current !== null) {
+        window.cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     stickRef.current = true;
     setShowJump(false);
-  }, [session?.id]);
+    // Faz 3: oturum değişince önbellekler eski oturumun satırlarını tutmasın.
+    timelineModel.reset();
+    messageViewCache.clear();
+  }, [session?.id, timelineModel, messageViewCache]);
 
   // Faz 8 L4: görev listesi (todo/plan) mesajların sonunda gösterilir.
   const todoItems = useMemo(
@@ -337,7 +447,7 @@ export default function Terminal({
           <Welcome onRootCommand={onRootCommand} />
         ) : (
           <div
-            className="terminal-view"
+            className={`terminal-view${cvEnabled && view.length >= CV_MIN_LINES ? ' terminal-view-cv' : ''}`}
             key={session?.id ?? 'none'}
             role="log"
             aria-live="polite"

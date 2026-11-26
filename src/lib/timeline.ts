@@ -8,9 +8,15 @@
  *   kalıyordu. Son AI cevabı da onların üstünde görünüyordu.
  * - Araç sonuçları oturumda `system` mesajı olarak durur. Bu satırlar ham
  *   `///` çıktısı olarak basılmak yerine ilgili kartla birleştirilir; böylece
- *   uygulama yeniden başladığında da kartlar doğru yerde görünür.
+ *   uygulama yeniden başlatıldığında da kartlar doğru yerde görünür.
  *
- * Saf fonksiyon: React/store bağımlılığı yok (test edilebilir).
+ * Faz 3: hesaplama iki parçaya ayrıldı —
+ * - `buildTimelineBase` yalnızca mesajlardan gelen (görece pahalı) iskeleti
+ *   kurar; `TimelineModel` bu iskeleti akış sırasında yeniden kullanır.
+ * - `mergeTimeline` iskeleti geçici `extras` satırlarıyla birleştirir; canlı
+ *   araç çıktısı her güncellendiğinde yalnız bu hafif adım koşar.
+ *
+ * Saf fonksiyonlar: React/store bağımlılığı yok (test edilebilir).
  */
 import type { ExtraLine, Message, ToolEvent } from '../types';
 import { previewArgs, toolTarget } from './engine/toolPreview';
@@ -19,6 +25,17 @@ export type TimelineItem =
   | { kind: 'message'; key: string; ts: number; seq: number; message: Message }
   | { kind: 'tool'; key: string; ts: number; seq: number; tool: ToolEvent }
   | { kind: 'extra'; key: string; ts: number; seq: number; extra: ExtraLine };
+
+type ToolItem = TimelineItem & { kind: 'tool' };
+
+/** Mesajlardan kurulan iskelet (Faz 3'te önbelleklenebilir). */
+export interface TimelineBase {
+  items: TimelineItem[];
+  /** Araç çağrısının yapıldığı an (süre ölçümü için). */
+  starts: Map<string, number>;
+  /** İskelette kullanılan son sıra numarası + 1. */
+  seq: number;
+}
 
 export interface TimelineInput {
   messages: Message[];
@@ -63,10 +80,19 @@ function mergeTool(prev: ToolEvent, next: ToolEvent): ToolEvent {
   return merged;
 }
 
-export function buildTimeline({ messages, extras, clearedBefore }: TimelineInput): TimelineItem[] {
+const byPosition = (a: TimelineItem, b: TimelineItem) =>
+  a.ts - b.ts || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.seq - b.seq;
+
+/**
+ * Yalnızca mesajlardan gelen satırları kurar (geçici `extras` hariç).
+ * Sıralama çağıran tarafta `mergeTimeline` içinde yapılır.
+ */
+export function buildTimelineBase({
+  messages,
+  clearedBefore,
+}: Pick<TimelineInput, 'messages' | 'clearedBefore'>): TimelineBase {
   const items: TimelineItem[] = [];
-  const tools = new Map<string, TimelineItem & { kind: 'tool' }>();
-  /** Araç çağrısının yapıldığı an (süre ölçümü ve yerleşim için). */
+  const tools = new Map<string, ToolItem>();
   const starts = new Map<string, number>();
   let seq = 0;
 
@@ -77,7 +103,7 @@ export function buildTimeline({ messages, extras, clearedBefore }: TimelineInput
       existing.ts = Math.min(existing.ts, ts);
       existing.tool = mergeTool(existing.tool, tool);
     } else {
-      const item: TimelineItem & { kind: 'tool' } = {
+      const item: ToolItem = {
         kind: 'tool',
         key,
         ts,
@@ -138,6 +164,59 @@ export function buildTimeline({ messages, extras, clearedBefore }: TimelineInput
     }
   }
 
+  return { items, starts, seq };
+}
+
+/**
+ * İskeleti geçici satırlarla birleştirir. İskelet nesneleri **değiştirilmez**;
+ * bir araç kartı extras ile güncellendiğinde kopyası üretilir. Böylece
+ * `TimelineModel` önbelleği sonraki karelerde güvenle yeniden kullanılır.
+ */
+export function mergeTimeline(
+  base: TimelineBase,
+  extras: ExtraLine[],
+  clearedBefore?: number | null,
+): TimelineItem[] {
+  const items = base.items.slice();
+  const tools = new Map<string, ToolItem>();
+  const indexByKey = new Map<string, number>();
+  items.forEach((item, i) => {
+    if (item.kind !== 'tool') return;
+    tools.set(item.key, item);
+    indexByKey.set(item.key, i);
+  });
+  let seq = base.seq;
+
+  const replaceTool = (existing: ToolItem, tool: ToolEvent, ts: number) => {
+    let nextTool = tool;
+    const start = base.starts.get(existing.key);
+    if (
+      nextTool.ms === undefined &&
+      nextTool.status !== 'run' &&
+      start !== undefined &&
+      ts > start
+    ) {
+      nextTool = { ...nextTool, ms: ts - start };
+    }
+    const next: ToolItem = { ...existing, ts: Math.min(existing.ts, ts), tool: nextTool };
+    tools.set(existing.key, next);
+    const idx = indexByKey.get(existing.key);
+    if (idx !== undefined) items[idx] = next;
+  };
+
+  const upsertTool = (tool: ToolEvent, ts: number) => {
+    const key = toolKey(tool.id);
+    const existing = tools.get(key);
+    if (existing) {
+      replaceTool(existing, mergeTool(existing.tool, tool), ts);
+      return;
+    }
+    const item: ToolItem = { kind: 'tool', key, ts, seq: seq++, tool };
+    tools.set(key, item);
+    indexByKey.set(key, items.length);
+    items.push(item);
+  };
+
   for (const e of extras) {
     if (clearedBefore != null && e.ts < clearedBefore) continue;
     if (e.tool) {
@@ -147,7 +226,9 @@ export function buildTimeline({ messages, extras, clearedBefore }: TimelineInput
     items.push({ kind: 'extra', key: e.id, ts: e.ts, seq: seq++, extra: e });
   }
 
-  return items.sort(
-    (a, b) => a.ts - b.ts || KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.seq - b.seq,
-  );
+  return items.sort(byPosition);
+}
+
+export function buildTimeline({ messages, extras, clearedBefore }: TimelineInput): TimelineItem[] {
+  return mergeTimeline(buildTimelineBase({ messages, clearedBefore }), extras, clearedBefore);
 }

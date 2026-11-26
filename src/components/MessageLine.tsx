@@ -28,8 +28,17 @@ interface Props {
 /**
  * Faz 4: streaming sırasında markdown render'ı en fazla ~50ms'de bir yapılır
  * (her delta'da tam parse değil); akış bitince anlık senkronlanır.
+ *
+ * Faz 3: uzun yanıtlarda tam parse maliyeti içerikle birlikte büyür; pencere
+ * kademeli olarak genişletilir (yine de saniyede ≥6 güncelleme kalır).
  */
 const STREAM_RENDER_MS = 50;
+
+function streamRenderDelay(length: number): number {
+  if (length > 24_000) return 160;
+  if (length > 8_000) return 100;
+  return STREAM_RENDER_MS;
+}
 
 // user/ai prefixleri burada eklenir; sys/err/warn icerigi isaretini tasir.
 const PREFIX: Record<LineType, string> = {
@@ -73,7 +82,10 @@ function MessageLineInner({
       setRendered((prev) => (prev === content ? prev : content));
       return;
     }
-    const wait = Math.max(0, STREAM_RENDER_MS - (Date.now() - lastRenderRef.current));
+    const wait = Math.max(
+      0,
+      streamRenderDelay(content.length) - (Date.now() - lastRenderRef.current),
+    );
     const id = window.setTimeout(() => {
       lastRenderRef.current = Date.now();
       setRendered(latestRef.current);

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import Titlebar from './components/Titlebar';
 import Sidebar from './components/Sidebar';
 import Terminal from './components/Terminal';
@@ -171,7 +172,15 @@ export default function App() {
   }, [abortStream, abortAgent]);
 
   const activeId = useSessionStore((s) => s.activeSessionId);
-  const sessions = useSessionStore((s) => s.sessions);
+  /**
+   * Faz 2: tüm `sessions` dizisine abone olmak her token'da App'i (dolayısıyla
+   * Sidebar/StatusBar'ı) uyandırıyordu. App yalnız aktif oturumu ve oturum
+   * kimlik listesini izler.
+   */
+  const session = useSessionStore(
+    (s) => s.sessions.find((x) => x.id === s.activeSessionId) ?? null,
+  );
+  const sessionIds = useSessionStore(useShallow((s) => s.sessions.map((x) => x.id)));
   /** Akış durumu OTURUM bazlıdır — başka konuşma akıyorsa burası false kalır. */
   const streaming = useSessionStore((s) =>
     activeId ? s.streamingSessions[activeId] === true : false,
@@ -183,7 +192,6 @@ export default function App() {
   const contrast = useSettingsStore((s) => s.contrast);
   const uiFont = useSettingsStore((s) => s.uiFont);
   const wsRoot = useWorkspaceStore((s) => s.root);
-  const session = sessions.find((s) => s.id === activeId) ?? null;
 
   /**
    * Workspace değişince Git durumunu bir kez tespit et — panel kapalıyken de
@@ -711,6 +719,7 @@ export default function App() {
             return;
           }
           useSessionStore.setState((s) => ({
+            usageRevision: s.usageRevision + 1,
             sessions: s.sessions.map((x) =>
               x.id === sessionId ? { ...x, messages: next, updatedAt: Date.now() } : x,
             ),
@@ -1662,7 +1671,7 @@ export default function App() {
 
   // Silinen session'ların extras/cleared/pending kayıtlarını temizle (memory leak önlemi).
   useEffect(() => {
-    const ids = new Set(sessions.map((s) => s.id));
+    const ids = new Set(sessionIds);
     // Faz 7: silinen oturumların compaction hafızası temizlenir (bellek sızıntısı yok).
     for (const id of prevSessionIdsRef.current) {
       if (!ids.has(id)) clearMemo(id);
@@ -1700,7 +1709,7 @@ export default function App() {
       for (const k of dead) delete next[k];
       return next;
     });
-  }, [sessions]);
+  }, [sessionIds]);
 
   // JSON yedegini ice aktar: dogrula, id cakismasinda yeni id ver, sona al.
   const importBackupText = useCallback(
@@ -1821,6 +1830,37 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [settingsOpen, statsOpen, historyOpen, snapshotsOpen, streaming, abort]);
 
+  // Faz 2: memo'lu Sidebar/StatusBar'ın prop kimlikleri streaming sırasında
+  // değişmesin (aksi halde memo anlamsız kalır).
+  const openSettings = useCallback(() => setSettingsOpen(true), []);
+  const openStats = useCallback(() => setStatsOpen(true), []);
+  const openHistory = useCallback(() => setHistoryOpen(true), []);
+  const sidebarClear = useCallback(() => {
+    if (activeId) clearView(activeId);
+  }, [activeId, clearView]);
+  const requestDelete = useCallback(
+    (id: string, name: string) => {
+      setConfirmReq({
+        title: t('sidebar.confirmArchiveTitle'),
+        message: t('sidebar.confirmArchiveMessage', { name }),
+        confirmLabel: t('sidebar.confirmArchiveOk'),
+        cancelLabel: t('common.cancel'),
+        danger: true,
+        // Silme gibi geri alınamaz işlemde odak güvenli tarafa.
+        initialFocus: 'cancel',
+        onConfirm: () => useSessionStore.getState().deleteSession(id),
+      });
+    },
+    [t],
+  );
+  const statusPendingClick = useCallback(() => {
+    const el = document.querySelector('.approval');
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+  const statusWorkspaceClick = useCallback(() => void runRootCommand(''), [runRootCommand]);
+  const statusCompact = useCallback(() => handleSendRef.current?.('/compact'), []);
+  const statusGitClick = useCallback(() => useGitStore.getState().toggle(), []);
+
   return (
     <div className="app">
       <Titlebar
@@ -1830,26 +1870,13 @@ export default function App() {
       />
       <div className="body">
         <Sidebar
-          onOpenSettings={() => setSettingsOpen(true)}
-          onOpenStats={() => setStatsOpen(true)}
-          onOpenHistory={() => setHistoryOpen(true)}
-          onClear={() => {
-            if (activeId) clearView(activeId);
-          }}
+          onOpenSettings={openSettings}
+          onOpenStats={openStats}
+          onOpenHistory={openHistory}
+          onClear={sidebarClear}
           onExportJson={exportActiveJson}
           onImportFile={importBackupFile}
-          onRequestDelete={(id, name) =>
-            setConfirmReq({
-              title: t('sidebar.confirmArchiveTitle'),
-              message: t('sidebar.confirmArchiveMessage', { name }),
-              confirmLabel: t('sidebar.confirmArchiveOk'),
-              cancelLabel: t('common.cancel'),
-              danger: true,
-              // Silme gibi geri alınamaz işlemde odak güvenli tarafa.
-              initialFocus: 'cancel',
-              onConfirm: () => useSessionStore.getState().deleteSession(id),
-            })
-          }
+          onRequestDelete={requestDelete}
         />
         <div className="main-col">
           <Terminal
@@ -1909,17 +1936,14 @@ export default function App() {
       <StatusBar
         pendingCount={activeId ? (pendingBySession[activeId]?.length ?? 0) : 0}
         isStreaming={streaming}
-        onPendingClick={() => {
-          const el = document.querySelector('.approval');
-          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }}
-        onWorkspaceClick={() => void runRootCommand('')}
-        onCompact={streaming ? undefined : () => handleSendRef.current?.('/compact')}
-        onGitClick={() => useGitStore.getState().toggle()}
+        onPendingClick={statusPendingClick}
+        onWorkspaceClick={statusWorkspaceClick}
+        onCompact={streaming ? undefined : statusCompact}
+        onGitClick={statusGitClick}
       />
       <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <StatsScreen open={statsOpen} onClose={() => setStatsOpen(false)} />
-      <SessionHistoryModal open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      {historyOpen ? <SessionHistoryModal open onClose={() => setHistoryOpen(false)} /> : null}
       <SnapshotsModal
         open={snapshotsOpen}
         root={wsRoot}

@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { isSessionArchived, useSessionStore } from '../store/session';
+import { useSessionSummaries, type SessionSummary } from '../store/sessionSummaries';
 import { useSettingsStore, clampSidebarWidth } from '../store/settings';
 import { getModel } from '../lib/providers';
 import { showToast } from '../lib/toast';
@@ -36,16 +37,7 @@ interface Group {
 }
 
 /** Oturumları yakınlığa göre gruplandırır. */
-function groupSessions(
-  sessions: {
-    id: string;
-    name: string;
-    messages: unknown[];
-    updatedAt: number;
-    model?: string;
-    agentMode?: AgentMode;
-  }[],
-): Group[] {
+function groupSessions(sessions: SessionSummary[]): Group[] {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
   const today = startOfToday.getTime();
@@ -63,7 +55,7 @@ function groupSessions(
     const item = {
       id: s.id,
       name: s.name,
-      count: s.messages.length,
+      count: s.messageCount,
       updatedAt: t,
       model: s.model || '',
       ...(s.agentMode ? { agentMode: s.agentMode } : {}),
@@ -112,7 +104,7 @@ function relativeTime(ts: number, t: TFn): string {
 
 const store = useSessionStore.getState;
 
-export default function Sidebar({
+function Sidebar({
   onOpenSettings,
   onOpenStats,
   onOpenHistory,
@@ -122,7 +114,7 @@ export default function Sidebar({
   onRequestDelete,
 }: Props) {
   const t = useT();
-  const sessions = useSessionStore((s) => s.sessions);
+  const sessions = useSessionSummaries();
   const activeId = useSessionStore((s) => s.activeSessionId);
   const currentModel = useSettingsStore((s) => s.currentModel);
   const customModels = useSettingsStore((s) => s.customModels);
@@ -471,3 +463,7 @@ export default function Sidebar({
     </aside>
   );
 }
+
+// Faz 2: App her streaming deltasında yeniden render olsa da Sidebar'ın
+// prop'ları (stabil callback'ler) ve özet listesi değişmedikçe atlanır.
+export default memo(Sidebar);

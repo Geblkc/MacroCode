@@ -1,4 +1,5 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useSessionStore } from '../store/session';
 import { useSettingsStore } from '../store/settings';
 import { useWorkspaceStore } from '../store/workspace';
@@ -31,7 +32,7 @@ function fmtCount(n: number): string {
   return String(n);
 }
 
-export default function StatusBar({
+function StatusBar({
   pendingCount = 0,
   isStreaming,
   onPendingClick,
@@ -41,8 +42,22 @@ export default function StatusBar({
 }: Props) {
   const t = useT();
   const agentActivity = useActiveAgentActivity();
-  const sessions = useSessionStore((s) => s.sessions);
-  const activeId = useSessionStore((s) => s.activeSessionId);
+  // Faz 2: tam `sessions` yerine yalnız görünen alanlar. `rev` yalnızca
+  // token/bağlam/maliyet değişiminde artar → ağır hesaplar akış sırasında
+  // her deltada tekrarlanmaz.
+  const active = useSessionStore(
+    useShallow((s) => {
+      const sess = s.sessions.find((x) => x.id === s.activeSessionId);
+      return {
+        id: s.activeSessionId,
+        model: sess?.model ?? '',
+        provider: sess?.provider ?? null,
+        agentMode: sess?.agentMode ?? 'build',
+        rev: s.usageRevision,
+      };
+    }),
+  );
+  const activeId = active.id;
   const keyStatus = useSettingsStore((s) => s.keyStatus);
   const currentProvider = useSettingsStore((s) => s.currentProvider);
   const currentModel = useSettingsStore((s) => s.currentModel);
@@ -56,29 +71,47 @@ export default function StatusBar({
   const gitStatus = useGitStore((s) => s.status);
   const gitOpen = useGitStore((s) => s.open);
 
-  const session = sessions.find((s) => s.id === activeId) ?? null;
-  const model = session?.model || currentModel;
-  const provider = session?.provider ?? currentProvider;
+  const model = active.model || currentModel;
+  const provider = active.provider ?? currentProvider;
 
   // Bağlam = **son API isteğinin** boyutu (agent'ta adım başına kaydedilir);
   // oturum toplamı ise ayrı gösterilir. Gerçek usage yoksa yaklaşık geçmiş
   // token'ına düşülür — `tokens` agent turunda kümülatif olduğu için kullanılmaz.
-  const { inTok, outTok } = useMemo(() => {
+  //
+  // Faz 2: mesaj dizisi yerine `usageRevision` bağımlılığı. Streaming metin
+  // deltaları bu değeri artırmaz; akış bitince (setStreaming(false)) ve her
+  // gerçek usage olayında tazelenir.
+  const { inTok, outTok, ctx, cost } = useMemo(() => {
+    // `rev` yalnızca türevlerin tazelenme sinyalidir (gövdede kullanılmaz).
+    void active.rev;
+    const sess = activeId
+      ? (useSessionStore.getState().sessions.find((s) => s.id === activeId) ?? null)
+      : null;
+    const messages = sess?.messages ?? [];
     let i = 0;
     let o = 0;
-    for (const m of session?.messages ?? []) {
+    for (const m of messages) {
       const tok = m.tokens;
       if (!tok) continue;
       i += tok.input ?? 0;
       o += tok.output ?? 0;
     }
-    return { inTok: i, outTok: o };
-  }, [session?.messages]);
-
-  const ctx = useMemo(
-    () => contextUsage(session?.messages ?? [], model, customModels),
-    [session?.messages, model, customModels],
-  );
+    let sessionCostValue: number | null = null;
+    if (sess && Object.keys(prices).length > 0) {
+      try {
+        const r = sessionCost(messages, prices);
+        sessionCostValue = r.cost > 0 ? r.cost : null;
+      } catch {
+        sessionCostValue = null;
+      }
+    }
+    return {
+      inTok: i,
+      outTok: o,
+      ctx: contextUsage(messages, model, customModels),
+      cost: sessionCostValue,
+    };
+  }, [activeId, active.rev, model, customModels, prices]);
   const ctxClass = ctx.level === 'err' ? 'err' : ctx.level === 'warn' ? 'warn' : '';
   const ctxTitle = t('status.contextUsage', {
     used: fmtCount(ctx.used),
@@ -95,17 +128,6 @@ export default function StatusBar({
     </>
   );
 
-  // Maliyet (fiyat tablosu varsa).
-  const cost = useMemo(() => {
-    if (!session || Object.keys(prices).length === 0) return null;
-    try {
-      const r = sessionCost(session.messages, prices);
-      return r.cost > 0 ? r.cost : null;
-    } catch {
-      return null;
-    }
-  }, [session, prices]);
-
   const connected = keyStatus[provider] ?? false;
   const mcpOn = mcpServers.filter((m) => m.enabled).length;
   const approvalLabel =
@@ -115,7 +137,7 @@ export default function StatusBar({
         ? t('status.approval.autoRead')
         : t('status.approval.autoEdit');
 
-  const agentMode = session?.agentMode ?? 'build';
+  const agentMode = active.agentMode;
   const modeKey =
     agentMode === 'build' ? 'mode.build' : agentMode === 'plan' ? 'mode.plan' : 'mode.ask';
   const modeDescKey =
@@ -296,3 +318,7 @@ export default function StatusBar({
     </div>
   );
 }
+
+// Faz 2: App streaming sırasında yeniden render olsa da (Terminal için gerekli)
+// StatusBar prop'ları ve `active` özeti değişmedikçe atlanır.
+export default memo(StatusBar);
