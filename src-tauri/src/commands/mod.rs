@@ -12,6 +12,19 @@ pub mod stream;
 pub mod tool_output;
 pub mod updater;
 
+/// Faz 4: async Tauri komutlarındaki engelleme yapan dosya işlemlerini
+/// tokio'nun bloklayıcı işçi havuzuna taşır. Komutlar yine `async` kalır;
+/// yalnızca gövde worker thread'de çalışır (UI/async runtime bloklanmaz).
+pub(crate) async fn blocking<T, F>(f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("dosya görevi başarısız: {e}"))?
+}
+
 pub use db::db_save_sessions;
 pub use exec::{exec_cancel, exec_cmd, exec_cmd_stream, ExecState};
 pub use fs::{

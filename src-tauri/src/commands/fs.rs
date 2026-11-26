@@ -1,3 +1,4 @@
+use super::blocking;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::fs::File;
@@ -320,6 +321,10 @@ pub struct DirEntry {
 
 #[tauri::command]
 pub async fn list_dir(root: String, path: String) -> Result<Vec<DirEntry>, String> {
+    blocking(move || list_dir_blocking(root, path)).await
+}
+
+fn list_dir_blocking(root: String, path: String) -> Result<Vec<DirEntry>, String> {
     let dir = resolve_rooted(&root, &path)?;
     let rd = std::fs::read_dir(&dir).map_err(|e| err(format!("dizin okunamadı: {e}")))?;
     let mut out = Vec::new();
@@ -700,6 +705,16 @@ pub async fn read_file(
     offset: Option<usize>,
     column: Option<usize>,
 ) -> Result<ReadOut, String> {
+    blocking(move || read_file_blocking(root, path, limit, offset, column)).await
+}
+
+fn read_file_blocking(
+    root: String,
+    path: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    column: Option<usize>,
+) -> Result<ReadOut, String> {
     if super::tool_output::is_tool_output_rel(&path) {
         return read_tool_output_page(&root, &path, limit, offset, column);
     }
@@ -776,6 +791,10 @@ pub async fn read_file(
 
 #[tauri::command]
 pub async fn read_file_full(root: String, path: String) -> Result<String, String> {
+    blocking(move || read_file_full_blocking(root, path)).await
+}
+
+fn read_file_full_blocking(root: String, path: String) -> Result<String, String> {
     let full = resolve_rooted(&root, &path)?;
     let meta = std::fs::metadata(&full).map_err(|e| err(format!("dosya bulunamadı: {e}")))?;
     if meta.is_dir() {
@@ -885,6 +904,10 @@ static ATOMIC_WRITE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::A
 
 #[tauri::command]
 pub async fn apply_patch(root: String, path: String, content: String) -> Result<(), String> {
+    blocking(move || apply_patch_blocking(root, path, content)).await
+}
+
+fn apply_patch_blocking(root: String, path: String, content: String) -> Result<(), String> {
     if content.len() as u64 > 1024 * 1024 {
         return Err(err("yeni içerik çok büyük (1MB+)"));
     }
@@ -945,6 +968,10 @@ pub async fn apply_patch(root: String, path: String, content: String) -> Result<
 
 #[tauri::command]
 pub async fn undo_patch(root: String, backup_id: Option<String>) -> Result<String, String> {
+    blocking(move || undo_patch_blocking(root, backup_id)).await
+}
+
+fn undo_patch_blocking(root: String, backup_id: Option<String>) -> Result<String, String> {
     let base = canonical_root(&root)?;
     // H1 devamı: yedek dizini veya manifest symlink ile dışarıyı gösteremez.
     let backup_dir = jailed_macrocode_subdir(&base, "backups")?;
@@ -1051,6 +1078,15 @@ pub async fn grep_files(
     path: Option<String>,
     regex: Option<bool>,
 ) -> Result<Vec<GrepHit>, String> {
+    blocking(move || grep_files_blocking(root, pattern, path, regex)).await
+}
+
+fn grep_files_blocking(
+    root: String,
+    pattern: String,
+    path: Option<String>,
+    regex: Option<bool>,
+) -> Result<Vec<GrepHit>, String> {
     let pat = pattern.trim().to_owned();
     if pat.is_empty() {
         return Err(err("arama deseni boş olamaz"));
@@ -1114,6 +1150,14 @@ const MAX_GLOB_HITS: usize = 100;
 /// Faz 3 — glob desenine göre dosya keşfi (ignore + secret filtreli, jail korumalı).
 #[tauri::command]
 pub async fn glob_files(
+    root: String,
+    pattern: String,
+    path: Option<String>,
+) -> Result<Vec<DirEntry>, String> {
+    blocking(move || glob_files_blocking(root, pattern, path)).await
+}
+
+fn glob_files_blocking(
     root: String,
     pattern: String,
     path: Option<String>,
@@ -1212,6 +1256,10 @@ pub struct TreeEntry {
 
 #[tauri::command]
 pub async fn list_tree(root: String, max_entries: Option<usize>) -> Result<Vec<TreeEntry>, String> {
+    blocking(move || list_tree_blocking(root, max_entries)).await
+}
+
+fn list_tree_blocking(root: String, max_entries: Option<usize>) -> Result<Vec<TreeEntry>, String> {
     let base = canonical_root(&root)?;
     let mut files: Vec<PathBuf> = Vec::new();
     walk(&base, &mut files);
@@ -1270,6 +1318,10 @@ fn memory_path(root: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub async fn memory_read(root: String) -> Result<String, String> {
+    blocking(move || memory_read_blocking(root)).await
+}
+
+fn memory_read_blocking(root: String) -> Result<String, String> {
     let file = memory_path(&root)?;
     match std::fs::read_to_string(&file) {
         Ok(txt) => Ok(txt),
@@ -1281,6 +1333,10 @@ pub async fn memory_read(root: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn memory_append(root: String, text: String) -> Result<String, String> {
+    blocking(move || memory_append_blocking(root, text)).await
+}
+
+fn memory_append_blocking(root: String, text: String) -> Result<String, String> {
     let clean = text.trim();
     if clean.is_empty() {
         return Err(err("not boş olamaz"));
@@ -1326,6 +1382,10 @@ pub struct WriteOut {
 /// Mevcut dosya varsa hata verir (`edit_file` kullan).
 #[tauri::command]
 pub async fn write_file(root: String, path: String, content: String) -> Result<WriteOut, String> {
+    blocking(move || write_file_blocking(root, path, content)).await
+}
+
+fn write_file_blocking(root: String, path: String, content: String) -> Result<WriteOut, String> {
     if content.len() as u64 > 512 * 1024 {
         return Err(err("içerik çok büyük (512KB+)"));
     }

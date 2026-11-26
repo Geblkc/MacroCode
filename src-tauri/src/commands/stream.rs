@@ -1,7 +1,25 @@
 use futures_util::StreamExt;
 use serde::Serialize;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 use tauri::ipc::Channel;
+
+/// Faz 4: istemciyi her istekte yeniden kurmak TLS el sıkışması ve bağlantı
+/// havuzunu çöpe atıyordu. Süreç boyunca tek istemci paylaşılır. Redirect
+/// hâlâ tamamen kapalı (x-api-key'in cross-host'a taşınmaması için).
+static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
+fn anthropic_client() -> Result<&'static reqwest::Client, String> {
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .map_err(|e| format!("istemci kurulamadı: {e}"))
+        })
+        .as_ref()
+        .map_err(|e| e.clone())
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct UsageEvent {
@@ -291,10 +309,7 @@ pub async fn stream_anthropic(
     // L2: yönlendirme TAMAMEN kapalı — reqwest varsayılan politikası (10 hops)
     // `Authorization`'ı cross-host'ta düşürür ama `x-api-key` DÜŞÜRMEZ; API
     // zaten redirect kullanmadığından 3xx yanıtı `http 3xx` hatası olarak döner.
-    let client = reqwest::Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .map_err(|e| format!("istemci kurulamadı: {e}"))?;
+    let client = anthropic_client()?;
     let res = client
         .post("https://api.anthropic.com/v1/messages")
         .header("content-type", "application/json")

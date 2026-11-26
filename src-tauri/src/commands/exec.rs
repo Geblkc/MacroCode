@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tauri::ipc::Channel;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::sync::watch;
 
 const TIMEOUT_SECS: u64 = 15;
@@ -479,8 +479,15 @@ fn snapshot_capture_stats(shared: &SharedCaptureStats) -> CaptureStats {
         .clone()
 }
 
-/// Canlı UI akışını hard sınırdan sonra durdurur. Dosya yakalamaya devam eder.
+/// Canlı UI akışını hard sınırdan sonra durdurur.
 ///
+/// Faz 4 (kaynak optimizasyonu): geçici capture dosyası ve ondan üretilen
+/// artifact için de ayrı bir üst sınır vardır. Sınır aşılsa bile boru
+/// boşaltılmaya devam edilir (çocuk süreç yazmada takılmaz); yalnızca dosyaya
+/// yazma kesilir ve sonuç açıkça `capture_incomplete=true` ile işaretlenir.
+/// Böylece sınırsız çıktı üreten bir komut disk dolduramaz.
+const CAPTURE_FILE_MAX_BYTES: u64 = 1024 * 1024;
+
 /// Eşik, modele giden `[exit ...]` başlığı ve stderr ayırıcısı da hesaba
 /// katılarak uygulanır. Böylece canlı akışta geçen sınır, final payload'ının
 /// sınırdan farklı bir ölçümde hard sayılmasına yol açmaz.
@@ -489,6 +496,8 @@ struct GateStream {
     bytes: u64,
     newlines: u64,
     ends_with_newline: bool,
+    /// Geçici dosyaya gerçekten yazılan bayt (disk sınırı için).
+    file_bytes: u64,
 }
 
 #[derive(Default)]
@@ -565,6 +574,37 @@ impl StreamGate {
         stream.newlines += newlines;
         stream.ends_with_newline = ends_with_newline;
         !(state.projected_bytes() > self.hard_bytes || state.projected_lines() >= self.hard_lines)
+    }
+
+    /// Bu chunk'ın kaç baytının yakalama dosyasına yazılacağını döndürür.
+    /// Sınır sonrası 0 döner ama çağıran boruyu okumaya devam eder.
+    fn capture_bytes(&self, is_stderr: bool, bytes: u64) -> usize {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stream = if is_stderr {
+            &mut state.stderr
+        } else {
+            &mut state.stdout
+        };
+        let remaining = CAPTURE_FILE_MAX_BYTES.saturating_sub(stream.file_bytes);
+        let allowed = bytes.min(remaining) as usize;
+        stream.file_bytes += allowed as u64;
+        allowed
+    }
+
+    fn capture_truncated(&self, is_stderr: bool) -> bool {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stream = if is_stderr {
+            &state.stderr
+        } else {
+            &state.stdout
+        };
+        stream.file_bytes >= CAPTURE_FILE_MAX_BYTES
     }
 }
 
@@ -695,7 +735,7 @@ async fn pump_exec<R>(
     mut reader: R,
     is_stderr: bool,
     channel: Option<Channel<ExecEvent>>,
-    mut file: File,
+    file: File,
     gate: Arc<StreamGate>,
     shared: SharedCaptureStats,
 ) -> Result<(), String>
@@ -705,6 +745,9 @@ where
     // `read_until` newline beklerken devasa tek satırları bellekte büyütürdü.
     // Sabit chunk'lar hem ham baytları güvenle dosyaya yazar hem de hard
     // eşikten sonra canlı içerik akışını sınırlar.
+    // tokio::fs::File yazma/flush işlemini blocking havuzuna alır; 64 KB'lık
+    // chunk'lar artık async worker'da diske senkron yazmaz.
+    let mut file = tokio::fs::File::from_std(file);
     let mut buffer = [0u8; 64 * 1024];
     let mut decoder = LossyUtf8Decoder::default();
     loop {
@@ -713,8 +756,12 @@ where
             Ok(read) => read,
             Err(e) => return Err(err(format!("exec çıktısı okunamadı: {e}"))),
         };
-        let chunk = &buffer[..read];
+        // Disk sınırı: boruyu yine de tamamen boşaltırız, yalnızca fazlasını
+        // dosyaya yazmayız (aksı halde çocuk süreç bloke olur).
+        let allowed = gate.capture_bytes(is_stderr, read as u64);
+        let chunk = &buffer[..allowed];
         file.write_all(chunk)
+            .await
             .map_err(|e| err(format!("exec çıktısı yazılamadı: {e}")))?;
 
         // UI metni Unicode-safe olmalı; chunk sınırında çok baytlı karakter
@@ -729,7 +776,7 @@ where
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             stats.push(chunk, &text);
         }
-        if gate.allow(is_stderr, read as u64, newlines, ends_with_newline) {
+        if gate.allow(is_stderr, allowed as u64, newlines, ends_with_newline) {
             if let Some(channel) = channel.as_ref() {
                 let ev = if is_stderr {
                     ExecEvent::Stderr { data: text }
@@ -743,6 +790,7 @@ where
         }
     }
     file.flush()
+        .await
         .map_err(|e| err(format!("exec çıktısı flush edilemedi: {e}")))?;
     Ok(())
 }
@@ -1765,7 +1813,10 @@ pub async fn exec_cmd(
         Ok(result) => result,
         Err(e) => return Err(e),
     };
-    let capture_incomplete = stdout_pump.timed_out || stderr_pump.timed_out;
+    let capture_incomplete = stdout_pump.timed_out
+        || stderr_pump.timed_out
+        || gate.capture_truncated(false)
+        || gate.capture_truncated(true);
     finalize_exec_files(
         &root,
         status.code().unwrap_or(-1),
@@ -1948,7 +1999,10 @@ pub async fn exec_cmd_stream(
         let status = status_result?;
         let out_pump = out_result?;
         let err_pump = err_result?;
-        let capture_incomplete = out_pump.timed_out || err_pump.timed_out;
+        let capture_incomplete = out_pump.timed_out
+            || err_pump.timed_out
+            || gate.capture_truncated(false)
+            || gate.capture_truncated(true);
         let code = status.code().unwrap_or(-1);
         let out = finalize_exec_files(
             &root,
@@ -2945,5 +2999,38 @@ mod tests {
         assert!(check_cmd2("rg", &args(&["desen"])).is_ok());
         assert!(check_cmd2("pip", &args(&["install", "paket"])).is_ok());
         assert!(check_cmd2("pip", &args(&["uninstall", "paket"])).is_err());
+    }
+    #[tokio::test]
+    async fn pump_disk_sinirini_asinca_boruyu_yine_bosaltir() {
+        use tokio::io::{duplex, AsyncWriteExt};
+
+        let capture_id = unique_test_id("pump-capped");
+        let (path, file) = create_capture_file(&capture_id, "stdout").unwrap();
+        let (mut writer, reader) = duplex(4_096);
+        let payload = vec![b'x'; (CAPTURE_FILE_MAX_BYTES + 65_536) as usize];
+        let producer = tokio::spawn(async move {
+            writer.write_all(&payload).await.unwrap();
+            writer.shutdown().await.unwrap();
+        });
+        let gate = Arc::new(StreamGate::new());
+
+        pump_exec(
+            reader,
+            false,
+            None,
+            file,
+            gate.clone(),
+            new_shared_capture_stats(),
+        )
+        .await
+        .unwrap();
+        producer.await.unwrap();
+
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            CAPTURE_FILE_MAX_BYTES
+        );
+        assert!(gate.capture_truncated(false));
+        let _ = std::fs::remove_file(path);
     }
 }

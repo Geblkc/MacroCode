@@ -2,7 +2,7 @@ use futures_util::StreamExt;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::ipc::Channel;
 use tauri::State;
 
@@ -245,6 +245,25 @@ impl reqwest::dns::Resolve for GuardResolve {
     }
 }
 
+/// Faz 4: proxy istemcisi istek başına kuruluyordu. Yapılandırma sabit
+/// olduğundan (zaman aşımı, yönlendirme politikası, DNS savunması) süreç
+/// boyunca tek istemci paylaşılır; bağlantı havuzu korunur.
+static CLIENT: OnceLock<Result<reqwest::Client, String>> = OnceLock::new();
+
+fn proxy_client() -> Result<&'static reqwest::Client, String> {
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
+                .redirect(redirect_policy())
+                .dns_resolver(Arc::new(GuardResolve))
+                .build()
+                .map_err(|e| format!("proxy istemcisi kurulamadi: {e}"))
+        })
+        .as_ref()
+        .map_err(|e| e.clone())
+}
+
 #[tauri::command]
 pub async fn proxy_fetch(
     id: u64,
@@ -274,16 +293,7 @@ pub async fn proxy_fetch(
     }
     let _cleanup = Cleanup { id, state: &state };
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(REQUEST_TIMEOUT_SECS))
-        // O7: her yönlendirme atlaması yeniden denetlenir (baştaki URL
-        // denetimi tek başına yeterli değildi).
-        .redirect(redirect_policy())
-        // O7: DNS çözümü de denetlenir — hostname bu kez link-local'e
-        // dönebilirdi (rebind); çözümleyici temiz olmayan IP'yi eler.
-        .dns_resolver(Arc::new(GuardResolve))
-        .build()
-        .map_err(|e| format!("proxy istemcisi kurulamadi: {e}"))?;
+    let client = proxy_client()?;
     let mut req = client.request(m, url.trim());
     for (k, v) in &headers {
         let lk = k.trim().to_ascii_lowercase();

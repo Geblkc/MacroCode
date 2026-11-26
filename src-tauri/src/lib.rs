@@ -54,7 +54,14 @@ pub fn run() {
         .setup(|app| {
             // 0.x → 1.0: düz metin `keys.json` kayıtlarını OS anahtar zincirine taşı.
             // Başarısız kayıtlar dosyada kalır, sonraki açılışta yeniden denenir.
-            commands::keystore::migrate_legacy_keys(app.handle());
+            // Faz 4: D-Bus/Keychain erişimi açılışta UI thread'ini bloklamasın.
+            // İsimli binding: `let _ = <future>` clippy `let_underscore_future`
+            // lint'ine takılır. JoinHandle'ı tutmak/düşürmek görevi durdurmaz —
+            // migration arka planda çalışmaya devam eder.
+            let handle = app.handle().clone();
+            let _migration = tauri::async_runtime::spawn_blocking(move || {
+                commands::keystore::migrate_legacy_keys(&handle);
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

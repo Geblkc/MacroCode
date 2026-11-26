@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use futures_util::future::join_all;
 use serde::Serialize;
 use serde_json::json;
 use tauri::{AppHandle, Manager, Wry};
@@ -424,19 +425,36 @@ pub struct KeyStatus {
 
 #[tauri::command]
 pub async fn key_status(app: AppHandle) -> Result<KeyStatus, String> {
+    // Faz 4: 12 sağlayıcı sırayla okunuyordu (her biri ayrı D-Bus turu).
+    // Hepsi aynı anda başlatılır; spawn_blocking zaten worker havuzunda.
+    const PROVIDERS: [&str; 12] = [
+        "anthropic",
+        "openai",
+        "gemini",
+        "ollamaUrl",
+        "openrouter",
+        "deepseek",
+        "xai",
+        "minimax",
+        "moonshotai",
+        "zhipuai",
+        "nvidia",
+        "evren",
+    ];
+    let found = join_all(PROVIDERS.map(|p| has_secret(&app, p))).await;
     Ok(KeyStatus {
-        anthropic: has_secret(&app, "anthropic").await,
-        openai: has_secret(&app, "openai").await,
-        gemini: has_secret(&app, "gemini").await,
-        ollama_url: has_secret(&app, "ollamaUrl").await,
-        openrouter: has_secret(&app, "openrouter").await,
-        deepseek: has_secret(&app, "deepseek").await,
-        xai: has_secret(&app, "xai").await,
-        minimax: has_secret(&app, "minimax").await,
-        moonshotai: has_secret(&app, "moonshotai").await,
-        zhipuai: has_secret(&app, "zhipuai").await,
-        nvidia: has_secret(&app, "nvidia").await,
-        evren: has_secret(&app, "evren").await,
+        anthropic: found[0],
+        openai: found[1],
+        gemini: found[2],
+        ollama_url: found[3],
+        openrouter: found[4],
+        deepseek: found[5],
+        xai: found[6],
+        minimax: found[7],
+        moonshotai: found[8],
+        zhipuai: found[9],
+        nvidia: found[10],
+        evren: found[11],
     })
 }
 

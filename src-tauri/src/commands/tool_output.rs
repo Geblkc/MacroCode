@@ -291,13 +291,19 @@ pub(crate) fn artifact_metadata(
 }
 
 /// Ham tool çıktısını workspace içindeki güvenli artifact klasörüne yazar.
+/// Faz 4: sync Tauri komutları ana thread'de çalışır; disk yazısı ve özetleme
+/// bloklayıcı işçiye alınır (frontend sözleşmesi değişmez).
 #[tauri::command]
-pub fn store_tool_output(
+pub async fn store_tool_output(
     root: String,
     name: String,
     content: String,
 ) -> Result<ToolArtifact, String> {
-    store_tool_output_bytes(&root, &name, content.as_bytes(), summarize_text(&content))
+    tauri::async_runtime::spawn_blocking(move || {
+        store_tool_output_bytes(&root, &name, content.as_bytes(), summarize_text(&content))
+    })
+    .await
+    .map_err(|e| format!("artifact görevi başarısız: {e}"))?
 }
 
 /// Exec de aynı artifact yazıcısını kullanır; ham baytları korur.
@@ -420,8 +426,8 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn store_tool_output_writes_exact_content_with_safe_permissions() {
+    #[tokio::test]
+    async fn store_tool_output_writes_exact_content_with_safe_permissions() {
         let base = std::env::temp_dir().join(format!(
             "macrocode-artifact-test-{}-{}",
             std::process::id(),
@@ -438,6 +444,7 @@ mod tests {
             "tool-output-store-test.log".to_string(),
             content.to_string(),
         )
+        .await
         .expect("artifact yazılmalı");
 
         assert_eq!(
@@ -468,7 +475,11 @@ mod tests {
             assert_eq!(dir_mode, 0o700);
         }
 
-        assert!(store_tool_output(root, "../outside.log".to_string(), "x".to_string(),).is_err());
+        assert!(
+            store_tool_output(root, "../outside.log".to_string(), "x".to_string(),)
+                .await
+                .is_err()
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 
