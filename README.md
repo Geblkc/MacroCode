@@ -16,8 +16,7 @@
 
 ## What is MacroCode?
 
-MacroCode is an open source, cross-platform desktop app that lets you chat and work with AI
-models from a **terminal-style interface — using your own API keys** (BYOK).
+MacroCode is an open-source, cross-platform desktop application that allows you to chat and work with AI models using your own API keys. ** (BYOK).
 It is built with Tauri v2 + React + TypeScript, ships as a single small native binary,
 and is designed for developers who like text, commands and keyboard-first tools.
 
