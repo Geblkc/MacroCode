@@ -1,6 +1,6 @@
 [package]
 name = "macrocode"
-version = "1.0.1"
+version = "1.1.0"
 description = "MacroCode — AI terminal desktop app"
 authors = ["Gökhan Efe Balıkçı"]
 license = "GPL-2.0-only"

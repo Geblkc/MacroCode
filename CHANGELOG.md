@@ -2,6 +2,41 @@
 
 All notable changes to MacroCode are documented here.
 
+## [1.1.0] — 2026-11-27
+
+Full notes: [`docs/releases/v1.1.0.md`](docs/releases/v1.1.0.md).
+
+### Added
+- Session history: archive/restore/permanent-delete with a searchable dialog;
+  archived sessions stay out of the sidebar and navigation.
+- Parallel conversations: per-session streaming state and abort controllers.
+- `/perf [on|off|reset]` report and terminal render metrics; opt-in
+  `content-visibility` experiment for long terminal views.
+
+### Changed
+- Streaming deltas are batched (40 ms), session persistence to localStorage is
+  deferred, and timeline/view-line caches plus narrow store subscriptions keep
+  the UI responsive during long answers.
+- Rust: blocking work moved to `spawn_blocking`, exec capture capped at 1 MiB
+  per stream, HTTP clients reused, keychain reads parallelized, release builds
+  use thin LTO and symbol stripping.
+
+### Security
+- Fixed workspace escape via predictable patch temp files (B1), unvalidated
+  exec file arguments including `eslint`/`tsc` (B2), IPv6 SSRF bypass (B3),
+  Git remote/branch option injection (B4) and snapshot manifest path
+  traversal (B6).
+
+### Fixed
+- Aborting or showing the typing indicator in one conversation no longer
+  affects a different streaming session.
+
+## [1.0.1] — 2026-11-23
+
+Maintenance release: repository URLs, badges and the in-app updater now point
+to `Geblkc/MacroCode`. Full notes:
+[`docs/releases/v1.0.1.md`](docs/releases/v1.0.1.md).
+
 ## [1.0.0] — 2026-11-22
 
 First stable release. Full notes: [`docs/releases/v1.0.0.md`](docs/releases/v1.0.0.md).

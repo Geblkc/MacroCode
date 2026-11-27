@@ -2,12 +2,51 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-11-25
+> Son güncelleme: 2026-11-27
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
 
 ---
+
+## 2026-11-27 — v1.1.0 sürüm hazırlığı
+
+- Sürüm `1.0.1` → `1.1.0`: `package.json`, `package-lock.json`,
+  `src-tauri/Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json`.
+- Yayın notları `docs/releases/v1.1.0.md`; `CHANGELOG.md`'ye 1.1.0 ve eksik
+  1.0.1 girdileri eklendi. Güvenlik denetim raporu repoya alınmadı.
+- Doğrulama: `npm test` 852/852 (96 dosya), `cargo test --all-features`
+  152/152, `tsc`, `lint`, `format:check`, `build`, `cargo fmt --check`,
+  `cargo clippy --lib -- -D warnings`, `check:secrets` temiz.
+
+## 2026-11-26 — Akış performansı, git güvenliği ve terminal ölçümü
+
+- Akış deltaları 40 ms'lik pencerelerde birleştiriliyor; kuyruk kalan metin
+  kullanım/ temizlik yazımlarından önce boşaltılıyor. localStorage oturum
+  serialize işlemi erteleniyor (SQLite asıl depo).
+- `timeline` iskelet/merge ayrımı, `timelineModel` ve `sessionSummaries`
+  önbellekleri; App/Sidebar/StatusBar dar store alanlarına abone oluyor,
+  callback'ler memoize ediliyor. Terminal kaydırma rAF'a birleştirildi.
+- `/perf` raporuna `terminal:` satırı eklendi; 120+ satırlık görünümlerde
+  isteğe bağlı `content-visibility` deneyi (`macrocode-cv=0` ile kapatılır).
+- Rust: engelleme yapan dosya işleri `spawn_blocking`'e alındı, exec capture
+  akışı başına 1 MiB ile sınırlandı (boru boşaltılmaya devam eder), proxy ve
+  Anthropic HTTP istemcileri yeniden kullanılıyor, 12 sağlayıcı anahtarı
+  paralel okunuyor, eski anahtar taşıması arka planda çalışıyor. Release
+  profiline thin LTO + symbol stripping eklendi.
+- B4: remote adı doğrulaması, `.git/HEAD` branch kontrolü ve açık refspec
+  (`HEAD:refs/heads/<branch>`) ile `git push` option injection kapatıldı;
+  `git switch --` eklendi. Rust 152 test, frontend 852 test geçti.
+
+## 2026-11-25 — Güvenlik sertleştirmesi ve akış performansı
+
+- B1: `apply_patch`/`undo_patch` geçici dosya yollarında symlink takibi
+  kaldırıldı; B2: exec dosya argümanları canonicalize edilip jail kontrolüne
+  sokuldu, `eslint`/`tsc` de kapsama alındı; B3: IPv6 gömülü IPv4 ve ULA/
+  site-local/multicast aralıkları SSRF korumasına eklendi; B6: snapshot
+  manifest `id`/`files` doğrulaması.
+- Paralel oturumlarda akış ve iptal artık oturum bazlı; başka bir konuşma
+  akarken "yazıyor" imleci ve durdurma yanlış oturumu etkilemiyor.
 
 ## 2026-11-25 — Oturum geçmişi ve geri yükleme
 
