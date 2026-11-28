@@ -8,6 +8,7 @@ import AgentActivityBar from './AgentActivityBar';
 import { useActiveAgentActivity } from '../hooks/useAgentActivity';
 import { agentActivityLabelKey } from '../lib/agentActivity';
 import ModeSelector from './ModeSelector';
+import { canChangeAgentMode } from '../lib/engine/agentModes';
 import EffortSelector from './EffortSelector';
 import ChatModelSelector from './ChatModelSelector';
 import type { AgentMode } from '../types';
@@ -265,7 +266,8 @@ export default function InputBar({
 
   const canSend = (value.trim().length > 0 || pending.length > 0) && !streaming && !agentBlocked;
   const hasPending = (pendingCount ?? 0) > 0;
-
+  /** Bekleyen onay varken mod değişimi kapalı (engine ile aynı kural). */
+  const modeChangeAllowed = canChangeAgentMode(pendingCount ?? 0);
   return (
     <div className="inputbar">
       {agentActivity ? (
@@ -482,8 +484,13 @@ export default function InputBar({
                   <Icon name="plus" size="sm" />
                 </button>
               )}
-              {!streaming && onModeChange && (
-                <ModeSelector mode={mode} onChange={onModeChange} disabled={streaming} />
+              {/* Mod değişimi bekleyen onay varken kapalıdır: onay kartı
+                  doğduğu moda (run state) aittir, kullanıcı ortada mod
+                  değiştirirse onayın hangi modda çalışacağı belirsizleşir.
+                  `streaming` kontrolü tek başına yetmez — run geri
+                  yüklenemese bile kart DB'den gelebiliyor. */}
+              {!streaming && modeChangeAllowed && onModeChange && (
+                <ModeSelector mode={mode} onChange={onModeChange} disabled={!modeChangeAllowed} />
               )}
               <EffortSelector
                 open={effortOpen}

@@ -80,5 +80,40 @@ describe('Faz 5b — alt-agent', () => {
     expect(SUBAGENT_BLOCKED_TOOLS).toEqual(
       expect.arrayContaining(['exec', 'write_file', 'edit_file', 'propose_patch']),
     );
+    // Onay gerektiren araç alt-agent'ta çalışamaz (onay isteyemez).
+    expect(SUBAGENT_BLOCKED_TOOLS).toContain('create_snapshot');
+    // Özyineleme ve planlama araçları kapalı.
+    expect(SUBAGENT_BLOCKED_TOOLS).toContain('subagent');
+    expect(SUBAGENT_BLOCKED_TOOLS).toContain('plan');
+    expect(SUBAGENT_BLOCKED_TOOLS).toContain('todo');
+  });
+
+  it('alt-agent araç şeması salt-okunur (yazma araçları sunulmaz)', async () => {
+    let offered: string[] = [];
+    const r = await runSubagent('araştır', [], {
+      provider: 'openai',
+      apiKey: 'k',
+      model: 'm',
+      workspaceRoot: '/tmp',
+      // Koordinatör Build modunda: mod prompt'u devralınmamalı.
+      agentMode: 'build',
+      systemPrompt:
+        '[AGENT MODE: BUILD]\nYou are in BUILD mode with full development capabilities.',
+      onEvent: () => {},
+      summarize: async () => 'özet',
+      streamImpl: async ({ tools, onChunk }) => {
+        offered = (tools ?? []).map((t) => t.name);
+        onChunk({ text: 'bulgular', done: false });
+        onChunk({ text: '', done: true });
+      },
+    });
+    expect(r.text).toContain('bulgular');
+    expect(offered).toContain('read_file');
+    expect(offered).toContain('grep');
+    expect(offered).not.toContain('write_file');
+    expect(offered).not.toContain('edit_file');
+    expect(offered).not.toContain('exec');
+    expect(offered).not.toContain('create_snapshot');
+    expect(offered).not.toContain('subagent');
   });
 });

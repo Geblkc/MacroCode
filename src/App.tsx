@@ -17,6 +17,7 @@ import { getActiveAgentRun, useAgent } from './hooks/useAgent';
 import { resetKeyHistory } from './hooks/useKeyHistory';
 import { useWorkspaceStore } from './store/workspace';
 import { listSkills } from './lib/engine/skills';
+import { canChangeAgentMode } from './lib/engine/agentModes';
 import { applyPendingPatch, listPending, undoLastPatch } from './lib/engine/tools/patch';
 import {
   createSnapshot,
@@ -1035,6 +1036,17 @@ export default function App() {
           pushExtra(sessionId, {
             type: 'sys',
             content: t('commands.modeCurrent', { mode: modeName(currentMode) }),
+          });
+          return;
+        }
+
+        // Bekleyen onay varken mod değişimi kapalıdır: onay kartı doğduğu
+        // moda aittir (run state'te taşınır). UI'daki ModeSelector ile aynı
+        // kural — komut yolu da aynı kapıdan geçsin.
+        if (!canChangeAgentMode(pendingBySession[sessionId]?.length ?? 0)) {
+          pushExtra(sessionId, {
+            type: 'warn',
+            content: t('commands.modeLocked'),
           });
           return;
         }

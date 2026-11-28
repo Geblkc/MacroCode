@@ -93,6 +93,70 @@ export function getDisallowedToolsForMode(mode: AgentMode = 'build'): string[] {
 }
 
 /**
+ * Restore edilen bir run'ın yürürlükteki modu.
+ *
+ * Sıra: run state'inde kayıtlı mod → oturumun o anki modu → build.
+ * Eski kayıtlarda `agentMode` alanı yoktur; bu durumda oturumun modu
+ * kullanılır (geriye uyumlu). Alan varsa o kazanır: yeniden başlatmadan
+ * sonra kullanıcı mod değiştirmiş olsa bile bekleyen iş doğduğu modda
+ * değerlendirilir (`modeDisallow` ayrıca canlı modla birleştirir).
+ */
+export function resolveRestoreMode(
+  runStateMode: AgentMode | undefined,
+  sessionMode: AgentMode | undefined,
+): AgentMode {
+  return runStateMode ?? sessionMode ?? 'build';
+}
+
+/**
+ * Bekleyen onay varken mod değiştirilebilir mi? *
+ * Onay kartı, doğduğu run'ın moduna aittir (`AgentRunState.agentMode`) ve
+ * onay anında o moda göre yeniden doğrulanır. Kullanıcı ortada mod
+ * değiştirirse hangi modun geçerli olduğu belirsizleşir → kural: bekleyen
+ * onay yanıtlanana kadar mod sabit. UI (`ModeSelector`) ve `/mode` komutu
+ * aynı kapıdan geçer.
+ */
+export function canChangeAgentMode(pendingCount: number): boolean {
+  return !(pendingCount > 0);
+}
+
+/**
+ * System prompt'tan mod bloklarını (`[AGENT MODE: ...]`) çıkarır.
+ *
+ * Alt-agent, koordinatörün promptunu devralır ama mod bölümünü devralmamalı:
+ * Build modunda "dosya yazabilirsin" denirken alt-agent salt-okunurdur →
+ * model görünmeyen araçları çağırıp `tool_disallowed` alıyordu (boşa adım ve
+ * token). Bloklar deterministik üretildiği için birebir eşleşmeyle çıkarılır.
+ */
+export function stripModePrompt(systemPrompt: string | undefined): string {
+  if (!systemPrompt) return '';
+  let out = systemPrompt;
+  for (const mode of ['build', 'plan', 'ask'] as AgentMode[]) {
+    const block = getModePrompt(mode);
+    while (out.includes(block)) out = out.replace(block, '');
+  }
+  return out.trim();
+}
+
+/**
+ * Salt-okunur alt-agent için system prompt bloğu.
+ *
+ * Araç şeması da `plan` filtresinden geçer (`toolsMode`), yani prompt ile
+ * gerçekten erişilebilir araçlar birbiriyle tutarlıdır.
+ */
+export function getSubagentPrompt(): string {
+  return [
+    '[SUBAGENT: READ-ONLY]',
+    'You are a read-only research sub-agent. Another agent delegated this task to you.',
+    '- You may read files, list directories, search, and inspect the workspace.',
+    '- You cannot write, edit, or execute anything: those tools are not available.',
+    '- Do not ask for approval or permission; just investigate.',
+    '- Return ONE compact summary of your findings (facts, file paths, line numbers).',
+    '- The summary is the only thing the caller sees; do not include filler.',
+  ].join('\n');
+}
+
+/**
  * Moda göre system prompt'a eklenecek özel rehber/yönerge bloğu.
  */
 export function getModePrompt(mode: AgentMode = 'build'): string {

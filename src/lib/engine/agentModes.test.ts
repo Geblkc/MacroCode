@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { CORE_TOOLS } from './toolspec';
 import {
+  canChangeAgentMode,
   filterToolsForMode,
   getDisallowedToolsForMode,
   getModePrompt,
+  getSubagentPrompt,
   isToolDisallowed,
   MCP_TOOL_WILDCARD,
+  resolveRestoreMode,
+  stripModePrompt,
 } from './agentModes';
 
 describe('agentModes', () => {
@@ -62,5 +66,40 @@ describe('agentModes', () => {
     expect(getDisallowedToolsForMode('plan')).toContain(MCP_TOOL_WILDCARD);
     expect(getDisallowedToolsForMode('ask')).toContain(MCP_TOOL_WILDCARD);
     expect(getDisallowedToolsForMode('build')).not.toContain(MCP_TOOL_WILDCARD);
+  });
+
+  it('bekleyen onay varken mod değişimi kapalıdır', () => {
+    expect(canChangeAgentMode(0)).toBe(true);
+    expect(canChangeAgentMode(1)).toBe(false);
+    expect(canChangeAgentMode(3)).toBe(false);
+  });
+
+  it('resolveRestoreMode: run state modu > oturum modu > build', () => {
+    // Eski kayıt (mod yok) → oturumun modu.
+    expect(resolveRestoreMode(undefined, 'plan')).toBe('plan');
+    // Hiçbiri yok → build.
+    expect(resolveRestoreMode(undefined, undefined)).toBe('build');
+    // Run state modu her zaman kazanır.
+    expect(resolveRestoreMode('build', 'plan')).toBe('build');
+    expect(resolveRestoreMode('ask', 'build')).toBe('ask');
+  });
+
+  it('stripModePrompt koordinatörün mod bloğunu çıkarır, özel talimatı korur', () => {
+    const prompt = ['özel talimat', getModePrompt('build'), '[skill:x] kural'].join('\n');
+    const stripped = stripModePrompt(prompt);
+    expect(stripped).toContain('özel talimat');
+    expect(stripped).toContain('[skill:x] kural');
+    expect(stripped).not.toContain('[AGENT MODE: BUILD]');
+    expect(stripped).not.toContain('You are in BUILD mode');
+    // Plan/ask blokları da çıkar.
+    expect(stripModePrompt(getModePrompt('plan'))).toBe('');
+    expect(stripModePrompt(undefined)).toBe('');
+  });
+
+  it('getSubagentPrompt salt-okunur olduğunu söyler ve mod bloğu içermez', () => {
+    const p = getSubagentPrompt();
+    expect(p).toContain('[SUBAGENT: READ-ONLY]');
+    expect(p).toContain('You cannot write, edit, or execute');
+    expect(p).not.toContain('[AGENT MODE:');
   });
 });

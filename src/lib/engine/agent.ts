@@ -24,7 +24,7 @@ import {
 } from './tools/patch';
 import { toolWriteFile } from './tools/write';
 import { toolCreateSnapshot } from './tools/snapshot';
-import { applyTodoAction, deriveTodoState, planStepIds } from './tools/todo';
+import { applyTodoAction, countPlanSteps, deriveTodoState, planStepIds } from './tools/todo';
 import { runMcpTool } from './mcp/pool';
 import { runSubagent } from './subagent';
 import { toolExec } from './tools/shell';
@@ -81,6 +81,15 @@ export interface AgentDeps {
   extraTools?: ToolDefinition[];
   /** Agent modu: build | plan | ask (araç erişimini ve yönergeleri etkiler). */
   agentMode?: AgentMode;
+  /**
+   * Modele sunulacak araç setini belirleyen mod (varsayılan: `agentMode`).
+   *
+   * Alt-agent için gereklidir: koordinatör Build modunda olsa da alt-agent
+   * salt-okunurdur → araç şeması `plan` filtresinden geçer. Böylece prompt
+   * ("yazamazsın") ile gerçekten sunulan araçlar tutarlı olur; model
+   * görünmeyen araçları çağırıp `tool_disallowed` ile boşa adım harcamaz.
+   */
+  toolsMode?: AgentMode;
   /** Faz 5b: bu listedeki araçlar çalıştırılmaz (salt-okunur alt-agent). */
   disallowTools?: string[];
   /** Faz 5b: alt-agent bütçesi için özel modeller (verilmezse registry). */
@@ -269,7 +278,11 @@ async function defaultRunTool(
       : [];
     if (steps.length === 0) throw new Error(t('tool.planSteps'));
     // Faz 8 L2: adımlar görev id'leriyle eşleşir (todo ile işaretlenebilir).
-    const ids = planStepIds(call, 0);
+    // ID'ler `call.id` tabanlıdır; sıra numarası yalnızca eski (id'siz)
+    // kayıtlarda kullanılır ve o durumda geçmişteki adımlar sayılarak
+    // başlangıç indeksi kaydırılır → ikinci `plan` çağrısı `plan-1`'i
+    // yeniden üretip yanlış adımın tamamlanmasına yol açmaz.
+    const ids = planStepIds(call, countPlanSteps(history));
     return `/// plan:\n${steps.map((s, i) => `${i + 1}. ${s.trim()}  [todo: ${ids[i]}]`).join('\n')}`;
   }
   if (typeof call.name === 'string' && call.name.startsWith('mcp:')) {
@@ -397,7 +410,7 @@ async function streamOneTurn(
   let tools: ToolDefinition[] | undefined;
   if (opts?.tools !== false) {
     const rawTools = deps.extraTools?.length ? [...CORE_TOOLS, ...deps.extraTools] : CORE_TOOLS;
-    tools = filterToolsForMode(rawTools, deps.agentMode ?? 'build');
+    tools = filterToolsForMode(rawTools, deps.toolsMode ?? deps.agentMode ?? 'build');
   }
   const runStream = () => {
     if (deps.streamImpl) {
@@ -592,6 +605,15 @@ export interface AgentRunState {
   finalText: string;
   /** Biriken kullanım (token). */
   usage: UsageLike | null;
+  /**
+   * Run'ın oluşturulduğu agent modu (`build` | `plan` | `ask`).
+   *
+   * Eskiden kaydedilmiyordu: yeniden başlatmada bekleyen onay **o anki**
+   * oturum moduyla sürülüyordu → Build'te doğmuş bir `exec` onayı Plan
+   * modunda çalışabiliyordu. Mod artık run state'inde taşınır ve
+   * `resolve` aşamasında yeniden doğrulanır.
+   */
+  agentMode?: AgentMode;
   /** Onay bekleyen araç çağrıları. */
   pending: Array<{ call: ToolCall; patchId?: string; loopGuard?: boolean }>;
 }
@@ -602,6 +624,39 @@ export function createAgentRun(
   resume?: Partial<AgentRunState>,
 ): AgentRun {
   const mode: ApprovalMode = deps.approvalMode ?? 'manual';
+  /**
+   * Yürürlükteki agent modu. Restore edilmiş bir run kendi modunu taşır ve o
+   * mod kazanır: böylece yeniden başlatmadan sonra kullanıcı başka bir moda
+   * geçse bile run'ın araç seti/yasakları doğduğu moda göre belirlenir.
+   */
+  const runMode: AgentMode = resume?.agentMode ?? deps.agentMode ?? 'build';
+  // `streamOneTurn` araç şemasını `toolsMode`/`agentMode`'a göre filtreler; etkin
+  // modu deps'e yansıtarak model-öncesi filtre ile çalışma-anı yasağının
+  // birbirinden ayrışmasını engelliyoruz. Alt-agent kendi modunu açıkça
+  // belirtir (`toolsMode: 'plan'`) — koordinatörün run modu onu ezmemeli.
+  const toolsMode: AgentMode = deps.toolsMode ?? runMode;
+  const runDeps: AgentDeps =
+    deps.agentMode === runMode && deps.toolsMode === toolsMode
+      ? deps
+      : { ...deps, agentMode: runMode, toolsMode };
+  /**
+   * Yürürlükteki yasak listesi: run'ın doğduğu mod **ve** o anki oturum modu.
+   *
+   * Mod kısıtlaması monotoniktir — kullanıcı daha kısıtlayıcı bir moda
+   * geçtiğinde (build → plan/ask) bekleyen onaylar da engellenir. Tersi yönde
+   * (plan → build) run'ın kendi modu geçerli kalır. Böylece "Plan modundayım,
+   * salt-okunur" garantisi hiçbir sırayla kırılmaz.
+   */
+  const modeDisallow = (): string[] => {
+    const liveMode = deps.agentMode ?? 'build';
+    const list = [...(deps.disallowTools ?? []), ...getDisallowedToolsForMode(runMode)];
+    if (liveMode !== runMode) {
+      for (const name of getDisallowedToolsForMode(liveMode)) {
+        if (!list.includes(name)) list.push(name);
+      }
+    }
+    return list;
+  };
   // Varsayılan sınırsız: büyük dosyaları parça parça yazan ajan 8. adımda
   // kesilip yarım bırakmasın. Pozitif değer yalnızca isteğe bağlı güvenlik sönümü.
   const maxSteps = Math.max(0, deps.maxSteps ?? 0);
@@ -675,7 +730,7 @@ export function createAgentRun(
     for (;;) {
       if (aborted || deps.signal?.aborted) break;
       if (maxSteps > 0 && steps >= maxSteps) break;
-      const turn = await streamOneTurn(msgs, deps, state);
+      const turn = await streamOneTurn(msgs, runDeps, state);
       steps += 1;
       const { stepText, toolCalls, thinking } = turn;
       lastTurnHadTools = toolCalls.length > 0;
@@ -690,10 +745,7 @@ export function createAgentRun(
         ...(thinking.length > 0 ? { thinking: [...thinking] } : {}),
       });
       const nextPending: PendingEntry[] = [];
-      const effectiveDisallow = [
-        ...(deps.disallowTools ?? []),
-        ...getDisallowedToolsForMode(deps.agentMode ?? 'build'),
-      ];
+      const effectiveDisallow = modeDisallow();
       for (let i = 0; i < toolCalls.length; i++) {
         const call = toolCalls[i];
         if (aborted || deps.signal?.aborted) break;
@@ -725,7 +777,7 @@ export function createAgentRun(
         // M2: `mcp:*` gibi önek desenleri `includes` ile eşleşmez — helper
         // joker desteğiyle kontrol eder (plan/ask'ta MCP çağrısı çalışamaz).
         if (isToolDisallowed(String(call.name), effectiveDisallow)) {
-          const out = `[tool error]\ncode=tool_disallowed\nmode=${boundedErrorDetail(deps.agentMode ?? 'this')}\nmessage=hata: ${boundedErrorDetail(deps.agentMode ?? 'bu')} mod bu aracı kullanamaz: ${boundedToolName(call.name)}`;
+          const out = `[tool error]\ncode=tool_disallowed\nmode=${boundedErrorDetail(runMode)}\nmessage=hata: ${boundedErrorDetail(runMode)} mod bu aracı kullanamaz: ${boundedToolName(call.name)}`;
           await emitToolResult(call, false, out);
           // L5: mod/alt-agent yasağı da denetim kaydına düşer — `decideTool`
           // reddiyle simetrik (eskiden yalnız tool_result üretiliyordu).
@@ -820,7 +872,7 @@ export function createAgentRun(
       deps.onEvent({ k: 'notice', text: t('agent.stepLimitNotice', { count: maxSteps }) });
       const closing = await streamOneTurn(
         [...msgs, { role: 'user', content: FINAL_ANSWER_PROMPT }],
-        deps,
+        runDeps,
         state,
         { tools: false },
       );
@@ -858,6 +910,17 @@ export function createAgentRun(
       }
       matched += 1;
       if (approved) {
+        // Mod yasağı onay anında YENİDEN doğrulanır. `loopGuard` onayı aracı
+        // hiç çalıştırmadığı (yalnızca sayacı sıfırladığı) için hariç tutulur.
+        // Senaryo: Build modunda doğmuş bir `exec` onayı yeniden başlatmadan
+        // sonra Plan/Ask modunda onaylanırsa çalışmamalıdır.
+        const approveDisallow = modeDisallow();
+        if (!entry.loopGuard && isToolDisallowed(String(entry.call.name), approveDisallow)) {
+          const out = `[tool error]\ncode=tool_disallowed\nmode=${boundedErrorDetail(runMode)}\nmessage=hata: ${boundedErrorDetail(runMode)} mod bu aracı kullanamaz: ${boundedToolName(entry.call.name)}`;
+          await emitToolResult(entry.call, false, out);
+          audit(deps, entry.call, 'denied', out);
+          continue;
+        }
         try {
           if (entry.loopGuard) {
             // Kullanıcı tekrar eden döngüye devam demiş: aracı ÇALIŞTIRMA.
@@ -974,6 +1037,7 @@ export function createAgentRun(
         steps,
         finalText,
         usage: usage ?? null,
+        agentMode: runMode,
         pending: pending.map((p) => ({
           call: p.call,
           ...(p.patchId ? { patchId: p.patchId } : {}),

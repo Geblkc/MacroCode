@@ -5,6 +5,7 @@
  */
 import { compactHistory } from './compact';
 import { compactionLimitFor } from './tokens';
+import { getSubagentPrompt, stripModePrompt } from './agentModes';
 import { createAgentRun, type AgentDeps, type AgentHistoryItem } from './agent';
 
 export const SUBAGENT_BLOCKED_TOOLS = [
@@ -12,12 +13,34 @@ export const SUBAGENT_BLOCKED_TOOLS = [
   'write_file',
   'edit_file',
   'propose_patch',
+  // Yaşanan hata: yasak listesinde olmadığı için alt-agent `create_snapshot`
+  // çağırabiliyordu. Snapshot manuel modda onay bekleyen bir araçtır; alt-agent
+  // onay isteyemediği için `runSubagent` işi "atlandı" ile bitiriyordu
+  // (boşa adım + token). Yazma sınıfındaki tüm araçlar burada olmalı.
+  'create_snapshot',
   // Faz 8 L1: alt-agent alt-agent çağıramaz (özyineleme koruması).
   'subagent',
+  // Planlama araçları: alt-agent'ın işi tek bir özet döndürmektir, kendi
+  // görev listesini yönetmek değil. `ask` şema filtresi bunları zaten
+  // sunmaz; yasak listesi ikinci savunma hattıdır (model şemada olmayan bir
+  // aracı yine de çağırırsa koordinatörün todo durumu kirlenmesin).
+  'plan',
+  'todo',
   // M2: MCP araçları salt-okunur alt-agent'ta kapalı — dinamik adlar
   // `mcp:*` joker deseniyle engellenir (yan etki yapabilirler).
   'mcp:*',
 ];
+
+/**
+ * Alt-agent'ın araç şeması modu.
+ *
+ * `ask` = yalnızca `read_file`, `list_dir`, `grep`, `glob`. Prompt
+ * (`getSubagentPrompt`) "yazamazsın/çalıştıramazsın" derken şemada da
+ * yazma aracı yoktur → model görünmeyen aracı çağırıp `tool_disallowed`
+ * ile adım harcamaz. `plan` seçilmedi: `plan`/`todo` alt-agent'a görev
+ * listesi yönetme yetkisi verir, oysa alt-agent tek bir özet döndürür.
+ */
+export const SUBAGENT_TOOLS_MODE = 'ask' as const;
 
 export interface SubagentResult {
   text: string;
@@ -54,6 +77,13 @@ export async function runSubagent(
   // uygulaması kaldı — eski `runAgent` kopyası silindi).
   const run = createAgentRun([...effHistory, { role: 'user', content: task }], {
     ...deps,
+    // Koordinatörün mod prompt'u devralınmaz ("BUILD: dosya yazabilirsin").
+    // Yerine salt-okunur alt-agent bloğu eklenir; araç şeması da `ask`
+    // filtresinden geçer → prompt ile sunulan araçlar tutarlı.
+    systemPrompt: [stripModePrompt(deps.systemPrompt), getSubagentPrompt()]
+      .filter(Boolean)
+      .join('\n'),
+    toolsMode: SUBAGENT_TOOLS_MODE,
     // Ana akış sınırsız olsa da alt-ajan dar görevler için 4 adımda sınırlı
     // kalır; kullanıcı küçük bir sınır seçtiyse o daha da sıkılaştırır.
     maxSteps: deps.maxSteps && deps.maxSteps > 0 ? Math.min(deps.maxSteps, 4) : 4,

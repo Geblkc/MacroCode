@@ -32,7 +32,7 @@ import { useT } from '../lib/i18n';
 import { t } from '../lib/i18n/core';
 import type { Provider, ToolEvent } from '../types';
 import { isBlankAssistantMessage } from '../lib/message';
-import { getModePrompt } from '../lib/engine/agentModes';
+import { getModePrompt, resolveRestoreMode } from '../lib/engine/agentModes';
 import { previewArgs, toolTarget } from '../lib/engine/toolPreview';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 import { createDeltaBatcher } from '../lib/deltaBatch';
@@ -1061,7 +1061,10 @@ export function useAgent() {
         }
 
         const callNames = new Map<string, string>();
-        const restoreMode = sess.agentMode ?? 'build';
+        // Mod, run'ın doğduğu moddan gelir (state'te taşınır). Eski kayıtlarda
+        // alan yok → oturumun o anki moduna düşülür. Böylece yeniden başlatma
+        // sonrası mod değişse bile bekleyen iş yanlış modda çalışmaz.
+        const restoreMode = resolveRestoreMode(state.agentMode, sess.agentMode);
         const runId = createId();
         const updateActivity = (patch: AgentActivityPatch) => {
           useAgentActivityStore.getState().update(a.sessionId, runId, patch);
@@ -1128,6 +1131,11 @@ export function useAgent() {
           state,
         );
         activeRuns.set(a.sessionId, { run, activityRunId: runId });
+        // Restore edilen run da "aktif akış" sayılır: eskiden yalnız aktivite
+        // `awaiting_approval` yapılıyordu, `streaming` false kalıyordu →
+        // mod seçici açık/tıklanabilir oluyor, Durdur butonu görünmüyor ve
+        // kullanıcı onay beklerken farklı bir moda geçebiliyordu.
+        store().setStreaming(a.sessionId, true);
         restored += 1;
         logInfo('agent.run.restored', { sessionId: a.sessionId, provider: providerName, model });
       }

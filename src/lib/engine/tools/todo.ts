@@ -54,18 +54,56 @@ export function applyTodoAction(
 }
 
 interface HistoryLike {
-  toolCalls?: Array<{ name: string; args: Record<string, unknown> }>;
+  toolCalls?: Array<{ id?: string; name: string; args: Record<string, unknown> }>;
 }
 
-/** `plan` çağrısının adımları → görev id'leri (geçmiş boyunca sıralı, deterministik). */
+/** Tool call id'sini görev id'sinde kullanılabilir hâle getirir. */
+function idSegment(callId: string): string {
+  return callId.trim().replace(/\s+/g, '-');
+}
+
+/**
+ * `plan` çağrısının adımları → görev id'leri.
+ *
+ * **ID kaynağı `call.id`'dir** (`plan-<callId>-1`): sıra numarasına bağlı
+ * üretim, ikinci bir `plan` çağrısında tekrar `plan-1` üretip gerçek todo
+ * durumuyla (`plan-3`) çelişiyordu — model çıktıya güvenip `todo complete
+ * plan-1` dediğinde **yanlış adımı** tamamlıyordu. `call.id` tabanlı ID'ler
+ * 50 mesajlık pencere kaydığında veya yeniden başlatmada da kaymaz.
+ *
+ * `call.id` yoksa (eski kayıtlar, testler) `startIndex` sayaç tabanlı üretime
+ * düşülür: `plan-<startIndex + i + 1>`.
+ */
 export function planStepIds(
-  call: { args?: Record<string, unknown> },
+  call: { id?: string; args?: Record<string, unknown> },
   startIndex: number,
 ): string[] {
   const steps = Array.isArray(call.args?.steps) ? call.args!.steps : [];
+  const callId = typeof call.id === 'string' ? idSegment(call.id) : '';
   return steps
     .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
-    .map((_, i) => `plan-${startIndex + i + 1}`);
+    .map((_, i) => (callId ? `plan-${callId}-${i + 1}` : `plan-${startIndex + i + 1}`));
+}
+
+/**
+ * Geçmişteki `plan` adımlarının toplam sayısı.
+ *
+ * `planStepIds` sayaç tabanlı üretime düştüğünde (eski kayıtlarda `call.id`
+ * yok) başlangıç indeksi buradan gelir → yeni plan çağrısı önceki ID'lerle
+ * çakışmaz.
+ */
+export function countPlanSteps(history: HistoryLike[]): number {
+  let total = 0;
+  for (const m of history) {
+    for (const c of m.toolCalls ?? []) {
+      if (String(c.name) !== 'plan') continue;
+      const steps = Array.isArray(c.args?.steps) ? c.args!.steps : [];
+      total += steps.filter(
+        (s): s is string => typeof s === 'string' && s.trim().length > 0,
+      ).length;
+    }
+  }
+  return total;
 }
 
 /**
@@ -73,11 +111,18 @@ export function planStepIds(
  *
  * Faz 8 L2: `plan` çağrıları da görev üretir — plan adımları `todo` ile
  * işaretlenebilir hâle gelir (önceden plan yalnızca ekrana basılıyordu).
+ *
+ * ID'ler `planStepIds` ile üretilir; `call.id` varsa çakışma imkânsızdır.
+ * (Eski kayıtlarda `call.id` yoksa sayaç tabanlı üretim kullanılır — bu
+ * durumda `planCounter` yalnızca pencere içindeki çağrılar arasında
+ * benzersizlik sağlar.)
  */
 export function deriveTodoState(history: HistoryLike[]): TodoState {
   let state: TodoState = { items: [] };
   const recent = history.slice(-50);
-  let planCounter = 0;
+  // Sayaç tabanlı üretim (id'siz eski kayıt) pencereyle kaymasın: pencerenin
+  // DIŞINDA kalan plan adımları sayılıp başlangıç indeksi kaydırılır.
+  let planCounter = countPlanSteps(history.slice(0, Math.max(0, history.length - 50)));
   for (const m of recent) {
     for (const c of m.toolCalls ?? []) {
       const name = String(c.name);
