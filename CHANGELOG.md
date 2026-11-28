@@ -2,6 +2,25 @@
 
 All notable changes to MacroCode are documented here.
 
+## [1.2.0] — 2026-11-28
+
+Full notes: [`docs/releases/v1.2.0.md`](docs/releases/v1.2.0.md).
+
+### Changed
+- `/mode`, `/build`, `/plan` and `/ask` are handled in the pure command layer
+  with injected context; mode changes are locked while an approval is pending.
+- Agent mode validation is centralized; unknown persisted modes fall back to
+  `plan` instead of enabling the full Build tool set. Tool lists are derived
+  from a single source.
+
+### Fixed
+- Restored runs keep their original mode and approvals are re-checked against
+  mode restrictions before execution.
+- Subagents are genuinely read-only (ask-filtered tools, dedicated prompt,
+  deny list including snapshot/plan/todo).
+- Plan step IDs derive from the tool call ID, preventing wrong todo completion
+  after a second plan call or a restart.
+
 ## [1.1.0] — 2026-11-27
 
 Full notes: [`docs/releases/v1.1.0.md`](docs/releases/v1.1.0.md).

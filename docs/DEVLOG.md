@@ -2,12 +2,22 @@
 
 > Bu dosya, MacroCode projesinde **yapılan tüm işlemlerin tarihli kaydıdır**.
 > Güncel mimari için bkz. `ARCHITECTURE.md` (o dosya tarihsiz, sadece mevcut durumu anlatır).
-> Son güncelleme: 2026-11-27
+> Son güncelleme: 2026-11-28
 
 **Kural:** Koda dokunan her işlem buraya tarih + kapsam + doğrulama ile eklenir.
 `ARCHITECTURE.md`'ye sadece mimari sonucu yansıtılır.
 
 ---
+
+## 2026-11-28 — v1.2.0 sürüm hazırlığı
+
+- Sürüm `1.1.0` → `1.2.0`: `package.json`, `package-lock.json`,
+  `src-tauri/Cargo.toml`, `Cargo.lock`, `src-tauri/tauri.conf.json`.
+- Yayın notları `docs/releases/v1.2.0.md`, `CHANGELOG.md` girdisi eklendi.
+  Güvenlik denetim raporu ve agent modu inceleme notu repoya alınmadı.
+- Doğrulama: `npm test` 892/892 (96 dosya), `cargo test --all-features`
+  152/152, `tsc`, `lint`, `format:check`, `build`, `cargo fmt --check`,
+  `cargo clippy --lib -- -D warnings`, `check:secrets` temiz.
 
 ## 2026-11-28 — Agent modu incelemesi bölüm 7–9 (mod tek kaynağı ve komut taşıma)
 
