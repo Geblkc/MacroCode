@@ -775,6 +775,7 @@ export const en: Record<TranslationKey, Message> = {
   'commands.modeSet': '/// agent mode set to: {mode}',
   'commands.modeInvalid': '✗ invalid agent mode · build | plan | ask',
   'commands.modeLocked': '! cannot change mode while an approval is pending · answer it first',
+  'commands.modeUnavailable': '✗ agent mode cannot be changed in this context',
   'mode.build': 'Build',
   'mode.plan': 'Plan',
   'mode.ask': 'Ask',

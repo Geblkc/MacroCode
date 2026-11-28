@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { applyTodoAction, deriveTodoState, formatTodos, type TodoState } from './todo';
+import {
+  applyTodoAction,
+  deriveTodoState,
+  formatTodos,
+  TODO_WINDOW_MESSAGES,
+  todoWindow,
+  type TodoState,
+} from './todo';
 
 const EMPTY: TodoState = { items: [] };
 
@@ -40,12 +47,62 @@ describe('Faz 3 — todo', () => {
     expect(s.items.find((t) => t.id === 't2')?.done).toBe(false);
   });
 
-  it('son 50 mesajla sınırlı', () => {
+  it('ilgisiz sohbet mesajları görev listesini düşürmez', () => {
+    // 200 normal mesaj araya girse de 5 todo çağrısı korunur (eski davranış
+    // ham 50 mesajlık pencere yüzünden listeyi kaybediyordu).
+    const starter = [
+      { toolCalls: [{ name: 'todo', args: { action: 'add', id: 'a', text: 'bir' } }] },
+      { toolCalls: [{ name: 'todo', args: { action: 'add', id: 'b', text: 'iki' } }] },
+    ];
+    const chatter = Array.from({ length: 200 }, () => ({ toolCalls: [] }));
+    const tail = [{ toolCalls: [{ name: 'todo', args: { action: 'complete', id: 'a' } }] }];
+    const s = deriveTodoState([...starter, ...chatter, ...tail]);
+    expect(s.items.map((t) => t.id)).toEqual(['a', 'b']);
+    expect(s.items.find((t) => t.id === 'a')?.done).toBe(true);
+    expect(s.items.find((t) => t.id === 'b')?.done).toBe(false);
+  });
+
+  it('ilgili mesaj sayısı pencereyi aşarsa en yeniler taranır', () => {
     const history = Array.from({ length: 60 }, (_, i) => ({
-      toolCalls: [{ name: 'todo', args: { action: 'add', id: `eski-${i}`, text: 'x' } }],
+      toolCalls: [{ name: 'todo', args: { action: 'add', id: `t-${i}`, text: 'x' } }],
     }));
     const s = deriveTodoState(history);
-    expect(s.items).toHaveLength(50);
-    expect(s.items[0].id).toBe('eski-10');
+    expect(s.items).toHaveLength(TODO_WINDOW_MESSAGES);
+    expect(s.items[0].id).toBe('t-10');
+  });
+
+  it('todoWindow ilgisiz mesajları pencere dışında bırakmaz', () => {
+    const history = [
+      { toolCalls: [{ name: 'read_file', args: {} }] },
+      { toolCalls: [{ name: 'todo', args: { action: 'add', id: 'a', text: 'bir' } }] },
+    ];
+    const { window, prefix } = todoWindow(history);
+    expect(window).toEqual(history);
+    expect(prefix).toEqual([]);
+  });
+
+  it('seed: compaction ile düşen görevler korunur', () => {
+    // Oturumun tamamından türetilmiş durum (tohum).
+    const seed = { items: [{ id: 'plan-1', text: 'birinci', done: true }] };
+    // Sıkıştırılmış geçmiş yalnız yeni çağrıyı taşır.
+    const compacted = [
+      { toolCalls: [{ name: 'todo', args: { action: 'add', id: 't2', text: 'ikinci' } }] },
+    ];
+    const s = deriveTodoState(compacted, seed);
+    expect(s.items.map((t) => t.id)).toEqual(['plan-1', 't2']);
+    expect(s.items[0].done).toBe(true);
+    // Tohum mutasyona uğramaz.
+    expect(seed.items).toHaveLength(1);
+  });
+
+  it('seed: sayaç tabanlı plan ID üretimi tohumdan devam eder', () => {
+    const seed = {
+      items: [
+        { id: 'plan-1', text: 'a', done: false },
+        { id: 'plan-2', text: 'b', done: false },
+      ],
+    };
+    const s = deriveTodoState([{ toolCalls: [{ name: 'plan', args: { steps: ['c'] } }] }], seed);
+    expect(s.items.map((t) => t.id)).toEqual(['plan-1', 'plan-2', 'plan-3']);
   });
 });

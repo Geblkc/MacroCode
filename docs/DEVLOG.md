@@ -9,6 +9,51 @@
 
 ---
 
+## 2026-11-28 — Agent modu incelemesi bölüm 7–9 (mod tek kaynağı ve komut taşıma)
+
+- **Bölüm 7 — `/mode` artık komut katmanında.** `/mode`, `/build`, `/plan`,
+  `/ask` `App.tsx`'teki inline bloktan çıkarılıp `handleSlashCommand`'a taşındı.
+  `CommandContext`'e `agentMode()`, `setAgentMode(mode)`, `pendingApprovals()`
+  eklendi (App store'dan enjekte ediyor — komut katmanı saf kalıyor). Yeni saf
+  yardımcılar: `parseAgentModeCommand` (show/set/invalid), `agentModeLabel`.
+  Bekleyen onay kapısı (`canChangeAgentMode`) komut yolunda da geçerli;
+  bağlam desteklemiyorsa `commands.modeUnavailable` (5 dil) hatası döner.
+- **Bölüm 8 — taze mod okuması.** `useAgent`'a `readAgentModeForSession()`
+  eklendi; gönderim akışı `session.agentMode` kopyası yerine store'un o anki
+  halini okuyor. `restorePendingRuns` de `normalizeAgentMode(..., 'plan')`
+  üzerinden geçiyor.
+- **Bölüm 9 — mod doğrulama.** `agentModes.ts`: `AGENT_MODES`,
+  `isValidAgentMode`, `normalizeAgentMode(value, fallback)`.
+  - SQLite: `db.parseSession` export edildi; alan varsa normalize edilir,
+    tanınmayan mod **güvenli tarafa (`plan`)** çekilir (eskiden sessizce build
+    davranışına düşüp tam araç setini açıyordu).
+  - localStorage: `session` store persist `merge` kancası aynı normalizasyonu
+    uyguluyor.
+  - JSON import: `commands.normalizeSession` elle yazılmış kontrolü bıraktı.
+- Testler: `agentModes` +3, `commands` +7, `db` +5, `useAgent` +2.
+- Doğrulama: `npx tsc --noEmit` temiz, `npm run lint` temiz, `npm run build`
+  temiz, `npm test` **892/892** (96 dosya).
+- Belge: `docs/agentmoddebug.md` bölüm 7–9 "uygulandı", öncelik listesi 9/9
+  kapandı; `ARCHITECTURE.md` komut/mod satırları güncellendi.
+
+## 2026-11-28 — Agent modu incelemesi bölüm 6: araç listelerinde tek kaynak
+
+- `engine/agentModes.ts`: salt-okunur araç listesi ikiye ayrıldı —
+  `READ_ONLY_TOOL_NAMES` (`read_file`, `list_dir`, `grep`, `glob`) ve
+  `PLANNING_TOOL_NAMES` (`plan`, `todo`). Türetilmiş izinli listeler
+  `PLAN_ALLOWED_TOOL_NAMES`, `ASK_ALLOWED_TOOL_NAMES`; ask modundaki elle
+  yazılmış `askAllowed` dizisi kaldırıldı → yeni salt-okunur araç tek yerden
+  iki moda da yayılıyor.
+- `getDisallowedToolsForMode` yasak listesini `Set` ile üretiyor: ask dalındaki
+  `subagent` tekrarı kaldırıldı, `mcp:*` jokeri tek yerden ekleniyor, build
+  erken dönüşle boş liste.
+- Testler (`agentModes.test.ts`, +6 test): türetme, tekrar yokluğu, izinli∧yasak
+  çakışmazlığı, çekirdek araçların plan/ask için tam kapsanması.
+- Doğrulama: `npx tsc --noEmit` temiz, `eslint .` temiz, ilgili 3 dosya
+  22/22, tam paket 875/875 (96 dosya).
+- Belge: `docs/agentmoddebug.md` bölüm 6 "uygulandı" olarak işaretlendi,
+  öncelik listesine 6. madde eklendi.
+
 ## 2026-11-27 — v1.1.0 sürüm hazırlığı
 
 - Sürüm `1.0.1` → `1.1.0`: `package.json`, `package-lock.json`,

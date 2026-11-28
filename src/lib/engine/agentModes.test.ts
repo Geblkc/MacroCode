@@ -1,15 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import { CORE_TOOLS } from './toolspec';
 import {
+  AGENT_MODES,
+  ASK_ALLOWED_TOOL_NAMES,
   canChangeAgentMode,
   filterToolsForMode,
   getDisallowedToolsForMode,
   getModePrompt,
   getSubagentPrompt,
   isToolDisallowed,
+  isValidAgentMode,
   MCP_TOOL_WILDCARD,
+  normalizeAgentMode,
+  PLAN_ALLOWED_TOOL_NAMES,
+  PLANNING_TOOL_NAMES,
+  READ_ONLY_TOOL_NAMES,
   resolveRestoreMode,
   stripModePrompt,
+  WRITE_AND_EXEC_TOOL_NAMES,
 } from './agentModes';
 
 describe('agentModes', () => {
@@ -101,5 +109,95 @@ describe('agentModes', () => {
     expect(p).toContain('[SUBAGENT: READ-ONLY]');
     expect(p).toContain('You cannot write, edit, or execute');
     expect(p).not.toContain('[AGENT MODE:');
+  });
+
+  // ── Bölüm 6: izin/yasak listelerinde tek kaynak ve tekrar yok ─────────────
+
+  it('ask izinli listesi salt-okunur listeden türetilir', () => {
+    expect([...ASK_ALLOWED_TOOL_NAMES]).toEqual([...READ_ONLY_TOOL_NAMES]);
+    // Planlama araçları ask modunda sunulmaz.
+    for (const name of PLANNING_TOOL_NAMES) {
+      expect(ASK_ALLOWED_TOOL_NAMES).not.toContain(name);
+    }
+  });
+
+  it('plan izinli listesi salt-okunur + planlama araçlarıdır', () => {
+    expect([...PLAN_ALLOWED_TOOL_NAMES]).toEqual([...READ_ONLY_TOOL_NAMES, ...PLANNING_TOOL_NAMES]);
+    // Yeni bir salt-okunur araç eklendiğinde iki mod da otomatik kapsar.
+    for (const name of READ_ONLY_TOOL_NAMES) {
+      expect(ASK_ALLOWED_TOOL_NAMES).toContain(name);
+      expect(PLAN_ALLOWED_TOOL_NAMES).toContain(name);
+    }
+  });
+
+  it('yasak listelerinde tekrar yok (subagent vb.)', () => {
+    for (const mode of ['plan', 'ask'] as const) {
+      const list = getDisallowedToolsForMode(mode);
+      expect(new Set(list).size).toBe(list.length);
+      // Eskiden ask dalında elle tekrarlanan `subagent` artık tek kez.
+      expect(list.filter((n) => n === 'subagent')).toHaveLength(1);
+      expect(list.filter((n) => n === MCP_TOOL_WILDCARD)).toHaveLength(1);
+    }
+  });
+
+  it('izinli ve yasak listeleri çakışmaz; birlikte tüm araçları kapsar', () => {
+    const coreNames = CORE_TOOLS.map((t) => t.name);
+    for (const [mode, allowed] of [
+      ['plan', PLAN_ALLOWED_TOOL_NAMES],
+      ['ask', ASK_ALLOWED_TOOL_NAMES],
+    ] as const) {
+      const disallowed = getDisallowedToolsForMode(mode);
+      // İzinli bir araç yasak listede olamaz (engine onay anında reddederdi).
+      for (const name of allowed) {
+        expect(isToolDisallowed(name, disallowed)).toBe(false);
+      }
+      // Çekirdek araçların her biri ya izinli ya yasak olmalı (boşluk yok).
+      for (const name of coreNames) {
+        const inAllowed = (allowed as readonly string[]).includes(name);
+        const inDisallowed = isToolDisallowed(name, disallowed);
+        expect(inAllowed || inDisallowed).toBe(true);
+        expect(inAllowed && inDisallowed).toBe(false);
+      }
+    }
+  });
+
+  it('WRITE_AND_EXEC_TOOL_NAMES çekirdek araçlarda gerçekten var', () => {
+    const coreNames = new Set<string>(CORE_TOOLS.map((t) => t.name));
+    for (const name of WRITE_AND_EXEC_TOOL_NAMES) {
+      expect(coreNames.has(name)).toBe(true);
+    }
+  });
+
+  // ── Bölüm 9: mod doğrulama / normalizasyon ──────────────────────────────────
+
+  it('isValidAgentMode yalnız tam eşleşmeyi kabul eder', () => {
+    expect(isValidAgentMode('build')).toBe(true);
+    expect(isValidAgentMode('plan')).toBe(true);
+    expect(isValidAgentMode('ask')).toBe(true);
+    expect(isValidAgentMode('PLAN')).toBe(false);
+    expect(isValidAgentMode(' plan')).toBe(false);
+    expect(isValidAgentMode('')).toBe(false);
+    expect(isValidAgentMode(undefined)).toBe(false);
+    expect(isValidAgentMode(42)).toBe(false);
+  });
+
+  it('normalizeAgentMode bozuk biçimi kurtarır, bilinmeyeni fallback yapar', () => {
+    expect(normalizeAgentMode('PLAN')).toBe('plan');
+    expect(normalizeAgentMode(' build ')).toBe('build');
+    expect(normalizeAgentMode('Ask')).toBe('ask');
+    // Bilinmeyen değer fallback'e düşer (güvenli taraf çağıranın seçimi).
+    expect(normalizeAgentMode('turbo')).toBe('build');
+    expect(normalizeAgentMode('turbo', 'plan')).toBe('plan');
+    expect(normalizeAgentMode(null, 'plan')).toBe('plan');
+    expect(normalizeAgentMode({}, 'plan')).toBe('plan');
+    // Alan yok → undefined (kaydı kirletmeyiz).
+    expect(normalizeAgentMode(undefined)).toBeUndefined();
+  });
+
+  it('AGENT_MODES üç modu içerir ve normalizasyonla tutarlı', () => {
+    expect([...AGENT_MODES]).toEqual(['build', 'plan', 'ask']);
+    for (const mode of AGENT_MODES) {
+      expect(normalizeAgentMode(mode.toUpperCase())).toBe(mode);
+    }
   });
 });

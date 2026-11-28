@@ -5,8 +5,10 @@ import {
   approxTokens,
   buildExportMarkdown,
   buildSessionBackup,
+  agentModeLabel,
   filterCommands,
   handleSlashCommand,
+  parseAgentModeCommand,
   parseSessionBackup,
   tokenSummaryLine,
   type CommandContext,
@@ -356,12 +358,16 @@ describe('B — slash komutları', () => {
     expect(parseSessionBackup(buildSessionBackup(plan))[0].agentMode).toBe('plan');
     const ask = sampleSession({ agentMode: 'ask' });
     expect(parseSessionBackup(buildSessionBackup(ask))[0].agentMode).toBe('ask');
-    // Geçersiz değer sessizce düşürülür (bilinmeyen mod build sayılmaz).
+    // Bölüm 9: geçersiz değer **güvenli tarafa** (plan) çekilir. Eskiden
+    // düşürülüyordu ve oturum sessizce build gibi davranıyordu (tam araç seti).
     const raw = JSON.parse(buildSessionBackup(sampleSession())) as {
       session: { agentMode?: string };
     };
     raw.session.agentMode = 'gecersiz';
-    expect(parseSessionBackup(JSON.stringify(raw))[0].agentMode).toBeUndefined();
+    expect(parseSessionBackup(JSON.stringify(raw))[0].agentMode).toBe('plan');
+    // Kırpma/küçültme ile kurtarılabilen değerler korunur.
+    raw.session.agentMode = ' PLAN ';
+    expect(parseSessionBackup(JSON.stringify(raw))[0].agentMode).toBe('plan');
   });
 });
 
@@ -408,5 +414,80 @@ describe('Slash önerileri (COMMAND_SPECS tek kaynağı)', () => {
     expect(r.lines.length).toBe(COMMAND_SPECS.length + COMMAND_GROUPS.length + 3);
     expect(r.lines.some((l) => l.content.includes('manual='))).toBe(true);
     expect(r.lines.some((l) => l.content.includes('anthropic/openai'))).toBe(true);
+  });
+});
+
+// ── Bölüm 7: /mode ailesi artık handleSlashCommand içinde ────────────────────
+
+describe('Bölüm 7 — /mode komutları', () => {
+  function modeCtx(
+    over: Partial<CommandContext> = {},
+    session: Session | null = sampleSession({ agentMode: 'build' }),
+  ) {
+    const setAgentMode = vi.fn();
+    const ctx: CommandContext = {
+      ...fakeCtx(session),
+      agentMode: () => session?.agentMode ?? 'build',
+      setAgentMode,
+      pendingApprovals: () => 0,
+      ...over,
+    };
+    return { ctx, setAgentMode };
+  }
+
+  it('parseAgentModeCommand: /mode ve kısa komutlar', () => {
+    expect(parseAgentModeCommand('/mode', '')).toEqual({ kind: 'show' });
+    expect(parseAgentModeCommand('/mode', 'plan')).toEqual({ kind: 'set', mode: 'plan' });
+    expect(parseAgentModeCommand('/mode', ' PLAN ')).toEqual({ kind: 'set', mode: 'plan' });
+    expect(parseAgentModeCommand('/mode', 'uydurma')).toEqual({ kind: 'invalid' });
+    expect(parseAgentModeCommand('/build', '')).toEqual({ kind: 'set', mode: 'build' });
+    expect(parseAgentModeCommand('/plan', '')).toEqual({ kind: 'set', mode: 'plan' });
+    expect(parseAgentModeCommand('/ask', '')).toEqual({ kind: 'set', mode: 'ask' });
+  });
+
+  it('/mode argümansız mevcut modu gösterir, değiştirmez', () => {
+    const { ctx, setAgentMode } = modeCtx();
+    const r = handleSlashCommand('/mode', ctx);
+    expect(r.handled).toBe(true);
+    expect(r.lines[0].content).toContain('Build');
+    expect(setAgentMode).not.toHaveBeenCalled();
+  });
+
+  it('/mode <geçersiz> hata satırı verir, mod değişmez', () => {
+    const { ctx, setAgentMode } = modeCtx();
+    const r = handleSlashCommand('/mode turbo', ctx);
+    expect(r.lines[0].type).toBe('err');
+    expect(setAgentMode).not.toHaveBeenCalled();
+  });
+
+  it('/plan modu değiştirir, /mode ask da değiştirir', () => {
+    const a = modeCtx();
+    expect(handleSlashCommand('/plan', a.ctx).lines[0].content).toContain('Plan');
+    expect(a.setAgentMode).toHaveBeenCalledWith('plan');
+
+    const b = modeCtx();
+    handleSlashCommand('/mode ask', b.ctx);
+    expect(b.setAgentMode).toHaveBeenCalledWith('ask');
+  });
+
+  it('bekleyen onay varken komut modu değiştirmez (engine ile aynı kapı)', () => {
+    const { ctx, setAgentMode } = modeCtx({ pendingApprovals: () => 2 });
+    const r = handleSlashCommand('/plan', ctx);
+    expect(r.lines[0].type).toBe('warn');
+    expect(setAgentMode).not.toHaveBeenCalled();
+  });
+
+  it('bağlam mod değişimini desteklemiyorsa sessizce yutmaz', () => {
+    const ctx: CommandContext = { ...fakeCtx(sampleSession()), agentMode: () => 'build' };
+    const r = handleSlashCommand('/plan', ctx);
+    expect(r.lines[0].type).toBe('err');
+  });
+
+  it('mod etiketi 5 dilde çevrilir (mode.* anahtarları mevcut)', () => {
+    for (const mode of ['build', 'plan', 'ask'] as const) {
+      const label = agentModeLabel(mode);
+      expect(label.length).toBeGreaterThan(0);
+      expect(label).not.toBe(`mode.${mode}`);
+    }
   });
 });

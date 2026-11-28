@@ -259,7 +259,7 @@ MacroCode/
 │   │   ├── search.ts            # konuşma içi arama (saf): findHits satır bazlı + stepHit tur gezinmesi
 │   │   ├── engine/              # UI'dan bağımsız motor (vitest'li)
 │   │   │   ├── agent.ts         # createAgentRun (sınırsız adım varsayılan, maxSteps ayarıyla sınır, onayda durur) + buildAgentHistory
-│   │   │   ├── agentModes.ts    # build/plan/ask: filterToolsForMode + getDisallowedToolsForMode + getModePrompt (saf, testli)
+│   │   │   ├── agentModes.ts    # build/plan/ask: READ_ONLY/PLANNING/ASK_ALLOWED tek kaynak + filterToolsForMode + getDisallowedToolsForMode (Set, tekilleştirilmiş) + getModePrompt (saf, testli)
 │   │   │   ├── context.ts       # ignore/secret/budget/prioritize + summarizeWorkspace
 │   │   │   ├── compactionMemo.ts # özet hafızası (özet + sonrası mesajlar; tekrar özetlemeyi önler, Faz 7; id tabanlı kesim Faz 9)
 │   │   │   ├── repoContext.ts    # Faz 9: repo haritası + AGENTS.md/README + kalıcı hafıza (`.macrocode/context.md`)
@@ -989,6 +989,7 @@ i18n sözlüğünden gelir.
 | `/export json` / `/backup` | JSON yedek indirir (L6/L7: aynı redaksiyon, JSON yapısı korunur) |
 | `/tokens` | Gerçek usage varsa gerçek, yoksa karakter/4 approx; fiyat varsa `· maliyet ~$X` (kısmi fiyatta not) |
 | `/system <text>` | System prompt günceller |
+| `/mode [m]` `/build` `/plan` `/ask` | Agent modunu gösterir/ayarlar. `handleSlashCommand` içinde (`parseAgentModeCommand` saf ayrıştırma + `agentModeLabel`); `CommandContext.{agentMode,setAgentMode,pendingApprovals}` enjeksiyonu. Bekleyen onay varken `canChangeAgentMode` kilidi; mod geçerliliği `agentModes.isValidAgentMode` (tek kaynak). |
 | `/root` `/files` `/apply` `/undo` `/skill` `/compact` `/audit` `/approval` `/note` `/context` | `/root` (argümansız=klasör diyaloğu · `off` · `1..5` · `<yol>` — hepsi `applyRoot` tek yolundan: SAF doğrulama → Rust `list_dir` varlık → `setWorkspace`) `/files`/`/skill`/`/compact`/`/audit [n]`/`/approval [m]` `App.tsx handleSend`'de; `/apply` aktif run varsa `resolve` yolundan devam eder, yoksa doğrudan `applyPendingPatch` (kalıcı `pending_approvals` + bellek `PendingPatch`). **Faz 8 L7:** `/approval manual\|auto-read\|auto-edit` onay modunu değiştirir (`auto-edit` seçilirse uyarı satırı düşer). **Faz 9:** `/note <not>` kalıcı proje notu ekler, `/context` repo bağlamını gösterir. |
 | `/git …` | Git entegrasyonu (bkz. §9.1): `status`, `diff`, `log`, `branch`, `switch`, `add`, `unstage`, `commit`, `push`, `pull`, `fetch`, `init`, `help`. Mutasyonlar genel `ConfirmDialog` üzerinden onay ister. |
 | bilinmeyen | `✗ bilinmeyen komut · /help ile listeye bak` |
@@ -1202,8 +1203,12 @@ güvenlik/kapsam dokümanı: `docs/GIT.md`.
 - **Agent modu seçici (`ModeSelector.tsx`):** sağdaki rozet + açılır liste
   (build 🔧 / plan 📋 / ask 💬), `session.agentMode`'a yazar (`App.onModeChange` →
   `setAgentMode`); streaming'de gizli. `/mode`+`/build`+`/plan`+`/ask` komutları
-  aynı state'i değiştirir. Mod araç süzme + sistem promptu talimatı
-  `lib/engine/agentModes.ts`'te (bkz. § motor).
+  `lib/commands.ts` (`handleSlashCommand` + `parseAgentModeCommand`) üzerinden
+  aynı state'i değiştirir — `CommandContext.{agentMode,setAgentMode,pendingApprovals}`
+  ile enjekte edilir; bekleyen onay varsa `canChangeAgentMode` kilidi komutta da
+  geçerli. Mod araç süzme + sistem promptu talimatı `lib/engine/agentModes.ts`'te
+  (bkz. § motor). Kalıcı kayıttan gelen mod `normalizeAgentMode` ile doğrulanır
+  (DB `parseSession`, localStorage persist `merge`, JSON import).
 
 ### 11.7 `useKeyHistory.ts`
 
@@ -1688,6 +1693,7 @@ sistem Node'u yoksa `npm run build/test` böyle koşar.
 | Alt-agent | `engine/subagent.ts` (`runSubagent` + `SUBAGENT_BLOCKED_TOOLS`) + `agent.ts` (`runSubagentTool`) |
 | Görev listesi | `engine/tools/todo.ts` (`deriveTodoState` + `planStepIds`) + `Terminal.tsx` (görev paneli) |
 | Onay modu | `/approval` (`App.tsx`) + `store/workspace.ts` (`approvalMode`) + `engine/policy.ts` (`decideTool`) |
+| Agent modu (build/plan/ask) | `engine/agentModes.ts` (`AGENT_MODES`/`isValidAgentMode`/`normalizeAgentMode` + izin/yasak listeleri) + `commands.ts` (`parseAgentModeCommand`) + `App.tsx` `CommandContext` enjeksiyonu + `ModeSelector.tsx` |
 | Repo bağlamı | `engine/repoContext.ts` (harita/anahtar dosya/hafıza) + Rust `list_tree`/`memory_read`/`memory_append` + `/note` + `/context` |
 | Blok listeleri | `engine/blocks.json` (tek kaynak) + `policy.ts`/`context.ts` (TS) + `fs.rs` (Rust `include_str!`) |
 | Log/gözlemlenebilirlik | `lib/logger.ts` (`logInfo/logWarn/logError` + redaksiyon) + `/log` komutu |

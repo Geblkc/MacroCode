@@ -1,5 +1,6 @@
 import type { Session } from '../types';
 import { migrateProviderModel, PROVIDER_IDS } from './providers';
+import { normalizeAgentMode } from './engine/agentModes';
 import { isTauri } from './tauri';
 import { logError, redact } from './logger';
 import { errorMessage, isDatabaseBusyError } from './dbErrors';
@@ -181,11 +182,20 @@ export function openSql(provided?: SqlDatabase): Promise<SqlDatabase | null> {
   return openDb(provided);
 }
 
-function parseSession(data: string): Session | null {
+/** Bir SQLite satırının `data` alanını Session'a çevirir (test edilebilir). */
+export function parseSession(data: string): Session | null {
   try {
     const v = JSON.parse(data) as Partial<Session>;
     if (typeof v.id !== 'string' || !Array.isArray(v.messages)) return null;
     const s = v as Session;
+    // Bölüm 9: agent modu normalize edilir. Bozuk/eski kayıtta `'PLAN'`,
+    // `'plan '` gibi değerler `filterToolsForMode`'da sessizce build
+    // davranışına düşüyordu → kullanıcı plan sanırken tam araç seti açılıyordu.
+    // Kural: kırp/küçült (`'PLAN '` → `plan`); tanınmayan değerde **güvenli
+    // taraf** olan `plan`; alan hiç yoksa dokunulmaz (oturum varsayılanı build).
+    if ('agentMode' in s) {
+      s.agentMode = normalizeAgentMode(s.agentMode, 'plan');
+    }
     // P0-3: SQLite'ta kalmış eski model ID'lerini sessizce güncelle.
     if (typeof s.model === 'string' && s.model) {
       const provider = (PROVIDER_IDS as string[]).includes(s.provider as string)

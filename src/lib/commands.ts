@@ -8,6 +8,7 @@ import {
   suggestProvider,
 } from './providers';
 import { sessionCost, formatCost } from './pricing';
+import { canChangeAgentMode, isValidAgentMode, normalizeAgentMode } from './engine/agentModes';
 import { redact } from './logger';
 import { t, type TranslationKey } from './i18n/core';
 import type {
@@ -38,6 +39,18 @@ export interface CommandContext {
   setModel: (id: string) => void;
   setSystemPrompt: (text: string) => void;
   openSettings: () => void;
+  /**
+   * Oturumun yürürlükteki agent modu (`build` | `plan` | `ask`).
+   * Verilmezse oturumdaki `agentMode` → `build` varsayılır.
+   */
+  agentMode?: () => AgentMode | undefined;
+  /** Agent modunu değiştirir (`/mode`, `/build`, `/plan`, `/ask`). */
+  setAgentMode?: (mode: AgentMode) => void;
+  /**
+   * Bekleyen onay sayısı. Mod değişimi bu sayı > 0 iken kapalıdır
+   * (`canChangeAgentMode`) — onay kartı doğduğu moda aittir.
+   */
+  pendingApprovals?: () => number;
   /** Elle eklenen modeller (yoksa registry listesi kullanılır). */
   customModels?: () => CustomModel[];
   /** 1M token/USD fiyat tablosu (yoksa maliyet satırı çıkmaz). */
@@ -414,10 +427,9 @@ function normalizeSession(raw: unknown): Session {
       : undefined;
   // Ajan modu yedekle birlikte taşınır: plan/ask oturumu içe aktarınca
   // build'e düşmemeli (build modu yazma araçlarına izin verir).
-  const agentMode: AgentMode | undefined =
-    v.agentMode === 'build' || v.agentMode === 'plan' || v.agentMode === 'ask'
-      ? v.agentMode
-      : undefined;
+  // Bölüm 9: değer normalize edilir (`'PLAN '` → `plan`); tanınmayan bir mod
+  // güvenli tarafa (`plan`) çekilir, sessizce build'e düşmez.
+  const agentMode: AgentMode | undefined = normalizeAgentMode(v.agentMode, 'plan');
   // Arşiv durumu yedekle birlikte taşınır; eski yedeklerde alan yoksa undefined.
   const deletedAt = typeof v.deletedAt === 'number' ? v.deletedAt : undefined;
   return {
@@ -457,6 +469,32 @@ export function parseSessionBackup(text: string): Session[] {
     }
   }
   return [normalizeSession(parsed)];
+}
+
+/**
+ * `/mode` ailesinin yorumu — saf fonksiyon (App/store bağımlılığı yok).
+ *
+ * - `/mode` (argümansız) → `{ kind: 'show' }`
+ * - `/mode build|plan|ask` → `{ kind: 'set', mode }`
+ * - `/build`, `/plan`, `/ask` → `{ kind: 'set', mode }`
+ * - geçersiz argüman → `{ kind: 'invalid' }`
+ */
+export function parseAgentModeCommand(
+  cmd: string,
+  arg: string,
+): { kind: 'show' } | { kind: 'set'; mode: AgentMode } | { kind: 'invalid' } {
+  const name = cmd.toLowerCase();
+  const short = name.slice(1);
+  if (name !== '/mode' && isValidAgentMode(short)) return { kind: 'set', mode: short };
+  if (name !== '/mode') return { kind: 'invalid' };
+  const value = arg.trim().toLowerCase();
+  if (!value) return { kind: 'show' };
+  return isValidAgentMode(value) ? { kind: 'set', mode: value } : { kind: 'invalid' };
+}
+
+/** Modun kullanıcıya gösterilen adı (i18n). */
+export function agentModeLabel(mode: AgentMode): string {
+  return t(mode === 'build' ? 'mode.build' : mode === 'plan' ? 'mode.plan' : 'mode.ask');
 }
 
 export function handleSlashCommand(raw: string, ctx: CommandContext): CommandResult {
@@ -619,6 +657,47 @@ export function handleSlashCommand(raw: string, ctx: CommandContext): CommandRes
       }
       ctx.setSystemPrompt(arg);
       return { handled: true, lines: [{ type: 'sys', content: t('commands.systemUpdated') }] };
+    }
+
+    // Bölüm 7: `/mode` ailesi artık burada — eskiden yalnızca App.tsx'te idi,
+    // yani `handleSlashCommand` üzerinden gelen başka bir giriş noktası
+    // "bilinmeyen komut" alıyordu ve mantık test edilmiyordu.
+    case '/mode':
+    case '/build':
+    case '/plan':
+    case '/ask': {
+      const parsed = parseAgentModeCommand(cmd, arg);
+      const current = ctx.agentMode?.() ?? ctx.getSession()?.agentMode ?? 'build';
+      if (parsed.kind === 'invalid') {
+        return { handled: true, lines: [{ type: 'err', content: t('commands.modeInvalid') }] };
+      }
+      if (parsed.kind === 'show') {
+        return {
+          handled: true,
+          lines: [
+            { type: 'sys', content: t('commands.modeCurrent', { mode: agentModeLabel(current) }) },
+          ],
+        };
+      }
+      if (!ctx.setAgentMode) {
+        // Bağlam mod değişimini desteklemiyor: sessizce yutmak yerine söyle.
+        return {
+          handled: true,
+          lines: [{ type: 'err', content: t('commands.modeUnavailable') }],
+        };
+      }
+      // Bekleyen onay varken mod değişimi kapalıdır (onay kartı doğduğu moda
+      // aittir). UI'daki `ModeSelector` ile aynı kapı: `canChangeAgentMode`.
+      if (!canChangeAgentMode(ctx.pendingApprovals?.() ?? 0)) {
+        return { handled: true, lines: [{ type: 'warn', content: t('commands.modeLocked') }] };
+      }
+      ctx.setAgentMode(parsed.mode);
+      return {
+        handled: true,
+        lines: [
+          { type: 'sys', content: t('commands.modeSet', { mode: agentModeLabel(parsed.mode) }) },
+        ],
+      };
     }
 
     default:

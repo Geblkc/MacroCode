@@ -91,19 +91,43 @@ describe('Bölüm 2 — plan ID üretimi çakışmaz (call.id tabanlı)', () => 
     expect(state.items.find((t) => t.id === 'plan-call-b-1')?.done).toBe(true);
   });
 
-  it('50 mesajlık pencere kaydığında sayaç ID kayması olmaz', () => {
-    // 10 eski plan çağrısı (10 adım) + 50 dolgu → pencere yalnız son 50
-    // mesajı görür, 10 eski plan çağrısının tamamı pencerenin dışında kalır.
+  it('pencere ilgisiz mesajlarla kaymaz; yeni plan ID sıradan devam eder', () => {
     const old = Array.from({ length: 10 }, (_, i) => ({
       toolCalls: [{ name: 'plan', args: { steps: [`eski-${i}`] } }],
     }));
-    const filler = Array.from({ length: 50 }, () => ({ toolCalls: [] }));
+    // 200 ilgisiz mesaj pencereyi itmemeli (bkz. TODO_WINDOW_MESSAGES).
+    const filler = Array.from({ length: 200 }, () => ({ toolCalls: [] }));
     const state = deriveTodoState([
       ...old,
       ...filler,
       { toolCalls: [{ name: 'plan', args: { steps: ['yeni'] } }] },
     ]);
-    // Pencere içindeki tek plan çağrısı, dışarıdaki 10 adımı sayarak 11'den başlar.
-    expect(state.items.map((t) => t.id)).toEqual(['plan-11']);
+    // Eski 10 adım korunur, yeni adım 11'den numaralanır (çakışma yok).
+    expect(state.items.map((t) => t.id)).toEqual([
+      'plan-1',
+      'plan-2',
+      'plan-3',
+      'plan-4',
+      'plan-5',
+      'plan-6',
+      'plan-7',
+      'plan-8',
+      'plan-9',
+      'plan-10',
+      'plan-11',
+    ]);
+    expect(state.items[10].text).toBe('yeni');
+  });
+
+  it('ilgili mesaj sayısı pencereyi aşarsa sayaç pencereden öncesini sayar', () => {
+    // 60 plan çağrısı → pencere son 50'yi görür; ilk 10 adım prefix'te sayılır
+    // ve numaralandırma 11'den devam eder (ID kayması/çakışma yok).
+    const history = Array.from({ length: 60 }, (_, i) => ({
+      toolCalls: [{ name: 'plan', args: { steps: [`adım-${i + 1}`] } }],
+    }));
+    const state = deriveTodoState(history);
+    expect(state.items).toHaveLength(50);
+    expect(state.items[0].id).toBe('plan-11');
+    expect(state.items[49].id).toBe('plan-60');
   });
 });

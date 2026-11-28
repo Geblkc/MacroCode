@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { makeRunEventHandler, TOOL_LINE_FLUSH_MS, type AgentToolLine } from './useAgent';
+import {
+  makeRunEventHandler,
+  readAgentModeForSession,
+  TOOL_LINE_FLUSH_MS,
+  type AgentToolLine,
+} from './useAgent';
 import { useSessionStore } from '../store/session';
 import type { AgentActivityPatch } from '../store/agentActivity';
 import { buildAgentHistory, toProviderMessages } from '../lib/engine/agent';
@@ -210,5 +215,47 @@ describe('Faz 3 — canlı araç çıktısı birleştirme', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// ── Bölüm 8: bayat session yerine taze mod ───────────────────────────────────
+
+describe('Bölüm 8 — gönderimde taze agent modu okunur', () => {
+  beforeEach(seed);
+
+  it('store o an hangi moddaysa onu döndürür', () => {
+    expect(readAgentModeForSession(SESSION_ID)).toBe('build');
+    useSessionStore.getState().setAgentMode(SESSION_ID, 'plan');
+    expect(readAgentModeForSession(SESSION_ID)).toBe('plan');
+    useSessionStore.getState().setAgentMode(SESSION_ID, 'ask');
+    expect(readAgentModeForSession(SESSION_ID)).toBe('ask');
+  });
+
+  it('bozuk/eksik kayıtta güvenli varsayılana düşer', () => {
+    useSessionStore.setState((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === SESSION_ID ? { ...sess, agentMode: 'PLAN ' as unknown as 'plan' } : sess,
+      ),
+    }));
+    // `'PLAN '` normalize edilir → plan (build'e sessizce düşmez).
+    expect(readAgentModeForSession(SESSION_ID)).toBe('plan');
+
+    useSessionStore.setState((s) => ({
+      sessions: s.sessions.map((sess) =>
+        sess.id === SESSION_ID ? { ...sess, agentMode: 'turbo' as unknown as 'build' } : sess,
+      ),
+    }));
+    expect(readAgentModeForSession(SESSION_ID)).toBe('build');
+
+    useSessionStore.setState((s) => ({
+      sessions: s.sessions.map((sess) => {
+        const { agentMode: _drop, ...rest } = sess;
+        return rest as typeof sess;
+      }),
+    }));
+    expect(readAgentModeForSession(SESSION_ID)).toBe('build');
+
+    // Bilinmeyen oturum kimliği de çökmez.
+    expect(readAgentModeForSession('yok')).toBe('build');
   });
 });

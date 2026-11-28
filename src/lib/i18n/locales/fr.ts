@@ -792,6 +792,7 @@ export const fr: Record<TranslationKey, Message> = {
   'commands.modeInvalid': '✗ mode d’agent invalide · build | plan | ask',
   'commands.modeLocked':
     '! impossible de changer de mode avec une approbation en attente · répondez d’abord',
+  'commands.modeUnavailable': '✗ impossible de changer le mode de l’agent dans ce contexte',
   'mode.build': 'Build (Construction)',
   'mode.plan': 'Plan (Planification)',
   'mode.ask': 'Ask (Questions)',

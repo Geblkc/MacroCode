@@ -1,10 +1,23 @@
 /**
  * Faz 3 — Görev takibi (saf state yönetimi).
  * State kalıcı katmanda durmaz; tool geçmişinden türetilir
- * (`deriveTodoState`), son 50 mesaj taranır.
+ * (`deriveTodoState`). Pencere, todo/plan çağrısı içeren **son 50 mesaj**tır
+ * (ham mesaj sayısı değil) — bkz. `TODO_WINDOW_MESSAGES`.
  */
 import { strArg } from '../toolspec';
 import { t } from '../../i18n/core';
+
+/**
+ * Türetmede taranan azami **ilgili** mesaj sayısı.
+ *
+ * Önceden pencere ham mesaj sayısıyla sınırlıydı (`history.slice(-50)`):
+ * uzun bir Plan oturumunda araya giren normal sohbet/tool mesajları eski
+ * `plan`/`todo` çağrılarını pencereden itiyor, görev listesi **kayboluyordu**
+ * (model `todo complete plan-3` dediğinde "todo bulunamadı"). Artık yalnızca
+ * `plan`/`todo` çağrısı içeren mesajlar sayılır → sohbet ne kadar uzarsa
+ * uzasın görev listesi korunur, iş miktarı da sınırlı kalır.
+ */
+export const TODO_WINDOW_MESSAGES = 50;
 
 export interface TodoItem {
   id: string;
@@ -107,6 +120,30 @@ export function countPlanSteps(history: HistoryLike[]): number {
 }
 
 /**
+ * Pencere hesabı: son `TODO_WINDOW_MESSAGES` adet **ilgili** mesaj (todo/plan
+ * çağrısı içerenler) ile onlardan önceki kısım.
+ *
+ * İlgili mesaj sayısı pencereyi aşmıyorsa tüm geçmiş pencere olur (prefix boş).
+ */
+export function todoWindow<M extends HistoryLike>(history: M[]): { window: M[]; prefix: M[] } {
+  const relevant = history.filter((m) =>
+    (m.toolCalls ?? []).some((c) => {
+      const n = String(c.name);
+      return n === 'todo' || n === 'plan';
+    }),
+  );
+  if (relevant.length <= TODO_WINDOW_MESSAGES) {
+    // Tüm geçmiş taranır; ilgisiz mesajlar da zararsız (çağrı yok).
+    return { window: history, prefix: [] };
+  }
+  // Pencerenin ilk ilgili mesajını bul, oradan itibaren tara.
+  const firstKept = relevant[relevant.length - TODO_WINDOW_MESSAGES];
+  const start = history.indexOf(firstKept);
+  if (start <= 0) return { window: history, prefix: [] };
+  return { window: history.slice(start), prefix: history.slice(0, start) };
+}
+
+/**
  * Konuşma geçmişindeki todo çağrılarını sırayla uygulayarak durumu türetir.
  *
  * Faz 8 L2: `plan` çağrıları da görev üretir — plan adımları `todo` ile
@@ -116,13 +153,23 @@ export function countPlanSteps(history: HistoryLike[]): number {
  * (Eski kayıtlarda `call.id` yoksa sayaç tabanlı üretim kullanılır — bu
  * durumda `planCounter` yalnızca pencere içindeki çağrılar arasında
  * benzersizlik sağlar.)
+ *
+ * Not: compaction/kesme eski `plan`/`todo` çağrılarını düşürebilir. Çağıran
+ * taraf bu durumda **sıkıştırılmamış** geçmişi geçirmelidir veya `seed` ile
+ * o çağrılardan türetilmiş durumu aktarmalıdır (bkz. `AgentDeps.todoSeed`).
+ *
+ * `seed`: geçmişten ÖNCE uygulanmış görev durumu. Kopyalanır; çağıranın
+ * state'i mutasyona uğramaz.
  */
-export function deriveTodoState(history: HistoryLike[]): TodoState {
-  let state: TodoState = { items: [] };
-  const recent = history.slice(-50);
+export function deriveTodoState(history: HistoryLike[], seed?: TodoState): TodoState {
+  let state: TodoState = seed ? { items: seed.items.map((it) => ({ ...it })) } : { items: [] };
+  const { window: recent, prefix } = todoWindow(history);
   // Sayaç tabanlı üretim (id'siz eski kayıt) pencereyle kaymasın: pencerenin
   // DIŞINDA kalan plan adımları sayılıp başlangıç indeksi kaydırılır.
-  let planCounter = countPlanSteps(history.slice(0, Math.max(0, history.length - 50)));
+  // Tohum genelde prefix'i kapsadığı için **max** kullanılır (sum olsaydı
+  // aynı adımlar iki kez sayılır, ID'ler boşluklu/yanlış olurdu).
+  const seedCounterSteps = seed ? seed.items.filter((it) => /^plan-\d+$/.test(it.id)).length : 0;
+  let planCounter = Math.max(countPlanSteps(prefix), seedCounterSteps);
   for (const m of recent) {
     for (const c of m.toolCalls ?? []) {
       const name = String(c.name);

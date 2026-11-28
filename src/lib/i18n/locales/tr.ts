@@ -769,6 +769,7 @@ export const tr = {
   'commands.modeSet': '/// agent modu değiştirildi: {mode}',
   'commands.modeInvalid': '✗ geçersiz agent modu · build | plan | ask',
   'commands.modeLocked': '! bekleyen onay varken mod değiştirilemez · önce onayı yanıtla',
+  'commands.modeUnavailable': '✗ bu bağlamda agent modu değiştirilemiyor',
   'mode.build': 'Build (İnşa)',
   'mode.plan': 'Plan (Planlama)',
   'mode.ask': 'Ask (Soru-Cevap)',

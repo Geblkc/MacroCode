@@ -25,6 +25,7 @@ import {
 import { toolWriteFile } from './tools/write';
 import { toolCreateSnapshot } from './tools/snapshot';
 import { applyTodoAction, countPlanSteps, deriveTodoState, planStepIds } from './tools/todo';
+import type { TodoState } from './tools/todo';
 import { runMcpTool } from './mcp/pool';
 import { runSubagent } from './subagent';
 import { toolExec } from './tools/shell';
@@ -92,7 +93,16 @@ export interface AgentDeps {
   toolsMode?: AgentMode;
   /** Faz 5b: bu listedeki araçlar çalıştırılmaz (salt-okunur alt-agent). */
   disallowTools?: string[];
-  /** Faz 5b: alt-agent bütçesi için özel modeller (verilmezse registry). */
+  /**
+   * Görev listesi tohumu: compaction/kesme yüzünden `msgs` içinde görünmeyen
+   * eski `plan`/`todo` çağrılarından türetilmiş durum.
+   *
+   * `todo` aracı çalışma anında durumu `msgs`'ten türetir; compaction eski
+   * çağrıları düşürdüğünde liste kaybolur ve model `todo complete plan-3`
+   * dediğinde "todo bulunamadı" alıyordu. `useAgent` oturumun **tamamından**
+   * türettiği durumu buraya verir → liste oturum boyunca kalıcı.
+   */
+  todoSeed?: TodoState; /** Faz 5b: alt-agent bütçesi için özel modeller (verilmezse registry). */
   customModels?: import('../../types').CustomModel[];
   /** Faz 6: kullanıcı allowlist uzantısı (parseCustomAllowList çıktısı). */
   extraAllow?: Record<string, string[][]>;
@@ -245,6 +255,8 @@ async function defaultRunTool(
     onStream?: (stream: 'stdout' | 'stderr', data: string) => void;
     /** P0.2: ayarlardan gelen genel timeout üst sınırı. */
     maxTimeoutMs?: number;
+    /** Görev listesi tohumu (compaction sonrası liste kaybolmasın). */
+    todoSeed?: TodoState;
   },
 ): Promise<string> {
   if (
@@ -268,7 +280,7 @@ async function defaultRunTool(
     return toolCreateSnapshot(root, call);
   }
   if (call.name === 'todo') {
-    return applyTodoAction(deriveTodoState(history), call.args).output;
+    return applyTodoAction(deriveTodoState(history, opts?.todoSeed), call.args).output;
   }
   if (call.name === 'plan') {
     const steps = Array.isArray(call.args.steps)
@@ -333,6 +345,7 @@ async function executeTool(
   return defaultRunTool(deps.workspaceRoot, mode, call, msgs, {
     extraAllow: deps.extraAllow,
     maxTimeoutMs: deps.execTimeoutMs,
+    ...(deps.todoSeed ? { todoSeed: deps.todoSeed } : {}),
     onStream: (stream, data) => deps.onEvent({ k: 'tool_stream', id: call.id, stream, data }),
   });
 }
@@ -801,6 +814,7 @@ export function createAgentRun(
                 ? deps.runToolImpl(call)
                 : defaultRunTool(deps.workspaceRoot, mode, call, msgs, {
                     extraAllow: deps.extraAllow,
+                    ...(deps.todoSeed ? { todoSeed: deps.todoSeed } : {}),
                   }));
               const after = listPending();
               const created = after.find((p) => !before.has(p.id));
@@ -952,6 +966,7 @@ export function createAgentRun(
               : defaultRunTool(deps.workspaceRoot, mode, entry.call, msgs, {
                   approved: true,
                   extraAllow: deps.extraAllow,
+                  ...(deps.todoSeed ? { todoSeed: deps.todoSeed } : {}),
                 }));
             const created = listPending().find((p) => !before.has(p.id));
             let result = out0;
@@ -969,6 +984,7 @@ export function createAgentRun(
                   approved: true,
                   extraAllow: deps.extraAllow,
                   maxTimeoutMs: deps.execTimeoutMs,
+                  ...(deps.todoSeed ? { todoSeed: deps.todoSeed } : {}),
                   onStream: (stream, data) =>
                     deps.onEvent({ k: 'tool_stream', id: entry.call.id, stream, data }),
                 }));

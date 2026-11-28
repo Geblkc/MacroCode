@@ -5,15 +5,66 @@
 import type { AgentMode } from '../../types';
 import type { ToolDefinition } from './types';
 
-/** Salt-okunur araç isimleri (plan modunda açık, ask modunda da kullanılabilir). */
-export const READ_ONLY_TOOL_NAMES = [
-  'read_file',
-  'list_dir',
-  'grep',
-  'glob',
-  'todo',
-  'plan',
-] as const;
+/** Geçerli agent modları (tek kaynak — UI, komut ve DB doğrulaması buradan okur). */
+export const AGENT_MODES: readonly AgentMode[] = ['build', 'plan', 'ask'];
+
+/** Bir değer geçerli agent modu mu? (kırpma/normalize YAPMAZ — katı kontrol) */
+export function isValidAgentMode(value: unknown): value is AgentMode {
+  return typeof value === 'string' && (AGENT_MODES as readonly string[]).includes(value);
+}
+
+/**
+ * Kalıcı kayıttan gelen mod değerini normalize eder (bölüm 9).
+ *
+ * Bozuk/eski kayıtlarda `'PLAN'`, `'plan '`, `'Plan'` gibi değerler olabilir;
+ * bunlar `filterToolsForMode`/`getDisallowedToolsForMode` içinde sessizce build
+ * davranışına düşerdi — yani kullanıcı "plan" sanırken tam araç seti açılırdı.
+ * Kural:
+ * 1. Kırp + küçük harfe indir; geçerliyse o kullanılır (`'PLAN '` → `plan`).
+ * 2. Tanınmayan bir değer → `fallback` (varsayılan `build`; çağıran daha güvenli
+ *    bir mod isterse açıkça verir).
+ * 3. `undefined` → `undefined` (alan hiç yazılmamış kabul edilir; alanı
+ *    gereksiz yere kayda eklemeyiz — oturum oluşturma varsayılanı build'dir).
+ *    `null` ise alanın bozuk yazıldığı anlamına gelir → `fallback`.
+ */
+export function normalizeAgentMode(
+  value: unknown,
+  fallback: AgentMode = 'build',
+): AgentMode | undefined {
+  if (value === undefined) return undefined;
+  if (isValidAgentMode(value)) return value;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (isValidAgentMode(lowered)) return lowered;
+  }
+  return fallback;
+}
+
+/**
+ * Temel salt-okunur araç isimleri (dosya sistemi incelemesi).
+ *
+ * Bölüm 6: bu liste tek kaynaktır — yeni bir salt-okunur araç eklendiğinde
+ * hem plan hem ask modunun izinli listesine otomatik girer. Mod listeleri
+ * elle kopyalanmaz (eskiden ask listesi ayrı yazılıydı ve güncellemesi
+ * unutulabiliyordu).
+ */
+export const READ_ONLY_TOOL_NAMES = ['read_file', 'list_dir', 'grep', 'glob'] as const;
+
+/** Planlama araçları: plan modunda açık, ask modunda kapalı. */
+export const PLANNING_TOOL_NAMES = ['plan', 'todo'] as const;
+
+/** Plan modunda modele sunulan araçlar (salt-okunur + planlama). */
+export const PLAN_ALLOWED_TOOL_NAMES: readonly string[] = [
+  ...READ_ONLY_TOOL_NAMES,
+  ...PLANNING_TOOL_NAMES,
+];
+
+/**
+ * Ask modunda modele sunulan araçlar — `READ_ONLY_TOOL_NAMES`'ten türetilir.
+ * Ask modu yalnızca soruyu yanıtlamaya yeter; plan/todo ile görev listesi
+ * yönetmez.
+ */
+export const ASK_ALLOWED_TOOL_NAMES: readonly string[] = [...READ_ONLY_TOOL_NAMES];
 
 /** Değişiklik yapan (yazma ve çalıştırma) araçlar. */
 export const WRITE_AND_EXEC_TOOL_NAMES = [
@@ -39,14 +90,12 @@ export function filterToolsForMode(
     return tools;
   }
   if (mode === 'plan') {
-    return tools.filter((t) =>
-      READ_ONLY_TOOL_NAMES.includes(t.name as (typeof READ_ONLY_TOOL_NAMES)[number]),
-    );
+    return tools.filter((t) => PLAN_ALLOWED_TOOL_NAMES.includes(t.name));
   }
   if (mode === 'ask') {
-    // Soru-cevap modunda model isterse kod inceleyebilsin ama plan/todo/yazma araçları olmasın
-    const askAllowed = ['read_file', 'list_dir', 'grep', 'glob'];
-    return tools.filter((t) => askAllowed.includes(t.name));
+    // Soru-cevap modunda model isterse kod inceleyebilsin ama plan/todo/yazma araçları olmasın.
+    // İzinli liste `READ_ONLY_TOOL_NAMES`'ten türetilir (tek kaynak).
+    return tools.filter((t) => ASK_ALLOWED_TOOL_NAMES.includes(t.name));
   }
   return tools;
 }
@@ -83,13 +132,18 @@ export function isToolDisallowed(name: string, disallowed: readonly string[]): b
  * yapabildiği için (DB yazma, dış servis çağrısı) bu modlarda kapalıdır.
  */
 export function getDisallowedToolsForMode(mode: AgentMode = 'build'): string[] {
-  if (mode === 'plan') {
-    return [...WRITE_AND_EXEC_TOOL_NAMES, MCP_TOOL_WILDCARD];
-  }
+  if (mode === 'build') return [];
+  // Bölüm 6: liste tek kaynaktan üretilir ve `Set` ile tekilleştirilir.
+  // Eskiden ask dalında `subagent` elle tekrar ediliyordu (zaten
+  // `WRITE_AND_EXEC_TOOL_NAMES` içinde) → bakım riski.
+  const disallowed = new Set<string>(WRITE_AND_EXEC_TOOL_NAMES);
   if (mode === 'ask') {
-    return [...WRITE_AND_EXEC_TOOL_NAMES, 'todo', 'plan', 'subagent', MCP_TOOL_WILDCARD];
+    // Ask modu planlama araçlarını da sunmaz → yasak listesiyle simetrik.
+    for (const name of PLANNING_TOOL_NAMES) disallowed.add(name);
   }
-  return [];
+  // M2: dinamik MCP araçları ada göre listelenemez; joker desenle engellenir.
+  disallowed.add(MCP_TOOL_WILDCARD);
+  return [...disallowed];
 }
 
 /**

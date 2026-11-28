@@ -30,9 +30,9 @@ import { configureMcp, mcpToolsForAgent } from '../lib/engine/mcp/pool';
 import { makeSummarizeFn, summarizerConfig } from '../lib/summarize';
 import { useT } from '../lib/i18n';
 import { t } from '../lib/i18n/core';
-import type { Provider, ToolEvent } from '../types';
+import type { AgentMode, Provider, ToolEvent } from '../types';
 import { isBlankAssistantMessage } from '../lib/message';
-import { getModePrompt, resolveRestoreMode } from '../lib/engine/agentModes';
+import { getModePrompt, normalizeAgentMode, resolveRestoreMode } from '../lib/engine/agentModes';
 import { previewArgs, toolTarget } from '../lib/engine/toolPreview';
 import type { AgentEvent, ToolCall, ToolDefinition } from '../lib/engine/types';
 import { createDeltaBatcher } from '../lib/deltaBatch';
@@ -412,6 +412,19 @@ function cleanBlankAssistantMessages(sessionId: string, onlyIds?: string[]): boo
 }
 
 /**
+ * Oturumun **o anki** agent modu (Bölüm 8).
+ *
+ * Gönderim akışı `session` nesnesini başta alıp uzun compaction/repo-context
+ * hazırlığı yapıyor; bu sırada mod değişebiliyor (programatik çağrı, restore,
+ * başka giriş noktası). Mod kararı store'un taze halinden okunur ve bozuk
+ * kayıt (`'PLAN '` gibi) normalize edilir; alan yoksa `build`.
+ */
+export function readAgentModeForSession(sessionId: string): AgentMode {
+  const fresh = useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.agentMode;
+  return normalizeAgentMode(fresh, 'build') ?? 'build';
+}
+
+/**
  * Agent'lı gönderim (Faz 1: duraklatılabilir run + kalıcı onay).
  * Sözleşme useStream ile aynı: başarı/abort -> null, hata -> err satırı.
  */
@@ -619,7 +632,13 @@ export function useAgent() {
         // (buildAgentHistory son mesaj olarak alır) — ikinci kez eklenmiyor.
         const historyWithUser = effHistory;
         // Faz 3: aktif todo listesi system prompt'a eklenir.
-        const todoState = deriveTodoState(history);
+        // Bölüm 5: durum, compaction/kesmeden etkilenmeyen **tam oturum**
+        // mesajlarından türetilir (özet mesajı eski `plan`/`todo` çağrılarını
+        // taşımaz → liste kayboluyordu). Aynı durum agent'a `todoSeed` olarak
+        // verilir; `todo` aracı sıkıştırılmış geçmişten türetirken tohumu
+        // başlangıç alır.
+        const todoSeed = deriveTodoState(sessionMessages);
+        const todoState = todoSeed;
         const todoBlock =
           todoState.items.length > 0
             ? `\n[todo]\n${todoState.items.map((t) => `${t.done ? '[x]' : '[ ]'} ${t.id} ${t.text}`).join('\n')}`
@@ -646,7 +665,11 @@ export function useAgent() {
           cleanEmptyAssistant();
           return null;
         }
-        const mode = session.agentMode ?? 'build';
+        // Bölüm 8: mod, gönderimin başındaki `session` kopyasından değil,
+        // store'un **o anki** halinden okunur. Araya giren uzun compaction /
+        // repo-context hazırlığı sırasında mod değişirse (programatik yol,
+        // restore veya başka bir giriş noktası) eski mod kullanılmasın.
+        const mode = readAgentModeForSession(sessionId);
         const reportAgentRetry = (info: RetryInfo | null) => {
           if (info) {
             updateActivity({
@@ -668,6 +691,8 @@ export function useAgent() {
           apiKey,
           model,
           agentMode: mode,
+          // Compaction sonrası görev listesi kaybolmasın (bkz. TODO bölüm 5).
+          todoSeed,
           systemPrompt:
             [
               session.systemPrompt || settings.systemPrompt || '',
@@ -1064,7 +1089,10 @@ export function useAgent() {
         // Mod, run'ın doğduğu moddan gelir (state'te taşınır). Eski kayıtlarda
         // alan yok → oturumun o anki moduna düşülür. Böylece yeniden başlatma
         // sonrası mod değişse bile bekleyen iş yanlış modda çalışmaz.
-        const restoreMode = resolveRestoreMode(state.agentMode, sess.agentMode);
+        const restoreMode = resolveRestoreMode(
+          normalizeAgentMode(state.agentMode, 'plan'),
+          normalizeAgentMode(sess.agentMode, 'plan'),
+        );
         const runId = createId();
         const updateActivity = (patch: AgentActivityPatch) => {
           useAgentActivityStore.getState().update(a.sessionId, runId, patch);
@@ -1095,6 +1123,10 @@ export function useAgent() {
             apiKey,
             model,
             agentMode: restoreMode,
+            // Bölüm 5: restore edilen run'da da görev listesi korunur.
+            todoSeed: deriveTodoState(
+              useSessionStore.getState().sessions.find((s) => s.id === a.sessionId)?.messages ?? [],
+            ),
             systemPrompt:
               `${sess.systemPrompt || settings.systemPrompt || ''}\n${getModePrompt(restoreMode)}\n[workspace:${ws.label || ws.root}]`.trim() ||
               undefined,

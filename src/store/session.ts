@@ -5,6 +5,7 @@ import type { UsageLike } from '../lib/engine/types';
 import { t } from '../lib/i18n/core';
 import { DEFAULT_MODELS, useSettingsStore } from './settings';
 import { createDeferredSessionStorage } from './sessionPersist';
+import { normalizeAgentMode } from '../lib/engine/agentModes';
 
 export function createId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
@@ -508,6 +509,28 @@ export const useSessionStore = create<SessionStore>()(
         sessions: s.sessions,
         activeSessionId: s.activeSessionId,
       }),
+      /**
+       * Bölüm 9: localStorage'dan gelen kayıtlarda `agentMode` doğrulanır.
+       *
+       * SQLite yolu `db.parseSession` içinde normalize ediliyor; localStorage
+       * yedeği (DB yoksa/başarısızsa) aynı kapıdan geçmezse `'PLAN '` gibi bir
+       * değer oturumu sessizce build davranışına düşürüyordu. Bilinmeyen mod
+       * güvenli tarafa (`plan`) çekilir; alan yoksa dokunulmaz.
+       */
+      merge: (persisted, current) => {
+        const p = persisted as Partial<PersistedSessionState> | undefined;
+        if (!p || !Array.isArray(p.sessions)) return current;
+        return {
+          ...current,
+          sessions: p.sessions.map((sess) => {
+            if (!sess || typeof sess !== 'object') return sess;
+            if (!('agentMode' in sess)) return sess;
+            return { ...sess, agentMode: normalizeAgentMode(sess.agentMode, 'plan') };
+          }),
+          activeSessionId:
+            typeof p.activeSessionId === 'string' ? p.activeSessionId : current.activeSessionId,
+        };
+      },
     },
   ),
 );

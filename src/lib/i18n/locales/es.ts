@@ -795,6 +795,7 @@ export const es: Record<TranslationKey, Message> = {
   'commands.modeInvalid': '✗ modo de agente no válido · build | plan | ask',
   'commands.modeLocked':
     '! no se puede cambiar de modo con una aprobación pendiente · respóndela primero',
+  'commands.modeUnavailable': '✗ el modo del agente no se puede cambiar en este contexto',
   'mode.build': 'Build (Construcción)',
   'mode.plan': 'Plan (Planificación)',
   'mode.ask': 'Ask (Consultas)',

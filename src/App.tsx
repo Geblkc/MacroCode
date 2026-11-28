@@ -17,7 +17,6 @@ import { getActiveAgentRun, useAgent } from './hooks/useAgent';
 import { resetKeyHistory } from './hooks/useKeyHistory';
 import { useWorkspaceStore } from './store/workspace';
 import { listSkills } from './lib/engine/skills';
-import { canChangeAgentMode } from './lib/engine/agentModes';
 import { applyPendingPatch, listPending, undoLastPatch } from './lib/engine/tools/patch';
 import {
   createSnapshot,
@@ -1002,62 +1001,6 @@ export default function App() {
         });
         return;
       }
-      if (
-        low === '/mode' ||
-        low.startsWith('/mode ') ||
-        low === '/build' ||
-        low === '/plan' ||
-        low === '/ask'
-      ) {
-        let targetMode: 'build' | 'plan' | 'ask' | '' = '';
-        if (low === '/build') targetMode = 'build';
-        else if (low === '/plan') targetMode = 'plan';
-        else if (low === '/ask') targetMode = 'ask';
-        else {
-          const arg = trimmed.slice(5).trim().toLowerCase();
-          if (arg === 'build' || arg === 'plan' || arg === 'ask') {
-            targetMode = arg;
-          } else if (arg) {
-            pushExtra(sessionId, {
-              type: 'err',
-              content: t('commands.modeInvalid'),
-            });
-            return;
-          }
-        }
-
-        const session = useSessionStore.getState().sessions.find((s) => s.id === sessionId);
-        const currentMode = session?.agentMode ?? 'build';
-
-        const modeName = (m: AgentMode) =>
-          t(m === 'build' ? 'mode.build' : m === 'plan' ? 'mode.plan' : 'mode.ask');
-
-        if (!targetMode) {
-          pushExtra(sessionId, {
-            type: 'sys',
-            content: t('commands.modeCurrent', { mode: modeName(currentMode) }),
-          });
-          return;
-        }
-
-        // Bekleyen onay varken mod değişimi kapalıdır: onay kartı doğduğu
-        // moda aittir (run state'te taşınır). UI'daki ModeSelector ile aynı
-        // kural — komut yolu da aynı kapıdan geçsin.
-        if (!canChangeAgentMode(pendingBySession[sessionId]?.length ?? 0)) {
-          pushExtra(sessionId, {
-            type: 'warn',
-            content: t('commands.modeLocked'),
-          });
-          return;
-        }
-
-        useSessionStore.getState().setAgentMode(sessionId, targetMode);
-        pushExtra(sessionId, {
-          type: 'sys',
-          content: t('commands.modeSet', { mode: modeName(targetMode) }),
-        });
-        return;
-      }
       if (low === '/root' || low.startsWith('/root ')) {
         // Klasör seçme altyapısı: diyaloğu / off / 1..5 / elle yol — tek yol.
         await runRootCommand(trimmed.slice(5).trim(), sessionId);
@@ -1397,6 +1340,13 @@ export default function App() {
           },
           setSystemPrompt: (t: string) => useSettingsStore.getState().setSystemPrompt(t),
           openSettings: () => setSettingsOpen(true),
+          // Bölüm 7: mod komutları `handleSlashCommand` içinde yaşıyor;
+          // store erişimi buradan enjekte edilir (komut katmanı saf kalır).
+          agentMode: () =>
+            useSessionStore.getState().sessions.find((s) => s.id === sessionId)?.agentMode ??
+            'build',
+          setAgentMode: (m: AgentMode) => useSessionStore.getState().setAgentMode(sessionId, m),
+          pendingApprovals: () => pendingBySession[sessionId]?.length ?? 0,
           customModels: () => useSettingsStore.getState().customModels,
           prices: () => useSettingsStore.getState().prices,
           providerHasKey: (p: Provider) => hasProviderKey(p, useSettingsStore.getState().apiKeys),

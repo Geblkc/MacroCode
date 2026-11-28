@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appendAudit, readAuditLog, saveSessionsToDb, type SqlDatabase } from './db';
+import { appendAudit, parseSession, readAuditLog, saveSessionsToDb, type SqlDatabase } from './db';
 import type { Session } from '../types';
 
 function fakeDb(): SqlDatabase & { rows: Array<Record<string, unknown>> } {
@@ -98,5 +98,55 @@ describe('Faz 6 — audit_log', () => {
 
     await expect(saveSessionsToDb([session], 's1', db)).resolves.toBe(true);
     expect(queries.some((query) => /^(BEGIN|COMMIT|ROLLBACK)\b/i.test(query.trim()))).toBe(false);
+  });
+});
+
+// ── Bölüm 9: DB'den yüklenen oturumlarda agentMode doğrulaması ───────────────
+
+describe('Bölüm 9 — parseSession agentMode normalizasyonu', () => {
+  function raw(over: Record<string, unknown>): string {
+    return JSON.stringify({
+      id: 's1',
+      name: 'Test',
+      createdAt: 1,
+      updatedAt: 1,
+      messages: [],
+      provider: 'anthropic',
+      model: 'claude-test',
+      systemPrompt: '',
+      ...over,
+    });
+  }
+
+  it('geçerli modlar aynen korunur', () => {
+    for (const mode of ['build', 'plan', 'ask'] as const) {
+      expect(parseSession(raw({ agentMode: mode }))?.agentMode).toBe(mode);
+    }
+  });
+
+  it('bozuk biçim kırpılıp küçültülerek kurtarılır', () => {
+    expect(parseSession(raw({ agentMode: 'PLAN' }))?.agentMode).toBe('plan');
+    expect(parseSession(raw({ agentMode: ' plan ' }))?.agentMode).toBe('plan');
+    expect(parseSession(raw({ agentMode: 'Ask' }))?.agentMode).toBe('ask');
+    expect(parseSession(raw({ agentMode: 'BUILD' }))?.agentMode).toBe('build');
+  });
+
+  it('tanınmayan değer güvenli tarafa (plan) çekilir — build değil', () => {
+    // Eskiden bilinmeyen mod build davranışına düşüp tam araç setini açıyordu.
+    expect(parseSession(raw({ agentMode: 'turbo' }))?.agentMode).toBe('plan');
+    expect(parseSession(raw({ agentMode: 42 }))?.agentMode).toBe('plan');
+    expect(parseSession(raw({ agentMode: {} }))?.agentMode).toBe('plan');
+    expect(parseSession(raw({ agentMode: null }))?.agentMode).toBe('plan');
+  });
+
+  it('alan hiç yoksa dokunulmaz (oturum varsayılanı build)', () => {
+    const s = parseSession(raw({}));
+    expect(s).not.toBeNull();
+    expect(s?.agentMode).toBeUndefined();
+  });
+
+  it('bozuk JSON / eksik zorunlu alan null döner', () => {
+    expect(parseSession('{bozuk')).toBeNull();
+    expect(parseSession(JSON.stringify({ id: 's1' }))).toBeNull();
   });
 });

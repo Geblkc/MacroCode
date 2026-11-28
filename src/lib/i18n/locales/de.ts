@@ -793,6 +793,7 @@ export const de: Record<TranslationKey, Message> = {
   'commands.modeInvalid': '✗ ungültiger Agent-Modus · build | plan | ask',
   'commands.modeLocked':
     '! Modus kann bei ausstehender Freigabe nicht geändert werden · zuerst beantworten',
+  'commands.modeUnavailable': '✗ Agent-Modus kann in diesem Kontext nicht geändert werden',
   'mode.build': 'Build (Bauen)',
   'mode.plan': 'Plan (Planung)',
   'mode.ask': 'Ask (Fragen)',
